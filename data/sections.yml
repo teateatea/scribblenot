@@ -1,0 +1,83 @@
+groups:
+  - id: intake
+    name: "INTAKE"
+    sections:
+      - id: header
+        name: "Header"
+        map_label: "Header"
+        type: header
+      - id: adl
+        name: "Activities of Daily Living"
+        map_label: "ADL"
+        type: free_text
+      - id: exercise
+        name: "Exercise Habits"
+        map_label: "Exer"
+        type: free_text
+      - id: sleep_diet
+        name: "Sleep & Diet"
+        map_label: "Slp/Dt"
+        type: free_text
+      - id: social
+        name: "Social & Stress"
+        map_label: "Social"
+        type: free_text
+      - id: history
+        name: "History & Previous Diagnoses"
+        map_label: "History"
+        type: free_text
+      - id: specialists
+        name: "Specialists & Treatment"
+        map_label: "Specialists"
+        type: free_text
+  - id: subjective
+    name: "SUBJECTIVE"
+    sections:
+      - id: subjective
+        name: "Subjective"
+        map_label: "Subjective"
+        type: free_text
+  - id: treatment
+    name: "TREATMENT"
+    sections:
+      - id: tx_mods
+        name: "Treatment Modifications & Preferences"
+        map_label: "Tx Mods"
+        type: list_select
+        data_file: "tx_mods.yml"
+      - id: tx_regions
+        name: "Treatment Regions"
+        map_label: "Regions"
+        type: block_select
+        data_file: "tx_regions.yml"
+  - id: objective
+    name: "OBJECTIVE"
+    sections:
+      - id: objective
+        name: "Objective / Observations"
+        map_label: "Objective"
+        type: list_select
+        data_file: "objective_findings.yml"
+        date_prefix: true
+  - id: post_tx
+    name: "POST-TX"
+    sections:
+      - id: post_treatment
+        name: "Post-Treatment"
+        map_label: "Post-Tx"
+        type: free_text
+      - id: remedial
+        name: "Remedial Exercises & Self-Care"
+        map_label: "Remedial"
+        type: list_select
+        data_file: "remedial.yml"
+        date_prefix: true
+      - id: tx_plan
+        name: "Treatment Plan / Therapist Notes"
+        map_label: "Tx Plan"
+        type: free_text
+      - id: infection_control
+        name: "Infection Control"
+        map_label: "Infection Ctrl"
+        type: checklist
+        data_file: "infection_control.yml"

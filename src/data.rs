@@ -1,0 +1,213 @@
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SectionGroup {
+    pub id: String,
+    pub name: String,
+    pub sections: Vec<SectionConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SectionConfig {
+    pub id: String,
+    pub name: String,
+    pub map_label: String,
+    #[serde(rename = "type")]
+    pub section_type: String,
+    pub data_file: Option<String>,
+    pub date_prefix: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SectionsFile {
+    groups: Vec<SectionGroup>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListEntry {
+    pub label: String,
+    pub output: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ListFile {
+    entries: Vec<ListEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ChecklistFile {
+    items: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TechniqueConfig {
+    pub id: String,
+    pub label: String,
+    pub output: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegionConfig {
+    pub id: String,
+    pub label: String,
+    pub header: String,
+    pub techniques: Vec<TechniqueConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RegionsFile {
+    regions: Vec<RegionConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyBindings {
+    pub navigate_down: Vec<String>,
+    pub navigate_up: Vec<String>,
+    pub select: Vec<String>,
+    pub confirm: Vec<String>,
+    pub add_entry: Vec<String>,
+    pub back: Vec<String>,
+    pub swap_panes: Vec<String>,
+    pub help: Vec<String>,
+    pub quit: Vec<String>,
+}
+
+impl Default for KeyBindings {
+    fn default() -> Self {
+        Self {
+            navigate_down: vec!["down".to_string(), "n".to_string()],
+            navigate_up: vec!["up".to_string(), "e".to_string()],
+            select: vec!["space".to_string(), "s".to_string()],
+            confirm: vec!["enter".to_string(), "t".to_string()],
+            add_entry: vec!["a".to_string(), "d".to_string()],
+            back: vec!["esc".to_string()],
+            swap_panes: vec!["`".to_string(), "\\".to_string()],
+            help: vec!["?".to_string()],
+            quit: vec!["q".to_string()],
+        }
+    }
+}
+
+pub struct AppData {
+    pub groups: Vec<SectionGroup>,
+    pub sections: Vec<SectionConfig>,
+    pub list_data: HashMap<String, Vec<ListEntry>>,
+    pub checklist_data: HashMap<String, Vec<String>>,
+    pub region_data: HashMap<String, Vec<RegionConfig>>,
+    pub keybindings: KeyBindings,
+    pub data_dir: PathBuf,
+}
+
+impl AppData {
+    pub fn load(data_dir: PathBuf) -> Result<Self> {
+        let sections_path = data_dir.join("sections.yml");
+        let sections_content = fs::read_to_string(&sections_path)?;
+        let sections_file: SectionsFile = serde_yaml::from_str(&sections_content)?;
+
+        let groups = sections_file.groups.clone();
+        let sections: Vec<SectionConfig> = groups
+            .iter()
+            .flat_map(|g| g.sections.iter().cloned())
+            .collect();
+
+        let mut list_data: HashMap<String, Vec<ListEntry>> = HashMap::new();
+        let mut checklist_data: HashMap<String, Vec<String>> = HashMap::new();
+        let mut region_data: HashMap<String, Vec<RegionConfig>> = HashMap::new();
+
+        for section in &sections {
+            if let Some(ref data_file) = section.data_file {
+                let path = data_dir.join(data_file);
+                if path.exists() {
+                    let content = fs::read_to_string(&path)?;
+                    match section.section_type.as_str() {
+                        "list_select" => {
+                            let file: ListFile = serde_yaml::from_str(&content)?;
+                            list_data.insert(data_file.clone(), file.entries);
+                        }
+                        "checklist" => {
+                            let file: ChecklistFile = serde_yaml::from_str(&content)?;
+                            checklist_data.insert(data_file.clone(), file.items);
+                        }
+                        "block_select" => {
+                            let file: RegionsFile = serde_yaml::from_str(&content)?;
+                            region_data.insert(data_file.clone(), file.regions);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        let kb_path = data_dir.join("keybindings.yml");
+        let keybindings = if kb_path.exists() {
+            let kb_content = fs::read_to_string(&kb_path)?;
+            serde_yaml::from_str(&kb_content).unwrap_or_default()
+        } else {
+            KeyBindings::default()
+        };
+
+        Ok(Self {
+            groups,
+            sections,
+            list_data,
+            checklist_data,
+            region_data,
+            keybindings,
+            data_dir,
+        })
+    }
+
+    pub fn reload_list(&mut self, data_file: &str) -> Result<()> {
+        let path = self.data_dir.join(data_file);
+        if path.exists() {
+            let content = fs::read_to_string(&path)?;
+            let file: ListFile = serde_yaml::from_str(&content)?;
+            self.list_data.insert(data_file.to_string(), file.entries);
+        }
+        Ok(())
+    }
+
+    pub fn append_list_entry(&mut self, data_file: &str, entry: ListEntry) -> Result<()> {
+        let path = self.data_dir.join(data_file);
+        let mut entries = if path.exists() {
+            let content = fs::read_to_string(&path)?;
+            let file: ListFile = serde_yaml::from_str(&content)?;
+            file.entries
+        } else {
+            vec![]
+        };
+        entries.push(entry.clone());
+        let file = ListFile { entries };
+        let content = serde_yaml::to_string(&file)?;
+        fs::write(&path, content)?;
+        self.reload_list(data_file)?;
+        Ok(())
+    }
+}
+
+pub fn find_data_dir() -> PathBuf {
+    // Try cwd/data first (development)
+    let cwd_data = std::env::current_dir()
+        .unwrap_or_default()
+        .join("data");
+    if cwd_data.join("sections.yml").exists() {
+        return cwd_data;
+    }
+
+    // Try exe parent/data
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let exe_data = parent.join("data");
+            if exe_data.join("sections.yml").exists() {
+                return exe_data;
+            }
+        }
+    }
+
+    // Fallback to cwd/data
+    cwd_data
+}
