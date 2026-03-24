@@ -1,0 +1,23 @@
+{
+  "mission": "pathfinder-skill-fixes",
+  "created": "2026-03-24T00:00:00Z",
+  "approved_actions": [
+    { "type": "Read", "pattern": "C:/Users/solar/Documents/Claude Projects/scribblenot/**", "rationale": "project file reads" },
+    { "type": "Write", "pattern": "C:/Users/solar/Documents/Claude Projects/scribblenot/**", "rationale": "project file writes (plans, logs, permissions)" },
+    { "type": "Edit", "pattern": "C:/Users/solar/Documents/Claude Projects/scribblenot/**", "rationale": "project file edits" },
+    { "type": "Read", "pattern": "C:/Users/solar/.claude/skills/**", "rationale": "read global skill files before editing (tasks #4, #5, #6, #7, #8, #9)" },
+    { "type": "Edit", "pattern": "C:/Users/solar/.claude/skills/pathfinder-mission-team/SKILL.md", "rationale": "add TDD-feasibility check to Decomposer (#5), add sub-task cap (#6), add MT-1 scope validation (#7)" },
+    { "type": "Edit", "pattern": "C:/Users/solar/.claude/skills/pathfinder-premission/SKILL.md", "rationale": "add command enumeration to PM-3 (#4), add D>C clarifying questions step (#8)" },
+    { "type": "Edit", "pattern": "C:/Users/solar/.claude/skills/add-task/SKILL.md", "rationale": "replace Original: label with Joseph:/Claude: (#9)" },
+    { "type": "Read", "pattern": "C:/Users/solar/.claude/hooks/**", "rationale": "read hook script before editing (#3)" },
+    { "type": "Edit", "pattern": "C:/Users/solar/.claude/hooks/check-mission-permissions.sh", "rationale": "fix hook logging all tool calls as PERMISSION DENIED (#3)" },
+    { "type": "Read", "pattern": "C:/Users/solar/.claude/settings.json", "rationale": "verify hook registration and matcher pattern (#3)" },
+    { "type": "Edit", "pattern": "C:/Users/solar/.claude/settings.json", "rationale": "update hook matcher if narrowing is required to fix log pollution (#3)" },
+    { "type": "Bash", "pattern": "git *", "rationale": "version control" },
+    { "type": "Bash", "pattern": "git -C *", "rationale": "version control with explicit path" },
+    { "type": "Bash", "pattern": "cargo build*", "rationale": "Rust build verification" },
+    { "type": "Bash", "pattern": "cargo test*", "rationale": "TDD phase test execution" },
+    { "type": "Bash", "pattern": "cargo clippy*", "rationale": "Rust lint verification" },
+    { "type": "Bash", "pattern": "cargo run*", "rationale": "Rust run verification after implementation" }
+  ]
+}
