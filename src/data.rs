@@ -5,8 +5,82 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PartOption {
+    Simple(String),
+    Full { id: String, label: String, output: String },
+    Labeled { label: String, output: String },
+}
+
+impl PartOption {
+    pub fn label(&self) -> &str {
+        match self {
+            Self::Simple(s) => s,
+            Self::Full { label, .. } => label,
+            Self::Labeled { label, .. } => label,
+        }
+    }
+    pub fn output(&self) -> &str {
+        match self {
+            Self::Simple(s) => s,
+            Self::Full { output, .. } => output,
+            Self::Labeled { output, .. } => output,
+        }
+    }
+    pub fn option_id(&self) -> Option<&str> {
+        match self {
+            Self::Full { id, .. } => Some(id.as_str()),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompositePart {
+    pub id: String,
+    pub label: String,
+    pub preview: Option<String>,
+    #[serde(default)]
+    pub options: Vec<PartOption>,
+    pub data_file: Option<String>,
+    #[serde(default)]
+    pub sticky: bool,
+    pub default: Option<String>,
+}
+
+impl CompositePart {
+    pub fn default_cursor(&self) -> usize {
+        let Some(ref default) = self.default else { return 0; };
+        if let Some(pos) = self.options.iter().position(|o| o.option_id() == Some(default.as_str())) {
+            return pos;
+        }
+        if let Some(pos) = self.options.iter().position(|o| o.label() == default.as_str()) {
+            return pos;
+        }
+        0
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompositeConfig {
+    pub format: String,
+    pub parts: Vec<CompositePart>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeaderFieldConfig {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub options: Vec<String>,
+    pub composite: Option<CompositeConfig>,
+    pub default: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SectionGroup {
     pub id: String,
+    pub num: Option<usize>,
     pub name: String,
     pub sections: Vec<SectionConfig>,
 }
@@ -20,6 +94,10 @@ pub struct SectionConfig {
     pub section_type: String,
     pub data_file: Option<String>,
     pub date_prefix: Option<bool>,
+    #[serde(default)]
+    pub options: Vec<String>,
+    pub composite: Option<CompositeConfig>,
+    pub fields: Option<Vec<HeaderFieldConfig>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +152,22 @@ pub struct KeyBindings {
     pub swap_panes: Vec<String>,
     pub help: Vec<String>,
     pub quit: Vec<String>,
+    #[serde(default = "default_focus_left")]
+    pub focus_left: Vec<String>,
+    #[serde(default = "default_focus_right")]
+    pub focus_right: Vec<String>,
+    #[serde(default = "default_hints")]
+    pub hints: Vec<String>,
+}
+
+fn default_focus_left() -> Vec<String> {
+    vec!["left".to_string(), "h".to_string()]
+}
+fn default_focus_right() -> Vec<String> {
+    vec!["right".to_string(), "i".to_string()]
+}
+fn default_hints() -> Vec<String> {
+    ["1","2","3","4","5","6","7","8","9"].iter().map(|s| s.to_string()).collect()
 }
 
 impl Default for KeyBindings {
@@ -88,6 +182,9 @@ impl Default for KeyBindings {
             swap_panes: vec!["`".to_string(), "\\".to_string()],
             help: vec!["?".to_string()],
             quit: vec!["q".to_string()],
+            focus_left: default_focus_left(),
+            focus_right: default_focus_right(),
+            hints: default_hints(),
         }
     }
 }
@@ -145,7 +242,13 @@ impl AppData {
         let kb_path = data_dir.join("keybindings.yml");
         let keybindings = if kb_path.exists() {
             let kb_content = fs::read_to_string(&kb_path)?;
-            serde_yaml::from_str(&kb_content).unwrap_or_default()
+            match serde_yaml::from_str(&kb_content) {
+                Ok(kb) => kb,
+                Err(e) => {
+                    eprintln!("Warning: keybindings.yml parse error ({}), using defaults", e);
+                    KeyBindings::default()
+                }
+            }
         } else {
             KeyBindings::default()
         };
@@ -180,7 +283,7 @@ impl AppData {
         } else {
             vec![]
         };
-        entries.push(entry.clone());
+        entries.push(entry);
         let file = ListFile { entries };
         let content = serde_yaml::to_string(&file)?;
         fs::write(&path, content)?;

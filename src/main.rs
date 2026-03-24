@@ -1,8 +1,10 @@
 mod app;
 mod config;
 mod data;
+mod modal;
 mod note;
 mod sections;
+mod theme;
 mod ui;
 
 use anyhow::Result;

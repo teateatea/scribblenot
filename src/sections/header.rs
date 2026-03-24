@@ -1,86 +1,62 @@
-use chrono::Local;
+use crate::data::HeaderFieldConfig;
 
 #[derive(Debug, Clone)]
 pub struct HeaderState {
-    pub date: String,
-    pub start_time: String,
-    pub duration: String,
-    pub appointment_type: String,
+    pub field_configs: Vec<HeaderFieldConfig>,
+    pub values: Vec<String>,
     pub field_index: usize,
-    pub edit_buf: String,
     pub completed: bool,
+    /// Styled spans for composite preview: (text, is_confirmed). Present while a composite is mid-entry.
+    pub composite_spans: Option<Vec<(String, bool)>>,
 }
 
 impl HeaderState {
-    pub fn new() -> Self {
-        let today = Local::now().format("%Y-%m-%d").to_string();
+    pub fn new(fields: Vec<HeaderFieldConfig>) -> Self {
+        let n = fields.len();
         Self {
-            date: today,
-            start_time: String::new(),
-            duration: String::new(),
-            appointment_type: String::new(),
+            field_configs: fields,
+            values: vec![String::new(); n],
             field_index: 0,
-            edit_buf: String::new(),
             completed: false,
+            composite_spans: None,
         }
     }
 
-    pub fn field_label(&self, idx: usize) -> &'static str {
-        match idx {
-            0 => "Date (YYYY-MM-DD)",
-            1 => "Start Time (e.g. 14:00)",
-            2 => "Duration (minutes)",
-            3 => "Appointment Type",
-            _ => "",
+    pub fn current_value(&self) -> &str {
+        self.values.get(self.field_index).map(String::as_str).unwrap_or("")
+    }
+
+    pub fn set_current_value(&mut self, value: String) {
+        if let Some(v) = self.values.get_mut(self.field_index) {
+            *v = value;
         }
     }
 
-    pub fn current_field_value(&self) -> &str {
-        match self.field_index {
-            0 => &self.date,
-            1 => &self.start_time,
-            2 => &self.duration,
-            3 => &self.appointment_type,
-            _ => "",
-        }
-    }
-
-    pub fn set_current_field(&mut self, value: String) {
-        match self.field_index {
-            0 => self.date = value,
-            1 => self.start_time = value,
-            2 => self.duration = value,
-            3 => self.appointment_type = value,
-            _ => {}
-        }
-    }
-
-    pub fn confirm_field(&mut self) -> bool {
-        // Save current edit buffer to the field
-        let val = self.edit_buf.trim().to_string();
-        // If empty and not the last field that can skip, don't advance
-        if val.is_empty() && self.field_index < 3 {
-            return false;
-        }
-        if !val.is_empty() {
-            self.set_current_field(val);
-        }
-        self.edit_buf.clear();
+    /// Advance to the next field. Returns true if all fields are complete.
+    pub fn advance(&mut self) -> bool {
         self.field_index += 1;
-        if self.field_index >= 4 {
+        if self.field_index >= self.field_configs.len() {
             self.completed = true;
-            return true;
         }
-        // Pre-fill edit buffer with existing value
-        self.edit_buf = self.current_field_value().to_string();
-        false
+        self.completed
     }
 
-    pub fn handle_char(&mut self, c: char) {
-        self.edit_buf.push(c);
+    /// Go back one field. Returns true if went back, false if already at first field.
+    pub fn go_back(&mut self) -> bool {
+        if self.field_index > 0 {
+            self.field_index -= 1;
+            true
+        } else {
+            false
+        }
     }
 
-    pub fn handle_backspace(&mut self) {
-        self.edit_buf.pop();
+    pub fn get_value(&self, id: &str) -> &str {
+        self.field_configs
+            .iter()
+            .zip(self.values.iter())
+            .find(|(cfg, _)| cfg.id == id)
+            .map(|(_, v)| v.as_str())
+            .unwrap_or("")
     }
 }

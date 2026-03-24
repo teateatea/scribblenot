@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::data::{AppData, SectionConfig};
+use crate::modal::{CompositeAdvance, ModalFocus, SearchModal};
 use crate::sections::{
     block_select::BlockSelectState,
     checklist::ChecklistState,
@@ -10,6 +11,18 @@ use crate::sections::{
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
 use std::time::Instant;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Focus {
+    Wizard,
+    Map,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MapHintLevel {
+    Groups,
+    Sections(usize),
+}
 
 #[derive(Debug, Clone)]
 pub enum SectionState {
@@ -58,6 +71,11 @@ pub struct App {
     pub quit: bool,
     pub note_completed: bool,
     pub data_dir: PathBuf,
+    pub focus: Focus,
+    pub map_cursor: usize,
+    pub map_hint_level: MapHintLevel,
+    pub note_scroll: u16,
+    pub modal: Option<SearchModal>,
 }
 
 impl App {
@@ -77,6 +95,11 @@ impl App {
             quit: false,
             note_completed: false,
             data_dir,
+            focus: Focus::Wizard,
+            map_cursor: 0,
+            map_hint_level: MapHintLevel::Groups,
+            note_scroll: 0,
+            modal: None,
         }
     }
 
@@ -84,7 +107,10 @@ impl App {
         sections
             .iter()
             .map(|cfg| match cfg.section_type.as_str() {
-                "header" => SectionState::Header(HeaderState::new()),
+                "header" => {
+                    let fields = cfg.fields.clone().unwrap_or_default();
+                    SectionState::Header(HeaderState::new(fields))
+                }
                 "free_text" => SectionState::FreeText(FreeTextState::new()),
                 "list_select" => {
                     let entries = cfg
@@ -131,6 +157,8 @@ impl App {
             let matched = match binding.as_str() {
                 "down" => key.code == KeyCode::Down,
                 "up" => key.code == KeyCode::Up,
+                "left" => key.code == KeyCode::Left,
+                "right" => key.code == KeyCode::Right,
                 "enter" => key.code == KeyCode::Enter,
                 "esc" => key.code == KeyCode::Esc,
                 "space" => key.code == KeyCode::Char(' '),
@@ -149,45 +177,188 @@ impl App {
     }
 
     fn is_navigate_down(&self, key: &KeyEvent) -> bool {
-        self.matches_key(key, &self.data.keybindings.navigate_down.clone())
+        self.matches_key(key, &self.data.keybindings.navigate_down)
     }
 
     fn is_navigate_up(&self, key: &KeyEvent) -> bool {
-        self.matches_key(key, &self.data.keybindings.navigate_up.clone())
+        self.matches_key(key, &self.data.keybindings.navigate_up)
     }
 
     fn is_select(&self, key: &KeyEvent) -> bool {
-        self.matches_key(key, &self.data.keybindings.select.clone())
+        self.matches_key(key, &self.data.keybindings.select)
     }
 
     fn is_confirm(&self, key: &KeyEvent) -> bool {
-        self.matches_key(key, &self.data.keybindings.confirm.clone())
+        self.matches_key(key, &self.data.keybindings.confirm)
     }
 
     fn is_add_entry(&self, key: &KeyEvent) -> bool {
-        self.matches_key(key, &self.data.keybindings.add_entry.clone())
+        self.matches_key(key, &self.data.keybindings.add_entry)
     }
 
     fn is_back(&self, key: &KeyEvent) -> bool {
-        self.matches_key(key, &self.data.keybindings.back.clone())
+        self.matches_key(key, &self.data.keybindings.back)
     }
 
     fn is_swap_panes(&self, key: &KeyEvent) -> bool {
-        self.matches_key(key, &self.data.keybindings.swap_panes.clone())
+        self.matches_key(key, &self.data.keybindings.swap_panes)
     }
 
     fn is_help(&self, key: &KeyEvent) -> bool {
-        self.matches_key(key, &self.data.keybindings.help.clone())
+        self.matches_key(key, &self.data.keybindings.help)
     }
 
     fn is_quit(&self, key: &KeyEvent) -> bool {
-        self.matches_key(key, &self.data.keybindings.quit.clone())
+        self.matches_key(key, &self.data.keybindings.quit)
+    }
+
+    fn is_focus_left(&self, key: &KeyEvent) -> bool {
+        self.matches_key(key, &self.data.keybindings.focus_left)
+    }
+
+    fn is_focus_right(&self, key: &KeyEvent) -> bool {
+        self.matches_key(key, &self.data.keybindings.focus_right)
+    }
+
+    fn section_at_top_level(&self) -> bool {
+        match self.section_states.get(self.current_idx) {
+            Some(SectionState::FreeText(s)) => !s.is_editing(),
+            Some(SectionState::ListSelect(s)) => matches!(s.mode, ListSelectMode::Browsing),
+            Some(SectionState::BlockSelect(s)) => !s.in_techniques(),
+            Some(SectionState::Checklist(_)) => true,
+            _ => false,
+        }
+    }
+
+    fn handle_map_key(&mut self, key: KeyEvent) {
+        if self.is_navigate_down(&key) {
+            if self.map_cursor + 1 < self.sections.len() {
+                self.map_cursor += 1;
+                let g = self.group_idx_for_section(self.map_cursor);
+                self.map_hint_level = MapHintLevel::Sections(g);
+                self.update_note_scroll();
+            }
+            return;
+        }
+        if self.is_navigate_up(&key) {
+            if self.map_cursor > 0 {
+                self.map_cursor -= 1;
+                let g = self.group_idx_for_section(self.map_cursor);
+                self.map_hint_level = MapHintLevel::Sections(g);
+                self.update_note_scroll();
+            }
+            return;
+        }
+        if self.is_confirm(&key) {
+            self.current_idx = self.map_cursor;
+            self.focus = Focus::Wizard;
+            self.map_hint_level = MapHintLevel::Groups;
+            return;
+        }
+        if self.is_back(&key) {
+            self.focus = Focus::Wizard;
+            self.map_hint_level = MapHintLevel::Groups;
+            return;
+        }
+
+        // Hint key navigation
+        if let KeyCode::Char(c) = key.code {
+            let hints = self.data.keybindings.hints.clone();
+            let case_sensitive = self.config.hint_labels_case_sensitive;
+            let key_str: String = if case_sensitive {
+                c.to_string()
+            } else {
+                c.to_ascii_lowercase().to_string()
+            };
+
+            let hint_level = self.map_hint_level.clone();
+            match hint_level {
+                MapHintLevel::Groups => {
+                    for (g_idx, _group) in self.data.groups.iter().enumerate() {
+                        if let Some(h) = hints.get(g_idx) {
+                            let h_str = if case_sensitive { h.clone() } else { h.to_ascii_lowercase().to_string() };
+                            if key_str == h_str {
+                                self.map_hint_level = MapHintLevel::Sections(g_idx);
+                                return;
+                            }
+                        }
+                    }
+                }
+                MapHintLevel::Sections(g_idx) => {
+                    // Parent group hint → back to groups
+                    if let Some(h) = hints.get(g_idx) {
+                        let h_str = if case_sensitive { h.clone() } else { h.to_ascii_lowercase().to_string() };
+                        if key_str == h_str {
+                            self.map_hint_level = MapHintLevel::Groups;
+                            return;
+                        }
+                    }
+                    // Section hints: hints in order, skipping g_idx
+                    let section_hints: Vec<String> = hints.iter().enumerate()
+                        .filter(|(i, _)| *i != g_idx)
+                        .map(|(_, h)| if case_sensitive { h.clone() } else { h.to_ascii_lowercase().to_string() })
+                        .collect();
+                    let group_start: usize = self.data.groups.iter().take(g_idx).map(|g| g.sections.len()).sum();
+                    let group_len = self.data.groups.get(g_idx).map(|g| g.sections.len()).unwrap_or(0);
+                    for s_idx in 0..group_len {
+                        if let Some(sh) = section_hints.get(s_idx) {
+                            if key_str == *sh {
+                                let flat_idx = group_start + s_idx;
+                                self.current_idx = flat_idx;
+                                self.map_cursor = flat_idx;
+                                self.focus = Focus::Wizard;
+                                self.map_hint_level = MapHintLevel::Groups;
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn group_idx_for_section(&self, flat_idx: usize) -> usize {
+        let mut fi = 0usize;
+        for (g_idx, group) in self.data.groups.iter().enumerate() {
+            for _ in 0..group.sections.len() {
+                if fi == flat_idx {
+                    return g_idx;
+                }
+                fi += 1;
+            }
+        }
+        0
+    }
+
+    pub fn section_hint_key_idx(&self, flat_idx: usize) -> Option<usize> {
+        let hints = &self.data.keybindings.hints;
+        let mut fi = 0usize;
+        for (g_idx, group) in self.data.groups.iter().enumerate() {
+            for s_idx in 0..group.sections.len() {
+                if fi == flat_idx {
+                    let nth = (0..hints.len()).filter(|&i| i != g_idx).nth(s_idx);
+                    return nth;
+                }
+                fi += 1;
+            }
+        }
+        None
+    }
+
+    fn update_note_scroll(&mut self) {
+        let section_id = self.sections.get(self.map_cursor).map(|s| s.id.clone()).unwrap_or_default();
+        self.note_scroll = crate::note::section_start_line(&self.sections, &self.section_states, &section_id);
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
         // Ctrl+C always quits
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.quit = true;
+            return;
+        }
+
+        if self.modal.is_some() {
+            self.handle_modal_key(key);
             return;
         }
 
@@ -198,9 +369,17 @@ impl App {
             return;
         }
 
-        if self.is_quit(&key) {
-            self.quit = true;
-            return;
+        if self.is_quit(&key) && self.focus != Focus::Map {
+            let is_hint_key = if let KeyCode::Char(c) = key.code {
+                let c_str = c.to_ascii_lowercase().to_string();
+                self.data.keybindings.hints.iter().any(|h| h.to_ascii_lowercase().to_string() == c_str)
+            } else {
+                false
+            };
+            if !is_hint_key {
+                self.quit = true;
+                return;
+            }
         }
 
         if self.is_help(&key) {
@@ -212,6 +391,56 @@ impl App {
             self.pane_swapped = !self.pane_swapped;
             self.config.set_swapped(self.pane_swapped);
             let _ = self.config.save(&self.data_dir);
+            return;
+        }
+
+        // Focus switching: h/← moves left in layout, i/→ moves right
+        // Map is always on the outside: left when default, right when swapped
+        if self.is_focus_left(&key) {
+            if self.focus == Focus::Wizard && !self.pane_swapped {
+                // Map is to the left of wizard in default layout
+                let g_idx = self.group_idx_for_section(self.current_idx);
+                self.focus = Focus::Map;
+                self.map_cursor = self.current_idx;
+                self.map_hint_level = MapHintLevel::Sections(g_idx);
+                self.update_note_scroll();
+                return;
+            } else if self.focus == Focus::Map && self.pane_swapped {
+                // Map is to the right; h/← from map returns to wizard
+                self.current_idx = self.map_cursor;
+                self.focus = Focus::Wizard;
+                self.map_hint_level = MapHintLevel::Groups;
+                return;
+            }
+        }
+
+        if self.is_focus_right(&key) {
+            if self.focus == Focus::Wizard && self.pane_swapped {
+                // Map is to the right of wizard in swapped layout
+                let g_idx = self.group_idx_for_section(self.current_idx);
+                self.focus = Focus::Map;
+                self.map_cursor = self.current_idx;
+                self.map_hint_level = MapHintLevel::Sections(g_idx);
+                self.update_note_scroll();
+                return;
+            } else if self.focus == Focus::Map && !self.pane_swapped {
+                // Map is to the left; i/→ from map returns to wizard
+                self.current_idx = self.map_cursor;
+                self.focus = Focus::Wizard;
+                self.map_hint_level = MapHintLevel::Groups;
+                return;
+            }
+        }
+
+        // Map focus: all navigation goes to the map handler
+        if self.focus == Focus::Map {
+            self.handle_map_key(key);
+            return;
+        }
+
+        // Top-level Esc goes back a section (when not in a sub-context)
+        if self.is_back(&key) && self.section_at_top_level() {
+            self.go_back_section();
             return;
         }
 
@@ -243,39 +472,264 @@ impl App {
         }
     }
 
-    fn handle_header_key(&mut self, key: KeyEvent) {
-        let is_back = self.is_back(&key);
-        let is_confirm = self.is_confirm(&key);
+    fn go_back_section(&mut self) {
+        if self.current_idx > 0 {
+            self.current_idx -= 1;
+        }
+    }
 
-        let state = match self.section_states.get_mut(self.current_idx) {
-            Some(SectionState::Header(s)) => s,
-            _ => return,
+    fn handle_header_key(&mut self, key: KeyEvent) {
+        // Hint key handling: group/section hint → return to map, field hints → jump to field
+        if let KeyCode::Char(c) = key.code {
+            let hints = self.data.keybindings.hints.clone();
+            let case_sensitive = self.config.hint_labels_case_sensitive;
+            let c_str = if case_sensitive { c.to_string() } else { c.to_ascii_lowercase().to_string() };
+            let g_idx = self.group_idx_for_section(self.current_idx);
+
+            // Group hint → go to map at Groups level (broader navigation)
+            if let Some(gh) = hints.get(g_idx) {
+                let gh_str = if case_sensitive { gh.clone() } else { gh.to_ascii_lowercase().to_string() };
+                if c_str == gh_str {
+                    self.focus = Focus::Map;
+                    self.map_cursor = self.current_idx;
+                    self.map_hint_level = MapHintLevel::Groups;
+                    return;
+                }
+            }
+
+            if let Some(shi) = self.section_hint_key_idx(self.current_idx) {
+                if let Some(sh) = hints.get(shi) {
+                    let sh_str = if case_sensitive { sh.clone() } else { sh.to_ascii_lowercase().to_string() };
+                    if c_str == sh_str {
+                        self.focus = Focus::Map;
+                        self.map_cursor = self.current_idx;
+                        self.map_hint_level = MapHintLevel::Sections(g_idx);
+                        return;
+                    }
+                }
+                // Field hints exclude BOTH section hint and group hint to avoid double-use
+                let field_hint_indices: Vec<usize> = (0..hints.len()).filter(|&i| i != shi && i != g_idx).collect();
+                let idx = self.current_idx;
+                let n_fields = match self.section_states.get(idx) {
+                    Some(SectionState::Header(s)) => s.field_configs.len(),
+                    _ => 0,
+                };
+                for f_idx in 0..n_fields {
+                    if let Some(&hint_idx) = field_hint_indices.get(f_idx) {
+                        if let Some(fh) = hints.get(hint_idx) {
+                            let fh_str = if case_sensitive { fh.clone() } else { fh.to_ascii_lowercase().to_string() };
+                            if c_str == fh_str {
+                                if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                                    s.field_index = f_idx;
+                                    s.completed = false;
+                                }
+                                self.open_header_modal();
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if self.is_back(&key) || self.is_navigate_up(&key) {
+            let idx = self.current_idx;
+            let went_back = if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                // Normalize out-of-bounds index before going back
+                if s.field_index >= s.field_configs.len() && !s.field_configs.is_empty() {
+                    s.field_index = s.field_configs.len() - 1;
+                    s.completed = false;
+                    true
+                } else {
+                    s.go_back()
+                }
+            } else {
+                false
+            };
+            if !went_back {
+                self.go_back_section();
+            }
+            return;
+        }
+
+        if self.is_navigate_down(&key) {
+            let idx = self.current_idx;
+            if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                let last = s.field_configs.len().saturating_sub(1);
+                if s.field_index > last {
+                    // Normalize out-of-bounds (completed) index to last field
+                    s.field_index = last;
+                } else if s.field_index < last {
+                    s.field_index += 1;
+                }
+            }
+            return;
+        }
+
+        if key.code == KeyCode::Enter {
+            self.open_header_modal();
+        }
+    }
+
+    fn open_header_modal(&mut self) {
+        let idx = self.current_idx;
+        let field_idx = if let Some(SectionState::Header(s)) = self.section_states.get(idx) {
+            s.field_index
+        } else {
+            return;
+        };
+        let field_cfg = if let Some(SectionState::Header(s)) = self.section_states.get(idx) {
+            s.field_configs.get(field_idx).cloned()
+        } else {
+            None
+        };
+        if let Some(cfg) = field_cfg {
+            let window_size = self.data.keybindings.hints.len();
+            let modal = if let Some(composite) = cfg.composite {
+                SearchModal::new_composite(field_idx, cfg.id, composite, &self.config.sticky_values, window_size)
+            } else if !cfg.options.is_empty() {
+                let mut m = SearchModal::new_simple(field_idx, cfg.id, cfg.options.clone(), window_size);
+                if let Some(ref default) = cfg.default {
+                    if let Some(pos) = cfg.options.iter().position(|e| e == default) {
+                        m.list_cursor = pos;
+                        m.sticky_cursor = pos;
+                        m.center_scroll();
+                    }
+                }
+                m
+            } else {
+                return;
+            };
+            self.modal = Some(modal);
+        }
+    }
+
+    fn handle_modal_key(&mut self, key: KeyEvent) {
+        let hints = self.data.keybindings.hints.clone();
+
+        if key.code == KeyCode::Esc {
+            self.modal = None;
+            return;
+        }
+
+        let focus = match &self.modal {
+            Some(m) => m.focus.clone(),
+            None => return,
         };
 
-        if is_back {
-            if state.field_index > 0 {
-                state.field_index -= 1;
-                state.edit_buf = state.current_field_value().to_string();
+        match focus {
+            ModalFocus::SearchBar => match key.code {
+                KeyCode::Tab => {
+                    let query = self.modal.as_ref().unwrap().query.trim().to_string();
+                    if !query.is_empty() {
+                        self.confirm_modal_value(query);
+                    }
+                }
+                KeyCode::Enter => {
+                    if !self.modal.as_ref().unwrap().filtered.is_empty() {
+                        self.modal.as_mut().unwrap().focus = ModalFocus::List;
+                    }
+                }
+                KeyCode::Backspace => {
+                    let modal = self.modal.as_mut().unwrap();
+                    modal.query.pop();
+                    modal.update_filter();
+                    if modal.query.is_empty() {
+                        modal.center_scroll();
+                    }
+                }
+                KeyCode::Char(c) => {
+                    let modal = self.modal.as_mut().unwrap();
+                    modal.query.push(c);
+                    modal.update_filter();
+                }
+                _ => {}
+            },
+            ModalFocus::List => match key.code {
+                KeyCode::Backspace => {
+                    let can_go_back = self.modal.as_ref().map(|m| {
+                        m.composite.as_ref().map(|c| c.part_idx > 0).unwrap_or(false)
+                    }).unwrap_or(false);
+                    if can_go_back {
+                        self.composite_go_back();
+                    } else {
+                        // First part or simple field: exit modal, return to wizard
+                        self.modal = None;
+                    }
+                }
+                KeyCode::Char(' ') => {
+                    self.modal.as_mut().unwrap().focus = ModalFocus::SearchBar;
+                }
+                KeyCode::Enter => {
+                    if let Some(val) = self.modal.as_ref().unwrap().selected_value().map(String::from) {
+                        self.confirm_modal_value(val);
+                    }
+                }
+                KeyCode::Up => {
+                    let modal = self.modal.as_mut().unwrap();
+                    if modal.list_cursor > 0 {
+                        modal.list_cursor -= 1;
+                        modal.update_scroll();
+                    }
+                }
+                KeyCode::Down => {
+                    let modal = self.modal.as_mut().unwrap();
+                    if modal.list_cursor + 1 < modal.filtered.len() {
+                        modal.list_cursor += 1;
+                        modal.update_scroll();
+                    }
+                }
+                KeyCode::Char(c) => {
+                    if let Some(hint_pos) = hints.iter().position(|h| h == &c.to_string()) {
+                        if let Some(val) = self.modal.as_ref().unwrap().hint_value(hint_pos).map(String::from) {
+                            self.confirm_modal_value(val);
+                        }
+                    }
+                }
+                _ => {}
+            },
+        }
+    }
+
+    fn confirm_modal_value(&mut self, value: String) {
+        let idx = self.current_idx;
+        let is_composite = self.modal.as_ref().map(|m| m.composite.is_some()).unwrap_or(false);
+
+        if is_composite {
+            let advance = self.modal.as_mut().unwrap()
+                .advance_composite(value, &mut self.config.sticky_values);
+            match advance {
+                CompositeAdvance::NextPart => {
+                    let preview = compute_composite_preview(self.modal.as_ref().unwrap());
+                    let spans = compute_composite_spans(self.modal.as_ref().unwrap());
+                    if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                        s.set_current_value(preview);
+                        s.composite_spans = Some(spans);
+                    }
+                    let _ = self.config.save(&self.data_dir);
+                }
+                CompositeAdvance::Complete(final_value) => {
+                    if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                        s.composite_spans = None;
+                        s.set_current_value(final_value);
+                        let done = s.advance();
+                        if done {
+                            self.advance_section();
+                        }
+                    }
+                    self.modal = None;
+                    let _ = self.config.save(&self.data_dir);
+                }
             }
-            return;
-        }
-
-        if is_confirm {
-            let done = state.confirm_field();
-            if done {
-                let _ = state;
-                self.advance_section();
+        } else {
+            if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                s.set_current_value(value);
+                let done = s.advance();
+                if done {
+                    self.advance_section();
+                }
             }
-            return;
-        }
-
-        if key.code == KeyCode::Backspace {
-            state.handle_backspace();
-            return;
-        }
-
-        if let KeyCode::Char(c) = key.code {
-            state.handle_char(c);
+            self.modal = None;
         }
     }
 
@@ -293,7 +747,8 @@ impl App {
                 }
                 return;
             }
-            if self.is_confirm(&key) {
+            // In text input: only Enter confirms, not letter aliases like 't'
+            if key.code == KeyCode::Enter {
                 if let SectionState::FreeText(s) = &mut self.section_states[idx] {
                     s.commit_entry();
                 }
@@ -314,6 +769,10 @@ impl App {
         }
 
         // Browsing mode
+        if self.try_navigate_to_map_via_hint(&key) {
+            return;
+        }
+
         if self.is_navigate_up(&key) {
             if let SectionState::FreeText(s) = &mut self.section_states[idx] {
                 s.navigate_up();
@@ -352,7 +811,6 @@ impl App {
                 }
                 self.advance_section();
             }
-            return;
         }
     }
 
@@ -378,7 +836,8 @@ impl App {
                     }
                     return;
                 }
-                if self.is_confirm(&key) {
+                // In text input: only Enter confirms, not letter aliases like 't'
+                if key.code == KeyCode::Enter {
                     if mode == 1 {
                         if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
                             s.confirm_label();
@@ -423,10 +882,12 @@ impl App {
                         s.handle_char(c);
                     }
                 }
-                return;
             }
             _ => {
                 // Browsing mode
+                if self.try_navigate_to_map_via_hint(&key) {
+                    return;
+                }
                 if self.is_navigate_up(&key) {
                     if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
                         s.navigate_up();
@@ -467,7 +928,6 @@ impl App {
                         }
                         self.advance_section();
                     }
-                    return;
                 }
             }
         }
@@ -509,10 +969,12 @@ impl App {
                 if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
                     s.exit_techniques();
                 }
-                return;
             }
         } else {
             // Region list
+            if self.try_navigate_to_map_via_hint(&key) {
+                return;
+            }
             if self.is_navigate_up(&key) {
                 if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
                     s.navigate_up();
@@ -569,13 +1031,16 @@ impl App {
                     }
                 }
                 self.advance_section();
-                return;
             }
         }
     }
 
     fn handle_checklist_key(&mut self, key: KeyEvent) {
         let idx = self.current_idx;
+
+        if self.try_navigate_to_map_via_hint(&key) {
+            return;
+        }
 
         if self.is_navigate_up(&key) {
             if let SectionState::Checklist(s) = &mut self.section_states[idx] {
@@ -623,4 +1088,157 @@ impl App {
             _ => false,
         }
     }
+
+    /// If the key matches the current section's hint key, switch focus to Map at Sections level.
+    /// Returns true if navigation happened.
+    fn try_navigate_to_map_via_hint(&mut self, key: &KeyEvent) -> bool {
+        if let KeyCode::Char(c) = key.code {
+            let hints = self.data.keybindings.hints.clone();
+            let case_sensitive = self.config.hint_labels_case_sensitive;
+            let c_str = if case_sensitive { c.to_string() } else { c.to_ascii_lowercase().to_string() };
+            let g_idx = self.group_idx_for_section(self.current_idx);
+
+            // Group hint → map at Groups level (broader navigation)
+            if let Some(gh) = hints.get(g_idx) {
+                let gh_str = if case_sensitive { gh.clone() } else { gh.to_ascii_lowercase().to_string() };
+                if c_str == gh_str {
+                    self.focus = Focus::Map;
+                    self.map_cursor = self.current_idx;
+                    self.map_hint_level = MapHintLevel::Groups;
+                    return true;
+                }
+            }
+
+            // Section hint → map at Sections level for this group
+            if let Some(shi) = self.section_hint_key_idx(self.current_idx) {
+                if let Some(sh) = hints.get(shi) {
+                    let sh_str = if case_sensitive { sh.clone() } else { sh.to_ascii_lowercase().to_string() };
+                    if c_str == sh_str {
+                        self.focus = Focus::Map;
+                        self.map_cursor = self.current_idx;
+                        self.map_hint_level = MapHintLevel::Sections(g_idx);
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn composite_go_back(&mut self) {
+        let idx = self.current_idx;
+
+        // Step 1: Pop the last confirmed value and decrement part_idx, extract new part options
+        let (new_part_idx, popped_output, new_labels, new_outputs, new_default_cursor) = {
+            let modal = match self.modal.as_mut() {
+                Some(m) => m,
+                None => return,
+            };
+            let comp = match modal.composite.as_mut() {
+                Some(c) => c,
+                None => return,
+            };
+            if comp.part_idx == 0 {
+                return;
+            }
+            let popped = comp.values.pop();
+            comp.part_idx -= 1;
+            let part = &comp.config.parts[comp.part_idx];
+            let labels: Vec<String> = part.options.iter().map(|o| o.label().to_string()).collect();
+            let outputs: Vec<String> = part.options.iter().map(|o| o.output().to_string()).collect();
+            let dc = part.default_cursor();
+            (comp.part_idx, popped, labels, outputs, dc)
+        };
+
+        // Step 2: Update modal entries and cursor (restore to previously chosen value)
+        let cursor = popped_output
+            .as_ref()
+            .and_then(|v| new_outputs.iter().position(|e| e == v))
+            .unwrap_or(new_default_cursor);
+        {
+            let modal = self.modal.as_mut().unwrap();
+            modal.all_entries = new_labels;
+            modal.all_outputs = new_outputs;
+            modal.list_cursor = cursor;
+            modal.sticky_cursor = cursor;
+            modal.query = String::new();
+            modal.list_scroll = 0;
+            modal.focus = ModalFocus::List;
+            modal.update_filter();
+        }
+
+        // Step 3: Update header state spans/value
+        if new_part_idx == 0 {
+            // Back to first part - clear partial state (preload will show via render)
+            if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                s.composite_spans = None;
+                s.set_current_value(String::new());
+            }
+        } else {
+            let (preview, spans) = {
+                let modal = self.modal.as_ref().unwrap();
+                (compute_composite_preview(modal), compute_composite_spans(modal))
+            };
+            if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                s.set_current_value(preview);
+                s.composite_spans = Some(spans);
+            }
+        }
+    }
+}
+
+fn compute_composite_spans(modal: &crate::modal::SearchModal) -> Vec<(String, bool)> {
+    let comp = match &modal.composite {
+        Some(c) => c,
+        None => return vec![],
+    };
+    let format = &comp.config.format;
+    let mut spans: Vec<(String, bool)> = Vec::new();
+    let mut literal = String::new();
+    let mut chars = format.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '{' {
+            if !literal.is_empty() {
+                spans.push((literal.clone(), false));
+                literal.clear();
+            }
+            let mut id = String::new();
+            for c2 in chars.by_ref() {
+                if c2 == '}' { break; }
+                id.push(c2);
+            }
+            if let Some(i) = comp.config.parts.iter().position(|p| p.id == id) {
+                if i < comp.values.len() {
+                    spans.push((comp.values[i].clone(), true));
+                } else {
+                    let preview = comp.config.parts[i].preview.as_deref().unwrap_or("?");
+                    spans.push((preview.to_string(), false));
+                }
+            }
+        } else {
+            literal.push(c);
+        }
+    }
+    if !literal.is_empty() {
+        spans.push((literal, false));
+    }
+    spans
+}
+
+fn compute_composite_preview(modal: &crate::modal::SearchModal) -> String {
+    let comp = match &modal.composite {
+        Some(c) => c,
+        None => return String::new(),
+    };
+    let mut result = comp.config.format.clone();
+    for (i, val) in comp.values.iter().enumerate() {
+        let placeholder = format!("{{{}}}", comp.config.parts[i].id);
+        result = result.replace(&placeholder, val);
+    }
+    for part in &comp.config.parts[comp.part_idx..] {
+        let placeholder = format!("{{{}}}", part.id);
+        let preview_str = part.preview.as_deref().unwrap_or("?");
+        result = result.replace(&placeholder, preview_str);
+    }
+    result
 }

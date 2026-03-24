@@ -2,6 +2,40 @@ use crate::app::SectionState;
 use crate::data::SectionConfig;
 use chrono::Local;
 
+pub fn section_start_line(sections: &[SectionConfig], states: &[SectionState], section_id: &str) -> u16 {
+    let note = render_note(sections, states);
+    let search = heading_search_text(section_id);
+    if search.is_empty() {
+        return 0;
+    }
+    for (i, line) in note.lines().enumerate() {
+        if line.contains(search) {
+            return i as u16;
+        }
+    }
+    0
+}
+
+fn heading_search_text(id: &str) -> &'static str {
+    match id {
+        "adl" => "ACTIVITIES OF DAILY LIVING",
+        "exercise" => "EXERCISE HABITS",
+        "sleep_diet" => "SLEEP & DIET",
+        "social" => "SOCIAL & STRESS",
+        "history" => "HISTORY & PREVIOUS DIAGNOSES",
+        "specialists" => "SPECIALISTS & TREATMENT",
+        "subjective" => "## SUBJECTIVE",
+        "tx_mods" => "TREATMENT MODIFICATIONS",
+        "tx_regions" => "TREATMENT / PLAN",
+        "objective" => "## OBJECTIVE",
+        "post_treatment" => "## POST-TREATMENT",
+        "remedial" => "REMEDIAL EXERCISES",
+        "tx_plan" => "TREATMENT PLAN",
+        "infection_control" => "INFECTION CONTROL",
+        _ => "",
+    }
+}
+
 pub fn render_note(sections: &[SectionConfig], states: &[SectionState]) -> String {
     let mut parts: Vec<String> = Vec::new();
     let today = Local::now().format("%Y-%m-%d").to_string();
@@ -271,10 +305,10 @@ fn render_block_select(state: &SectionState) -> String {
 }
 
 fn format_header(hs: &crate::sections::header::HeaderState) -> String {
-    let date_str = format_header_date(&hs.date);
-    let time_str = format_header_time(&hs.start_time);
-    let dur_str = &hs.duration;
-    let appt_str = &hs.appointment_type;
+    let date_str = format_header_date(hs.get_value("date"));
+    let time_str = format_header_time(hs.get_value("start_time"));
+    let dur_str = hs.get_value("duration");
+    let appt_str = hs.get_value("appointment_type");
     format!("{} at {} ({} min)\n{}", date_str, time_str, dur_str, appt_str)
 }
 

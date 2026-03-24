@@ -1,11 +1,94 @@
 groups:
   - id: intake
+    num: 1
     name: "INTAKE"
     sections:
       - id: header
         name: "Header"
         map_label: "Header"
         type: header
+        fields:
+          - id: date
+            name: "Date"
+            composite:
+              format: "{year}-{month}-{day}"
+              parts:
+                - id: day
+                  label: "Day"
+                  preview: "DD"
+                  sticky: true
+                  options: ["01","02","03","04","05","06","07","08","09","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31"]
+                - id: month
+                  label: "Month"
+                  preview: "MM"
+                  sticky: true
+                  options: ["01","02","03","04","05","06","07","08","09","10","11","12"]
+                - id: year
+                  label: "Year"
+                  preview: "YYYY"
+                  sticky: true
+                  options: ["2025","2026"]
+          - id: start_time
+            name: "Start Time"
+            composite:
+              format: "{hour}:{minute}"
+              parts:
+                - id: hour
+                  label: "Hour"
+                  preview: "H"
+                  default: "1"
+                  options: ["9","10","11","12","1","2","3","4","5","6","7","8"]
+                - id: minute
+                  label: "Minute"
+                  preview: "MM"
+                  default: 00-2
+                  options:
+                    - id: 00-1
+                      label: "00"
+                      output: "00"
+                    - id: 15-1
+                      label: "15"
+                      output: "15"
+                    - id: 30-1
+                      label: "30"
+                      output: "30"
+                    - id: 45-1
+                      label: "45"
+                      output: "45"
+                    - id: 00-2
+                      label: "00"
+                      output: "00"
+                    - id: 15-2
+                      label: "15"
+                      output: "15"
+                    - id: 30-2
+                      label: "30"
+                      output: "30"
+                    - id: 45-2
+                      label: "45"
+                      output: "45"
+                    - id: 00-3
+                      label: "00"
+                      output: "00"
+          - id: duration
+            name: "Duration (min)"
+            options: ["30","45","60","75","90"]
+            default: "60"
+          - id: appointment_type
+            name: "Appointment Type"
+            composite:
+              format: "{treatment}"
+              parts:
+                - id: treatment
+                  label: "Appointment Type"
+                  default: "Treatment"
+                  options:
+                    - label: "Treatment"
+                      output: "Treatment focused massage"
+                    - label: "Relaxation"
+                      output: "Relaxation"
+                    - label: "General"
+                      output: "General massage"
       - id: adl
         name: "Activities of Daily Living"
         map_label: "ADL"
@@ -31,6 +114,7 @@ groups:
         map_label: "Specialists"
         type: free_text
   - id: subjective
+    num: 2
     name: "SUBJECTIVE"
     sections:
       - id: subjective
@@ -38,6 +122,7 @@ groups:
         map_label: "Subjective"
         type: free_text
   - id: treatment
+    num: 3
     name: "TREATMENT"
     sections:
       - id: tx_mods
@@ -51,6 +136,7 @@ groups:
         type: block_select
         data_file: "tx_regions.yml"
   - id: objective
+    num: 4
     name: "OBJECTIVE"
     sections:
       - id: objective
@@ -60,6 +146,7 @@ groups:
         data_file: "objective_findings.yml"
         date_prefix: true
   - id: post_tx
+    num: 5
     name: "POST-TX"
     sections:
       - id: post_treatment
