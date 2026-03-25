@@ -36,3 +36,9 @@
   Context: Mission Post-Mortem entry C from SUCCESSFUL-MISSION-LOG-5-pathfinder-skill-overhaul.md -- directly observed during M5
 - Completed: 2026-03-25T21:24:24
 
+- [ ] **#51** Add Agent attribution field to sub-task log entries to verify delegation constraints
+  [D:62 C:48] Task #29 requires subagent delegation for context-heavy writes but the sub-task log has no Agent field, making silent violations undetectable. Add an optional `Agent: subagent|main` field to sub-task log entries and a Prefect verification step for any task with a delegation constraint.
+  Claude: D) **Process issue**: Task #29 specifies that Task Observations and Mission Post-Mortem must be written via subagents to avoid exhausting main-instance context, but the sub-task log has no entry for #29, making it impossible to confirm whether the SKILL.md instruction correctly delegates these writes or performs them inline. The functional output (sections written) may appear correct while the constraint (subagent delegation) is silently violated. **Suggested fix**: Add a verification step to the Prefect pass for task #29 (and any task with a delegation constraint) that checks not just whether the output exists, but whether the log entry records which agent wrote it (main instance vs. spawned subagent). The sub-task log format could include an optional `Agent: subagent | main` field.
+  Context: Mission Post-Mortem entry D from SUCCESSFUL-MISSION-LOG-5-pathfinder-skill-overhaul.md -- directly observed during M5
+- Completed: 2026-03-25T21:35:19
+

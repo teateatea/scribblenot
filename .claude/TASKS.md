@@ -262,10 +262,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Context: not specified
 
 
-- [ ] **#51** Add Agent attribution field to sub-task log entries to verify delegation constraints
-  [D:62 C:48] Task #29 requires subagent delegation for context-heavy writes but the sub-task log has no Agent field, making silent violations undetectable. Add an optional `Agent: subagent|main` field to sub-task log entries and a Prefect verification step for any task with a delegation constraint.
-  Claude: D) **Process issue**: Task #29 specifies that Task Observations and Mission Post-Mortem must be written via subagents to avoid exhausting main-instance context, but the sub-task log has no entry for #29, making it impossible to confirm whether the SKILL.md instruction correctly delegates these writes or performs them inline. The functional output (sections written) may appear correct while the constraint (subagent delegation) is silently violated. **Suggested fix**: Add a verification step to the Prefect pass for task #29 (and any task with a delegation constraint) that checks not just whether the output exists, but whether the log entry records which agent wrote it (main instance vs. spawned subagent). The sub-task log format could include an optional `Agent: subagent | main` field.
-  Context: Mission Post-Mortem entry D from SUCCESSFUL-MISSION-LOG-5-pathfinder-skill-overhaul.md -- directly observed during M5
 
 - [ ] **#52** Require post-edit re-read validation in sub-task logs for any SKILL.md modification
   [D:62 C:52] When a mission sub-task edits a SKILL.md file, the sub-task log must record an explicit re-read and structural validation step confirming the edit is syntactically sound. The Prefect pass should treat absence of this confirmation as a blocking issue to prevent silent corruption of downstream sub-tasks.
