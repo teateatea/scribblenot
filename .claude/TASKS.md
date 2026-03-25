@@ -92,7 +92,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph: The /pathfinder-mission-team opens diffs when it creates or edits files ( I think). These open in a new window but because the permission gets handled (correctly) by the mission team, no user input is required. However, this is not intended behaviour, and introduces the possiblity of accidental input. Sometimes I'm typng somewhere else, and the window pops open for and it'd be pretty easy for me to cause problems if the timing was unlucky. When I'm working closely with Claude, I do like those diff windows, but they should not be used in pathfinder-mission-team.
   Context: not specified
 
-- [ ] **#16** Preserve Prefect-1 review report when Prefect-2 begins
+- [ ] **#16** Preserve Prefect-1 review report when Prefect-2 begins *(implemented)*
   [D:20 C:55] During pathfinder-mission-team, the plan file written by Prefect 1 is deleted before Prefect 2 starts, erasing the audit trail of where review changes originated. The Prefect-1 report should be retained so post-mission review can trace issues to specific review stages.
   Joseph: I'm not sure if it's from plan-review-team, or from pathfinder-mission-team, but during a /pathfinder-mission-team, the report that Prefect 1 writes gets removed before P2 begins. This is unnecessary, and actually introduces some ambiguity about where a change came from. Please do not remove that report, I'd like to be able to see where things happened, so I know what to look for if something goes wrong.
   Context: not specified
@@ -160,7 +160,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Context: Observed during mission 4 (tdd-warn-tracking). Task #5 required two full decompose/plan/implement cycles because attempt 1 verified already-present content and missed rationale field + named step criteria.
 
 
-- [ ] **#28** Add mv fallback when git mv fails for gitignored plan files in COMPLETED- rename step
+- [ ] **#28** Add mv fallback when git mv fails for gitignored plan files in COMPLETED- rename step *(implemented)*
   [D:20 C:60] Plan files in .claude/plans/ are gitignored in project repos, so git mv fails with "not under version control" for most renames. MT-3d should catch this error and fall back to regular mv, then git add the COMPLETED- file if the destination directory is tracked.
   Claude: git mv fallback for gitignored plan files: plan files live in .claude/plans/ which is gitignored in the scribblenot repo, so git mv fails silently for most of them during the COMPLETED- rename step. The MT-3d rename logic should try git mv first, catch the 'not under version control' error, and fall back to regular mv + git add for the new COMPLETED- file.
   Context: Observed during mission 4 finale. 9 of 12 plan renames required manual mv fallback because .claude/ is gitignored. The git mv partial-failure caused a commit that only captured 3 of 12 renames.
