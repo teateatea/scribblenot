@@ -264,13 +264,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 
 
 
-- [ ] **#53** Add Min/D stat to mission log and duration estimates to premission and mission-team
-  [D:25 C:58] Append a computed `Min/D:` field after `Duration:` in ## Mission Complete. In /pathfinder-premission (after the 140/200 D check) and /pathfinder-mission-team (near start), display an estimated duration using total D * 2.3 min as the current baseline rate, enabling future calibration as more mission data accumulates.
-  Joseph-Raw: In a pathfinder mission log, in the ## Mission Complete section after Duration:, please add minutes per difficulty. I'd like to be able to eventually start estimating the future mission durations based on difficulty. Also, add a mission duration estimate to both /pathfinder-premission (after the 140/200 D check) and /pathfinder-mission-team (near the very start). Current data suggests 2.3min/D, so use that for now.
-  Context: not specified
-  - [ ] **#53-2** Correct duration estimate formula to D×0.43 min, validated against M5 log data
-    [D:10 C:55] The original formula uses 2.3 min/D but the correct rate inverts to D×0.43; the implementation should verify this against M5 actual duration and difficulty before the value is baked in.
-    Joseph-Raw: I got the math backwards for that min/D vs D/min in #53. Please make sure the math makes sense for estimates, test against the M-5 log data. I'm pretty sure it should be D * 0.43, not 2.3.
     Context: not specified
 
 - [ ] **#54** Add Min/C and Min/U stats to Mission Complete section alongside Min/D

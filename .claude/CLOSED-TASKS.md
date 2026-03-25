@@ -48,3 +48,9 @@
   Context: Mission Post-Mortem entry E from SUCCESSFUL-MISSION-LOG-5-pathfinder-skill-overhaul.md -- directly observed during M5
 - Completed: 2026-03-25T21:54:49
 
+- [ ] **#53** Add Min/D stat to mission log and duration estimates to premission and mission-team
+  [D:25 C:58] Append a computed `Min/D:` field after `Duration:` in ## Mission Complete. In /pathfinder-premission (after the 140/200 D check) and /pathfinder-mission-team (near start), display an estimated duration using total D * 0.43 min as the baseline rate.
+  Joseph-Raw: In a pathfinder mission log, in the ## Mission Complete section after Duration:, please add minutes per difficulty. I'd like to be able to eventually start estimating the future mission durations based on difficulty. Also, add a mission duration estimate to both /pathfinder-premission (after the 140/200 D check) and /pathfinder-mission-team (near the very start). Current data suggests 2.3min/D, so use that for now.
+  Context: not specified
+- Completed: 2026-03-25T23:50:39
+
