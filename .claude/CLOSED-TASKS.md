@@ -18,3 +18,9 @@
   Context: not specified
 - Completed: 2026-03-25T20:33:02
 
+- [ ] **#45** Log reviewer and prefect pass counts per task in MISSION-LOG for planning effort correlation
+  [D:30 C:55] After each task and sub-task completes, record how many Reviewer and Prefect passes were consumed in the MISSION-LOG entry; this data enables correlation of D/C scores against actual planning effort and could eventually drive a "pause and closer look" alert when pass counts exceed score-based expectations.
+  Joseph: In a pathfinder-mission-team, as each task/sub-task gets recorded to the Log, please also record how many Reviews & Prefects were used. I'd like to whether D and C scores could be used to estimate the effort involved in planning a given task (which could also help flag a "pause & closer look" if more reviews / prefects are being used than expected).
+  Context: not specified
+- Completed: 2026-03-25T20:54:10
+

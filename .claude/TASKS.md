@@ -245,10 +245,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph: On pathfinder skills, the current date-time format is 2026-03-25T15:30:00-0400. Let's omit the UTC offset (the -0400), I'm a single user working on a single machine and don't expect timezones to be important ever. (Possibly for that ONE hour per year where daylight savings skips backwards, but that's an acceptable risk for reducing noise for the rest of the year.)
   Context: not specified
 
-- [ ] **#45** Log reviewer and prefect pass counts per task in MISSION-LOG for planning effort correlation
-  [D:30 C:55] After each task and sub-task completes, record how many Reviewer and Prefect passes were consumed in the MISSION-LOG entry; this data enables correlation of D/C scores against actual planning effort and could eventually drive a "pause and closer look" alert when pass counts exceed score-based expectations.
-  Joseph: In a pathfinder-mission-team, as each task/sub-task gets recorded to the Log, please also record how many Reviews & Prefects were used. I'd like to whether D and C scores could be used to estimate the effort involved in planning a given task (which could also help flag a "pause & closer look" if more reviews / prefects are being used than expected).
-  Context: not specified
 
 - [ ] **#46** Enforce sub-task log entry before marking any task complete in mission-team
   [D:25 C:55] The mission-team skill must require a minimal sub-task log entry (Status, Implementation, Timestamp) before a task can be marked Complete in the Task Status table; the drift checker or a Prefect-style check should flag missing entries as a blocking issue rather than letting them pass silently.
