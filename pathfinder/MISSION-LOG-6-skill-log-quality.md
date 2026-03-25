@@ -5,7 +5,7 @@
 - Date: 2026-03-25
 - Start-Time: 2026-03-25T19:06:43
 - Tasks: #19(P:99), #43(P:99), #47(P:99), #40(P:99), #41(P:99), #46(P:99), #48(P:99), #53(P:99), #45(P:99), #39(P:99), #42(P:99), #49(P:99), #46-2(P:99), #51(P:99), #52(P:99), #50(P:99), #54(P:99)
-- Difficulty: 110/569
+- Difficulty: 175/569
 
 ## Task Status
 
@@ -19,8 +19,8 @@
 | #46  | 99       | Queued | 0        |
 | #48  | 99       | Queued | 0        |
 | #53  | 99       | Queued | 0        |
-| #45  | 99       | Queued | 0        |
-| #39  | 99       | Queued | 0        |
+| #45  | 99       | Complete | 1        |
+| #39  | 99       | Complete | 1        |
 | #42  | 98       | Re-queued | 1        |
 | #49  | 99       | Complete | 1        |
 | #46-2 | 99      | Queued | 0        |
@@ -106,6 +106,46 @@
 - Agent: subagent
 - Shim-removal: N/A
 - Timestamp: 2026-03-25T19:25:04
+
+### Sub-task 45.1: Add Reviewers and Prefects fields to MT-3c step 5 sub-task log template
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Added `- Reviewers: <N>` and `- Prefects: <N>` fields to the MT-3c step 5 log template in pathfinder-mission-team/SKILL.md, after the TDD line; updated step 5 prose with fill-in instructions for both fields
+- Reviewers: 1
+- Prefects: 2 (Prefect-2 found blocking issue re: "Reviewers: 0 when TDD skipped" - fixed in retry reviewer; Prefect-3 approved)
+- Agent: subagent
+- Shim-removal: N/A
+- Timestamp: 2026-03-25T20:54:10
+
+### Sub-task 45.2: Add REVIEWER_COUNT and PREFECT_COUNT accumulator tracking to MT-3c plan-review loop
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Initialized REVIEWER_COUNT=0 and PREFECT_COUNT=0 at start of each sub-task loop; added increment instructions after each reviewer and prefect pass spawn; replaced verbose step-5 prose with direct REVIEWER_COUNT/PREFECT_COUNT references
+- Reviewers: 1
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Timestamp: 2026-03-25T20:54:10
+
+### Sub-task 46.1: Add Agent field to MT-3c sub-task log template in SKILL.md
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Verified Agent field already present in pathfinder-mission-team/SKILL.md at MT-3c step 5 template (line 309), inserted after Shim-removal and before Timestamp. Field format: `- Agent: <subagent | main> (subagent = delegated to a spawned Sonnet subagent; main = run directly by Mission Commander)`
+- Reviewers: 0
+- Prefects: 0
+- Agent: subagent
+- Shim-removal: N/A
+- Timestamp: 2026-03-25T20:59:59+0000
+
+### Sub-task 39.1: Update PM-5 to spawn parallel subagents for batch question prep when task count > 4
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Edited pathfinder-premission SKILL.md PM-5 to spawn parallel "PM-5 Question Builder" subagents (one per batch of 4) when task count > 4; all subagents complete before first AskUserQuestion; results fed into existing sequential loop; also clarified pre-mission note check actor at line 196
+- Reviewers: 2 + 2 retry
+- Prefects: 3 (Prefect-3 approved after retry)
+- Agent: subagent
+- Shim-removal: N/A
+- Timestamp: 2026-03-25T20:33:02
 
 ## Prefect Issues (unresolved)
 
