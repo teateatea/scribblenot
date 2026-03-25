@@ -224,10 +224,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph: In pathfinder-mission-team, I think casualties get reported to MISSION-active, but not into the MISSION-LOG-#-*.md under the permission denials heading, but they should be there too!
   Context: not specified
 
-- [ ] **#39** Parallelize PM-5 batch question generation with subagents when task count > 4
-  [D:35 C:72] In pathfinder-premission step PM-5, when there are more than 4 tasks, all question batches should be prepared simultaneously by parallel subagents upfront, then presented to the user sequentially in groups of 4 -- eliminating the idle wait between batches while the main instance processes the next group.
-  Joseph: The /pathfinder-premission skill should probably use subagents to prepare the batches in PM-5, when there's more than 4 tasks. It seems like I answer a batch, then I wait for the main instance to start thinking about the next 4. I'd rather have you subagent all the tasks simultaneously first, but only present them to me in batches of 4. Ignore if you're already using subagents here.
-  Context: not specified
 
 - [ ] **#40** Require detailed MISSION-LOG justification whenever mission-team skips a premission-approved task
   [D:25 C:58] pathfinder-mission-team must never silently drop a task from the user's starting command; any skip requires a written justification entry in MISSION-LOG, and the team's default stance should be that premission-approved tasks are mandatory -- skipping is a last resort that demands explicit reasoning on record.

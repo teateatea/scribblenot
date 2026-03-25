@@ -1,0 +1,20 @@
+# Closed Tasks
+
+- [ ] **#50** Enforce hook-update-before-file-move ordering in Decomposer; require shim-removal log confirmation
+  [D:65 C:52] When a mission sub-task moves a file referenced by a hook or self-referential script, the Decomposer/Planner must order the hook-update sub-task before the file-move sub-task to avoid permission failures. Any sub-task that introduces a temporary shim or compatibility artifact must also produce a log entry confirming its removal.
+  Claude: B) **Process issue**: The dependency order within task #17 (consolidate pathfinder artifacts) was incorrect: the manifest file (MISSION-PERMISSIONS.json) was moved to pathfinder/ before the hook scripts that depend on it were updated to reference the new path. This caused an immediate permission denial (Casualty 1) that required a compatibility shim workaround and a manual user approval. The shim was written with a note to remove it after sub-task 17.3, but no sub-task log entry for 17.2 or 17.3 exists, leaving it unverified whether the shim was actually removed. **Suggested fix**: Add a rule to the Decomposer or Planner prompt in the mission skill that when a sub-task moves a file that is read by a hook or other self-referential script, the hook update sub-task must be ordered BEFORE the file move sub-task. Additionally, require that any sub-task that creates a temporary shim or compatibility artifact must produce a log entry confirming its removal.
+  Context: Mission Post-Mortem entry B from SUCCESSFUL-MISSION-LOG-5-pathfinder-skill-overhaul.md -- directly observed during M5
+- Completed: 2026-03-25T19:25:48
+
+- [ ] **#49** Fix MT-1 false-positives from generic rationale entries causing tasks to be flagged as skipped *(implemented)*
+  [D:45 C:52] The MT-1 coverage check requires each task ID to appear explicitly in an approved_actions rationale, but premission generic entries cover multiple tasks without citing them by ID, causing false skip-flags. The fix is either to enforce per-task ID citations in the premission skill or to loosen MT-1 to accept wildcard file coverage as sufficient for all tasks touching that file.
+  Claude: A) **Process issue**: The MT-1 validation rule requires each task ID to appear as an explicit `#N` token in at least one `approved_actions.rationale` field, but the premission used generic entries ("core mission skill - updated by most tasks this mission") that covered many tasks without citing them by ID. This caused 9 of 17 tasks to be flagged as skipped at mission start, requiring a user intervention to re-add them before work could proceed. **Suggested fix**: Update the premission skill (pathfinder-premission/SKILL.md) to either (a) require per-task rationale citations when a task touches a shared artifact, or (b) update the MT-1 validation rule to treat a wildcard write/edit entry covering a shared file (e.g., SKILL.md) as sufficient coverage for all tasks that modify that file. This would eliminate false-skip cycles without changing the security intent of the coverage check.
+  Context: Mission Post-Mortem entry A from SUCCESSFUL-MISSION-LOG-5-pathfinder-skill-overhaul.md -- directly observed during M5
+- Completed: 2026-03-25T19:38:17
+
+- [ ] **#39** Parallelize PM-5 batch question generation with subagents when task count > 4
+  [D:35 C:72] In pathfinder-premission step PM-5, when there are more than 4 tasks, all question batches should be prepared simultaneously by parallel subagents upfront, then presented to the user sequentially in groups of 4 -- eliminating the idle wait between batches while the main instance processes the next group.
+  Joseph: The /pathfinder-premission skill should probably use subagents to prepare the batches in PM-5, when there's more than 4 tasks. It seems like I answer a batch, then I wait for the main instance to start thinking about the next 4. I'd rather have you subagent all the tasks simultaneously first, but only present them to me in batches of 4. Ignore if you're already using subagents here.
+  Context: not specified
+- Completed: 2026-03-25T20:33:02
+
