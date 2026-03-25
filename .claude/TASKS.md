@@ -130,7 +130,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph: For /pathfinder-mission-team, at the end of the ## Mission Complete section, add a new line "Context at finish:" for Joseph to optionally record. Considering 2 missions have now completed with context usage around 65-70% (despite mission difficulties of 125 and 175), context might not actually matter as much as I thought, but I'd like to record the data to confirm it.
   Context: not specified
 
-- [ ] **#29** Add Task Observations and Mission Post-Mortem sections to MISSION-LOG at wrap-up
+- [ ] **#29** Add Task Observations and Mission Post-Mortem sections to MISSION-LOG at wrap-up *(implemented)*
   [D:25 C:68] Insert two sections just before ## Mission Complete: "Task Observations" (clear gaps between intent and implementation with suggested next steps -- omit if nothing obvious) and "Mission Post-Mortem" (process inefficiencies noted during this mission, written with enough detail to be submitted directly as /add-task entries). Both written by the mission team during wrap-up.
   Joseph: The /pathfinder-mission team should add two sections just before ## Mission Complete: 1) Task Observations: Please note any obvious next steps related to the completed tasks in this mission, and explain why you think they'd be an improvement. This section can be empty, only record clear gaps in intent vs implementation. 2) Mission Post-Mortem: Please note any inefficiencies that you'd note in the /pathfinder-mission-team process from this mission in enough detail that it could be successfully used as an /add-task.
   Context: not specified
