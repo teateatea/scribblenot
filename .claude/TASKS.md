@@ -175,7 +175,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph: For /pathfinder-mission-team, create a PreCompact hook. Claude agents can't actually see their context usage, so they don't know how close they are to an automatic /compact. IN THEORY, the pathfinder mission team relies fairly heavily on .md to track the progress, so it should be resilient against /compact information dilution. But just before a compact happens, we might as well immediately log it so we know where it happened in the process, what exact time, etc. Then Claude can do a review later to see if there was any negative effect.
   Context: not specified
 
-- [ ] **#31** Move completed task entries from TASKS.md to CLOSED-TASKS.md with completion timestamp
+- [ ] **#31** Move completed task entries from TASKS.md to CLOSED-TASKS.md with completion timestamp *(implemented)*
   [D:25 C:58] When pathfinder-mission-team successfully completes a task, it should remove that task's entry from TASKS.md and append it to CLOSED-TASKS.md (creating the file if absent) with the completion date and time, keeping TASKS.md focused only on actionable work.
   Joseph: When /pathfinder-mission-team completes a task, let's actually move it to CLOSED-TASKS.md, just appended at the end of the file (and add the date and time please). No need to have TASKS.md cluttered up with tasks that no longer require action.
   Context: not specified
