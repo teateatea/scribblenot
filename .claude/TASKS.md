@@ -115,7 +115,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
     Claude: Blank line churn in plan review loop: planners are adding extra blank lines that reviewers or prefects then flag and remove, producing whitespace-only diffs with no semantic value. Audit the Planner prompt template to remove any instructions or examples that generate double blank lines between sections.
     Context: Observed during mission 4 (tdd-warn-tracking) and confirmed by Joseph in new task added post-mission. Review loop is spending subagent cycles on blank line normalization.
 
-- [ ] **#20** Fix mission-team timestamps to use actual time, not hardcoded midnight
+- [ ] **#20** Fix mission-team timestamps to use actual time, not hardcoded midnight *(implemented)*
   [D:10 C:72] MISSION-LOG entries show timestamps like `2026-03-24T00:00:00Z` -- the date is correct but time is always midnight, indicating the skill constructs timestamps from the date alone without calling `date` to get the real time. Fix: run `date` and format the result as a proper ISO 8601 timestamp.
   Joseph: I'm pretty sure /pathfinder-mission-team doesn't run bash(date), I'm seeing multiple "Timestamp: 2026-03-24T00:00:00Z" entries. Please correctly add the time, not just the date!
   Context: not specified
