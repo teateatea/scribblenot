@@ -5,7 +5,7 @@
 - Date: 2026-03-25
 - Start-Time: 2026-03-25T04:29:27-0400
 - Tasks: #17 (D:50, P:1), #37 (D:40, P:1), #26 (D:30, P:1), #15 (D:30, P:1), #35 (D:25, P:1), #18 (D:25, P:1), #29 (D:25, P:1), #31 (D:25, P:1), #16 (D:20, P:1), #28 (D:20, P:1), #33 (D:20, P:1), #38 (D:20, P:1), #30 (D:20, P:1), #20 (D:10, P:1), #36 (D:10, P:1), #24 (D:10, P:1), #25 (D:10, P:1)
-- Difficulty: 290/390
+- Difficulty: 310/390
 
 ## Task Status
 
@@ -23,7 +23,7 @@
 | #28  | 1        | Complete | 1      |
 | #33  | 1        | Complete | 1      |
 | #38  | 1        | Complete | 1      |
-| #30  | 1        | Queued | 0        |
+| #30  | 1        | Complete | 1      |
 | #20  | 1        | Queued | 0        |
 | #36  | 1        | Queued | 0        |
 | #24  | 1        | Queued | 0        |
@@ -50,6 +50,12 @@ Per-task rationale for why each was initially flagged, and why the generic permi
 **Note for future premission runs**: To avoid false-skip situations, either (a) cite each task ID explicitly in at least one rationale, or (b) the MT-1 check should treat a wildcard write/edit entry covering the skill file as sufficient coverage.
 
 ## Sub-task Log
+
+### Sub-task 30.1: Prefix plan filenames with mission number M<N>
+- Status: Pass
+- TDD: (no tests) - SKILL.md text edit, no test runner
+- Implementation: Added `Record MISSION_NUMBER = N+1` to MT-1 step 4; updated Planner prompt filename format from `N-<slug>.md` to `M<MISSION_NUMBER>-N-<slug>.md`; COMPLETED- rename step in MT-3d automatically preserves prefix
+- Timestamp: 2026-03-25T13:30:00-0400
 
 ### Sub-task 38.1: Mirror casualty entries to numbered MISSION-LOG Permission Denials
 - Status: Pass
