@@ -263,10 +263,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 
 
 
-- [ ] **#52** Require post-edit re-read validation in sub-task logs for any SKILL.md modification *(implemented)*
-  [D:62 C:52] When a mission sub-task edits a SKILL.md file, the sub-task log must record an explicit re-read and structural validation step confirming the edit is syntactically sound. The Prefect pass should treat absence of this confirmation as a blocking issue to prevent silent corruption of downstream sub-tasks.
-  Claude: E) **Process issue**: Multiple tasks that edit pathfinder-mission-team/SKILL.md were bundled into a single mission with no integration tests between sub-tasks. Because SKILL.md is an executable skill read by the Claude runtime, a mid-mission edit that introduces a syntax or logic error in the skill could silently corrupt later sub-tasks that depend on the same skill. No sub-task log entry for any of these tasks records a validation step (e.g., re-reading the modified SKILL.md to confirm structural integrity). **Suggested fix**: For any sub-task that edits a SKILL.md file, require the sub-task log to include a validation step confirming the file was re-read after editing and the modified section is syntactically consistent with surrounding content. The Prefect pass should treat absence of this confirmation as a blocking issue.
-  Context: Mission Post-Mortem entry E from SUCCESSFUL-MISSION-LOG-5-pathfinder-skill-overhaul.md -- directly observed during M5
 
 - [ ] **#53** Add Min/D stat to mission log and duration estimates to premission and mission-team
   [D:25 C:58] Append a computed `Min/D:` field after `Duration:` in ## Mission Complete. In /pathfinder-premission (after the 140/200 D check) and /pathfinder-mission-team (near start), display an estimated duration using total D * 2.3 min as the current baseline rate, enabling future calibration as more mission data accumulates.
