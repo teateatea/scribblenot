@@ -4,43 +4,85 @@
 - Slug: pathfinder-skill-overhaul
 - Date: 2026-03-25
 - Start-Time: 2026-03-25T04:29:27-0400
-- Tasks: #20 (D:10, P:1), #36 (D:10, P:1), #15 (D:30, P:1), #16 (D:20, P:1), #18 (D:25, P:1), #28 (D:20, P:1), #17 (D:50, P:1), #33 (D:20, P:1)
-- Difficulty: 0/390
+- Tasks: #17 (D:50, P:1), #37 (D:40, P:1), #26 (D:30, P:1), #15 (D:30, P:1), #35 (D:25, P:1), #18 (D:25, P:1), #29 (D:25, P:1), #31 (D:25, P:1), #16 (D:20, P:1), #28 (D:20, P:1), #33 (D:20, P:1), #38 (D:20, P:1), #30 (D:20, P:1), #20 (D:10, P:1), #36 (D:10, P:1), #24 (D:10, P:1), #25 (D:10, P:1)
+- Difficulty: 270/390
 
 ## Task Status
 
 | Task | Priority | Status | Attempts |
 |------|----------|--------|----------|
+| #17  | 1        | Complete | 1     |
+| #37  | 1        | Queued | 0        |
+| #26  | 1        | Complete | 1      |
+| #15  | 1        | Complete | 1      |
+| #35  | 1        | Complete | 1      |
+| #18  | 1        | Complete | 1      |
+| #29  | 1        | Complete | 1      |
+| #31  | 1        | Complete | 1      |
+| #16  | 1        | Complete | 1      |
+| #28  | 1        | Complete | 1      |
+| #33  | 1        | Complete | 1      |
+| #38  | 1        | Queued | 0        |
+| #30  | 1        | Queued | 0        |
 | #20  | 1        | Queued | 0        |
 | #36  | 1        | Queued | 0        |
-| #15  | 1        | Queued | 0        |
-| #16  | 1        | Queued | 0        |
-| #18  | 1        | Queued | 0        |
-| #28  | 1        | Queued | 0        |
-| #17  | 1        | Queued | 0        |
-| #33  | 1        | Queued | 0        |
+| #24  | 1        | Queued | 0        |
+| #25  | 1        | Queued | 0        |
 
 ## Skipped Tasks
 
-(tasks removed by pre-mission check before execution began)
+**Initial skip - reversed by user at 2026-03-25T04:50-0400**
 
-- Task #31: not found in MISSION-PERMISSIONS.json approved_actions
-- Task #30: not found in MISSION-PERMISSIONS.json approved_actions
-- Task #35: not found in MISSION-PERMISSIONS.json approved_actions
-- Task #37: not found in MISSION-PERMISSIONS.json approved_actions
-- Task #26: not found in MISSION-PERMISSIONS.json approved_actions
-- Task #38: not found in MISSION-PERMISSIONS.json approved_actions
-- Task #24: not found in MISSION-PERMISSIONS.json approved_actions
-- Task #25: not found in MISSION-PERMISSIONS.json approved_actions
-- Task #29: not found in MISSION-PERMISSIONS.json approved_actions
+The MT-1 validation rule requires each task ID to appear as an explicit `#N` token in at least one `approved_actions.rationale` field. Nine tasks failed that check because the premission used generic entries ("project file reads/writes/edits", "core mission skill - updated by most tasks this mission") rather than per-task citations. The user confirmed all 17 tasks were covered by premission and instructed the mission to proceed with the full list. All nine tasks have been re-added to TASK_QUEUE.
+
+Per-task rationale for why each was initially flagged, and why the generic permissions cover it:
+
+- **#24** (Rename mission log to SUCCESSFUL-*.md): Edits pathfinder-mission-team/SKILL.md. Covered by "core mission skill - updated by most tasks this mission" and "project file edits **.
+- **#25** (Add "Context at finish:" to Mission Complete): Edits pathfinder-mission-team/SKILL.md. Covered by "core mission skill - updated by most tasks this mission".
+- **#26** (Prior-attempt context to Decomposer): Edits pathfinder-mission-team/SKILL.md. Covered by "core mission skill - updated by most tasks this mission".
+- **#29** (Task Observations and Mission Post-Mortem): Edits pathfinder-mission-team/SKILL.md. Covered by "core mission skill - updated by most tasks this mission".
+- **#30** (Prefix plan filenames with mission number): Edits pathfinder-mission-team/SKILL.md. Covered by "core mission skill - updated by most tasks this mission".
+- **#31** (Move completed tasks to CLOSED-TASKS.md): Edits pathfinder-mission-team/SKILL.md and writes CLOSED-TASKS.md. The write entry explicitly cites "CLOSED-TASKS.md" in the pattern description, confirming this was anticipated during premission.
+- **#35** (Enforce full Prefect approval loop): Edits pathfinder-mission-team/SKILL.md. Covered by "core mission skill - updated by most tasks this mission".
+- **#37** (Fix priority direction and X² decay): Edits pathfinder-mission-team/SKILL.md. Covered by "core mission skill - updated by most tasks this mission".
+- **#38** (Mirror casualty entries to numbered MISSION-LOG): Edits pathfinder-mission-team/SKILL.md. Covered by "core mission skill - updated by most tasks this mission".
+
+**Note for future premission runs**: To avoid false-skip situations, either (a) cite each task ID explicitly in at least one rationale, or (b) the MT-1 check should treat a wildcard write/edit entry covering the skill file as sufficient coverage.
 
 ## Sub-task Log
 
-(filled per task)
+### Sub-task 33.1: Add D>50/C<70 clarification threshold to premission PM-1
+- Status: Pass
+- TDD: (no tests) - SKILL.md text edit, no test runner
+- Implementation: Updated PM-1 step 5 bullet definitions in pathfinder-premission/SKILL.md to add second OR condition (`D > 50 AND C < 70`); updated fast-path definition accordingly; removed hardcoded `+` prefix from PM-1.5 delta format string
+- Timestamp: 2026-03-25T12:00:00-0400
+
+### Sub-task 33.2: Add trigger-reason label to PM-1.5 AskUserQuestion format
+- Status: Pass
+- TDD: (no tests) - SKILL.md text edit, no test runner
+- Implementation: Updated PM-1.5 AskUserQuestion format string to include `trigger=<trigger>` inline; added explanatory note listing three possible trigger values (delta>0, D>50&C<70, delta>0,D>50&C<70)
+- Timestamp: 2026-03-25T12:30:00-0400
+
+### Sub-task 17.1: Create pathfinder/ directory and move all artifacts
+- Status: Pass
+- TDD: (no tests) - file moves, no cargo test coverage
+- Implementation: Created pathfinder/ subdirectory; moved PROJECT-FOUNDATION.md, MISSION-PERMISSIONS.json, MISSION-LOG-active.md, MISSION-LOG-1 through MISSION-LOG-5, SUCCESSFUL-MISSION-LOG-5 into it
+- Timestamp: 2026-03-25T04:50:00-0400
+
+## Prefect Issues Log
+
+### #17 Sub-task 2 — 17-premission-skill-paths.md (Prefect Pass 2)
+- **Blocking #1**: `pathfinder-mission-team/SKILL.md` reads MISSION-PERMISSIONS.json and MISSION-LOG files at root-level paths (lines 25, 36-37, 87, 125, 209). Sub-task 2 plan only covers premission skill. **Resolution**: Sub-task 3 scope expanded to also cover mission-team SKILL.md path updates.
+- **Blocking #2**: `~/.claude/hooks/check-mission-permissions.sh` (line 6) and `~/.claude/hooks/pre-compact-mission-log.sh` (line 5) use `$(pwd)/MISSION-PERMISSIONS.json` and `$(pwd)/MISSION-LOG-*.md` at root-level. Sub-task 1 plan noted these must be updated in a subsequent sub-task. **Resolution**: Sub-task 3 scope expanded to also update both hook scripts.
 
 ## Permission Denials
 
-(filled if hook blocks any tool call)
+### Casualty 1 — 2026-03-25T04:55-0400
+- Tool: Edit
+- File: C:/Users/solar/.claude/skills/pathfinder-premission/SKILL.md
+- Cause: Sub-task #17.1 moved MISSION-PERMISSIONS.json from project root to pathfinder/. The check-mission-permissions.sh hook looks for the manifest at `$(pwd)/MISSION-PERMISSIONS.json`; after the move, it exits 0 without auto-approving, falling through to Claude Code's manual permission dialog. User had to manually approve.
+- Fix applied: Wrote compatibility shim at project root (MISSION-PERMISSIONS.json copying pathfinder/ content) so the hook can find it again. Shim to be removed after #17 sub-task 3 updates the hook to use pathfinder/ path.
+- Note for future missions: The #17 task should have updated the hook BEFORE moving the manifest, or moved the manifest LAST. Order matters for self-referential artifacts.
 
 ## Abandonment Records
 
