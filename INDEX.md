@@ -1,5 +1,15 @@
-<!-- indexed: 2026-03-23 19:31 -->
+<!-- indexed: 2026-03-25 13:35 -->
 # Project Index
+
+.claude/plans/ - COMPLETED-* plan files for each pathfinder task, one per implemented sub-task, named with mission prefix
+
+.claude/PROJECT-TESTS.md - Per-task acceptance test checklists used by pathfinder to verify implementation; checked after each task completes
+
+.claude/PROJECT_LOG.md - Project breadcrumb trail: version history, architecture decisions, rebuild instructions
+
+.claude/settings.local.json - Project-local permission allow rules: cargo build/check, gstack, gh, skill invocations
+
+.claude/TASKS.md - Active task backlog for scribblenot; scored by Difficulty and Clarity Confidence; feature backlog lives in TODOS.md
 
 Cargo.lock - Rust dependency lockfile, pinning all transitive dependency versions
 
@@ -56,6 +66,24 @@ espanso/match/RMT 9 - Post Treatment.yml - Espanso matches for post-treatment se
 espanso/match/RMT.yml - Espanso top-level RMT match file: note headings, appointment header (oienhead/arsthead), subjective builder, response-to-previous form
 
 example-note.md - Sample completed clinical note showing the full rendered output format for all sections
+
+pathfinder/MISSION-LOG-1-super-confirm-cleanup.md - Mission log for mission 1 (super-confirm-cleanup): task status, permission events, casualties
+
+pathfinder/MISSION-LOG-2-pathfinder-skill-fixes.md - Mission log for mission 2 (pathfinder-skill-fixes): task status, permission events, casualties
+
+pathfinder/MISSION-LOG-3-pathfinder-skill-polish.md - Mission log for mission 3 (pathfinder-skill-polish): task status, permission events, casualties
+
+pathfinder/MISSION-LOG-4-tdd-warn-tracking.md - Mission log for mission 4 (tdd-warn-tracking): task status, permission events, casualties
+
+pathfinder/MISSION-LOG-active.md - Rolling log of permission denials and needs-manifest events from the most recent mission; rotated to numbered log on completion
+
+pathfinder/MISSION-PERMISSIONS.json - Approved action manifest for the current mission: allowed Read/Write/Edit/Bash patterns with rationale
+
+pathfinder/MISSION-6-BRIEF.md - Mission goals, requirements, non-goals, constraints, and test criteria for mission 6 (skill-log-quality)
+
+pathfinder/SUCCESSFUL-MISSION-LOG-5-pathfinder-skill-overhaul.md - Completed mission 5 log: all task outcomes, priority scores, attempt counts for the pathfinder-skill-overhaul mission
+
+pathfinder/SUCCESSFUL-MISSION-LOG-5-precompact-hook-log.md - Pre-compact hook output captured during mission 5; records what was logged before context compaction
 
 src/app.rs - Core application state (App struct, SectionState enum, Focus, MapHintLevel, StatusMsg); key event dispatch for all section types, modal handling, map navigation, config persistence
   also: App::new initialization, tick logic, state transitions between sections
