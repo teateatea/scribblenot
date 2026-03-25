@@ -250,7 +250,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Context: not specified
 
 
-- [ ] **#46-2** M5 post-mortem corroboration: six tasks marked Complete with no sub-task log entries
+- [ ] **#46-2** M5 post-mortem corroboration: six tasks marked Complete with no sub-task log entries *(sub-task 1 implemented)*
   [D:55 C:55] Six tasks were marked Complete with no corresponding sub-task log entries, making post-mission auditing unreliable. Update MT-3c/MT-3d to require a minimal log entry (Status, Implementation summary, Timestamp) before completion, with Prefect rejecting completions that lack log entries.
   Claude: C) **Process issue**: Six tasks (#16, #15, #18, #26, #28, #31) were marked Complete in the task table with no corresponding sub-task log entries. Without log entries there is no verifiable record of what was changed, which edge cases were addressed, or whether the implementation satisfies test criteria defined in PROJECT-FOUNDATION.md. This is a recurring pattern that makes post-mission auditing unreliable. **Suggested fix**: Update the MT-3c or MT-3d step in the mission skill to enforce that a sub-task log entry is written (at minimum: Status, Implementation summary, Timestamp) before a task is marked Complete. The Prefect pass should reject a task completion that has no corresponding log entry.
   Context: Mission Post-Mortem entry C from SUCCESSFUL-MISSION-LOG-5-pathfinder-skill-overhaul.md -- directly observed during M5
