@@ -209,7 +209,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph: The pathfinder skills appear to use ISO 8601 (correctly), but the time is set to Zulu time (T07:30:29Z). Given that there's only one computer running this skill on one project at a time, let's just use local time (Toronto) for easier user comprehension.
   Context: not specified
 
-- [ ] **#37** Fix priority direction and replace linear decay with X² cumulative reduction
+- [ ] **#37** Fix priority direction and replace linear decay with X² cumulative reduction *(implemented)*
   [D:40 C:62] Confirm whether tasks start at the wrong priority floor (0 instead of 99), then overhaul the decay algorithm: reduce priority by X² on each consecutive failed attempt (1, 4, 9, 16, 25...) where X resets to 1 after a successful intervening task completes; dependent tasks must receive the same reduction in lockstep; minimum priority is 0.
   Joseph: In /pathfinder-mission-team, I suspect the priority works backwards, please confirm. I think that tasks get abandoned at 0, meaning all tasks should probably start at 99. And actually, the priority deprecation should probably be a cumulative score: Priority is reduced by X^2, where X is the number of consecutive attempts count. So after the first attempt, reduce priority by 1, then 4, 9, 16, 25 etc. But if another task is successfully completed in between (because the first task got bumped below it), that X is reset back to one. Make sure that tasks with dependencies all receive the reduction to keep them in sync. Minimum priority score is 0.
   Context: not specified
