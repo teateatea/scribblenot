@@ -87,7 +87,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph: /pathfinder-mission-team should write Start-Time and End-Time into MISSION-LOG, when it starts and ends. We can start to gather data about difficulty vs duration, so that in the future, premission can give a completion time estimate.
   Context: not specified
 
-- [ ] **#15** Suppress diff-view windows during pathfinder-mission-team execution
+- [ ] **#15** Suppress diff-view windows during pathfinder-mission-team execution *(implemented)*
   [D:30 C:50] File edits made by mission-team subagents trigger diff view windows that pop over the user's active window during autonomous operation, creating a risk of accidental input if the user is typing elsewhere. Diff windows should be disabled or suppressed for the duration of a mission-team run.
   Joseph: The /pathfinder-mission-team opens diffs when it creates or edits files ( I think). These open in a new window but because the permission gets handled (correctly) by the mission team, no user input is required. However, this is not intended behaviour, and introduces the possiblity of accidental input. Sometimes I'm typng somewhere else, and the window pops open for and it'd be pretty easy for me to cause problems if the timing was unlucky. When I'm working closely with Claude, I do like those diff windows, but they should not be used in pathfinder-mission-team.
   Context: not specified
@@ -190,6 +190,11 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph: Assuming /compacting doesn't actually interfere with /pathfinder-mission-team (we'll find out 2-3 missions after #32 is completed), it's actually possible we could have an incredibly long series of tasks assigned without issue. With this in mind, I'd like to be able to do two things: I'd like to be able to stage multiple /pathfinder-premission's without causing conflicts. This probably requires mission-numbered PERMISSIONS.json (is that true?), PROJECT-FOUNDATION, etc. Please confirm where the conflicts would be before this task gets to /pathfinder-mission-team. And second, I'd like something like "/pathfinder-mission-team --auto", where the mission team can pick up one of the premission "briefings" (collection of tasks, permissions, etc), complete it, and then move onto the NEXT mission automatically, repeating until all missions have been addressed.
   Context: not specified
 
+  - [ ] **#34-2** Staged multi-premission briefings and --auto chain (pre-mission clarified)
+    [D:65 C:60] Namespace premission artifacts by mission number for concurrent staging without conflicts; --auto chains missions by lowest number first; planning phase must enumerate conflicting files before implementation; #17 (pathfinder/ dir) must complete first.
+    Joseph: Pre-mission clarifications captured: (1) planning phase should enumerate exactly which files conflict before implementation; (2) --auto discovers next mission by lowest mission number; (3) #17 (pathfinder/ directory) must be done first -- #34 namespacing assumes files already live in pathfinder/.
+    Context: not specified
+
 - [ ] **#35** Enforce full Prefect approval loop; no corner-cutting on nits
   [D:25 C:68] Investigate whether pathfinder-mission-team skips or short-circuits the Prefect review cycle when only minor issues remain, and if so, enforce that implementation never begins until Prefect gives unqualified approval -- the team must always run another reviewer pass rather than waiving remaining issues, consistent with the "slowly and perfectly" mission goal.
   Joseph: In /pathfinder-mission-team, it looks like sometimes, plans are being implemented without the full Prefect approval, would you look into it? Is this just the team cutting corners when all that remains is minor or nits? The goal for this team is more "slowly and perfectly, regardless of effort", so if it is, I'd rather you go back to another round of reviewers instead.
@@ -202,6 +207,36 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 - [ ] **#36** Use local Toronto time instead of UTC in pathfinder timestamps
   [D:10 C:78] Pathfinder MISSION-LOG timestamps are correctly formatted as ISO 8601 but use the UTC/Zulu offset (Z suffix); since a single machine runs this skill, switch to local Toronto time (America/Toronto, ET) for all timestamps so they match the user's clock without requiring mental UTC conversion.
   Joseph: The pathfinder skills appear to use ISO 8601 (correctly), but the time is set to Zulu time (T07:30:29Z). Given that there's only one computer running this skill on one project at a time, let's just use local time (Toronto) for easier user comprehension.
+  Context: not specified
+
+- [ ] **#37** Fix priority direction and replace linear decay with X² cumulative reduction
+  [D:40 C:62] Confirm whether tasks start at the wrong priority floor (0 instead of 99), then overhaul the decay algorithm: reduce priority by X² on each consecutive failed attempt (1, 4, 9, 16, 25...) where X resets to 1 after a successful intervening task completes; dependent tasks must receive the same reduction in lockstep; minimum priority is 0.
+  Joseph: In /pathfinder-mission-team, I suspect the priority works backwards, please confirm. I think that tasks get abandoned at 0, meaning all tasks should probably start at 99. And actually, the priority deprecation should probably be a cumulative score: Priority is reduced by X^2, where X is the number of consecutive attempts count. So after the first attempt, reduce priority by 1, then 4, 9, 16, 25 etc. But if another task is successfully completed in between (because the first task got bumped below it), that X is reset back to one. Make sure that tasks with dependencies all receive the reduction to keep them in sync. Minimum priority score is 0.
+  Context: not specified
+
+- [ ] **#38** Mirror casualty entries to numbered MISSION-LOG permission denials section
+  [D:20 C:70] Casualty (permission denial) events are written to MISSION-LOG-active.md but not copied to the permanent numbered MISSION-LOG-#-*.md file under its Permission Denials heading; both files should receive the entry so the archived mission record is complete.
+  Joseph: In pathfinder-mission-team, I think casualties get reported to MISSION-active, but not into the MISSION-LOG-#-*.md under the permission denials heading, but they should be there too!
+  Context: not specified
+
+- [ ] **#39** Parallelize PM-5 batch question generation with subagents when task count > 4
+  [D:35 C:72] In pathfinder-premission step PM-5, when there are more than 4 tasks, all question batches should be prepared simultaneously by parallel subagents upfront, then presented to the user sequentially in groups of 4 -- eliminating the idle wait between batches while the main instance processes the next group.
+  Joseph: The /pathfinder-premission skill should probably use subagents to prepare the batches in PM-5, when there's more than 4 tasks. It seems like I answer a batch, then I wait for the main instance to start thinking about the next 4. I'd rather have you subagent all the tasks simultaneously first, but only present them to me in batches of 4. Ignore if you're already using subagents here.
+  Context: not specified
+
+- [ ] **#40** Require detailed MISSION-LOG justification whenever mission-team skips a premission-approved task
+  [D:25 C:58] pathfinder-mission-team must never silently drop a task from the user's starting command; any skip requires a written justification entry in MISSION-LOG, and the team's default stance should be that premission-approved tasks are mandatory -- skipping is a last resort that demands explicit reasoning on record.
+  Joseph: When /pathfinder-mission-team skips any task listed in the user's starting command while building its initial task, it MUST justify this in the MISSION-LOG, in detail. As a general rule, the /pathfinder-mission-team should NEVER be skipping tasks, especially if they've gone through /pathfinder-premission! Their whole deal is to always get the job done.
+  Context: not specified
+
+- [ ] **#41** Confirm and fix mission-team task execution order to respect premission priority ranking
+  [D:25 C:45] pathfinder-mission-team may be processing tasks in an arbitrary order rather than following the priority sequence established during premission; investigate whether the priority list from MISSION-PERMISSIONS.json is read and honoured at MT-1 initialization, then fix or clarify.
+  Joseph: I think /pathfinder-mission-task might not be respecting the task priority order set out by the /pathfinder-premission. Confirm and fix, or clarify.
+  Context: not specified
+
+- [ ] **#42** Rename PROJECT-FOUNDATION to MISSION-#-BRIEF and add task priority order to it in both pathfinder skills
+  [D:35 C:55] PROJECT-FOUNDATION.md should be renamed to MISSION-#-BRIEF.md (mission-numbered) in both pathfinder-premission and pathfinder-mission-team, and premission should write the approved task priority order into this file so mission-team can reference it during execution.
+  Joseph: /pathfinder-premission should probably include its task priority order in the PROJECT-FOUNDATION, which we should now be naming the MISSION-#-BRIEF (in both pathfinder skills).
   Context: not specified
 
 ---
