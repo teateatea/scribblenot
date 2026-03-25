@@ -5,14 +5,14 @@
 - Date: 2026-03-25
 - Start-Time: 2026-03-25T04:29:27-0400
 - Tasks: #17 (D:50, P:1), #37 (D:40, P:1), #26 (D:30, P:1), #15 (D:30, P:1), #35 (D:25, P:1), #18 (D:25, P:1), #29 (D:25, P:1), #31 (D:25, P:1), #16 (D:20, P:1), #28 (D:20, P:1), #33 (D:20, P:1), #38 (D:20, P:1), #30 (D:20, P:1), #20 (D:10, P:1), #36 (D:10, P:1), #24 (D:10, P:1), #25 (D:10, P:1)
-- Difficulty: 350/390
+- Difficulty: 390/390
 
 ## Task Status
 
 | Task | Priority | Status | Attempts |
 |------|----------|--------|----------|
 | #17  | 1        | Complete | 1     |
-| #37  | 1        | Queued | 0        |
+| #37  | 1        | Complete | 1      |
 | #26  | 1        | Complete | 1      |
 | #15  | 1        | Complete | 1      |
 | #35  | 1        | Complete | 1      |
@@ -50,6 +50,12 @@ Per-task rationale for why each was initially flagged, and why the generic permi
 **Note for future premission runs**: To avoid false-skip situations, either (a) cite each task ID explicitly in at least one rationale, or (b) the MT-1 check should treat a wildcard write/edit entry covering the skill file as sufficient coverage.
 
 ## Sub-task Log
+
+### Sub-task 37.1-4: Fix priority to start at 99 with X² cumulative decay
+- Status: Pass
+- TDD: (no tests) - SKILL.md text edit, no test runner
+- Implementation: PRIORITY_MAP now initializes to 99; added CONSECUTIVE_FAILURE_MAP (X per task); MT-3d failure branch uses X² reduction with dependent lockstep; MT-3d success branch resets all other tasks' X counters to 0; MT-3e both branches (denial and FAILED) use X² formula
+- Timestamp: 2026-03-25T15:30:00-0400
 
 ### Sub-task 36.1: Switch all pathfinder timestamps to America/Toronto local time
 - Status: Pass
