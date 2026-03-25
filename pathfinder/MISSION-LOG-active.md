@@ -132,3 +132,4 @@ Three tool calls were blocked during Implementer execution for task #53 sub-task
 Root cause: no permission rule covered Read/Grep/Glob for `C:/Users/solar/.claude/skills/**`.
 User granted all three permissions manually in-session. Mission continues.
 Prevention: MISSION-PERMISSIONS.json must include standing allow rules for Read, Grep, and Glob on `C:/Users/solar/.claude/skills/**` before future missions that touch skill files.
+| 2026-03-25T23:39:13Z | NEEDS MANIFEST ENTRY | Glob | {"pattern": "**/review-plan/SKILL.md", "path": "C:/Users/solar/.claude"} |

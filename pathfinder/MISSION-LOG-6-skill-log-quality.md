@@ -5,7 +5,7 @@
 - Date: 2026-03-25
 - Start-Time: 2026-03-25T19:06:43
 - Tasks: #19(P:99), #43(P:99), #47(P:99), #40(P:99), #41(P:99), #46(P:99), #48(P:99), #53(P:99), #45(P:99), #39(P:99), #42(P:99), #49(P:99), #46-2(P:99), #51(P:99), #52(P:99), #50(P:99), #54(P:99)
-- Difficulty: 255/569
+- Difficulty: 379/569
 
 ## Task Status
 
@@ -24,8 +24,8 @@
 | #42  | 98       | Re-queued | 1        |
 | #49  | 99       | Complete | 1        |
 | #46-2 | 99      | Complete | 1        |
-| #51  | 99       | Queued | 0        |
-| #52  | 99       | Queued | 0        |
+| #51  | 99       | Complete | 1        |
+| #52  | 99       | Complete | 1        |
 | #50  | 99       | Complete | 1        |
 | #54  | 99       | Queued | 0        |
 
@@ -107,6 +107,59 @@
 - Shim-removal: N/A
 - Timestamp: 2026-03-25T19:25:04
 
+### Sub-task 52.1: Add Re-read field to MT-3c step 5 log template
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Inserted `Re-read:` field between Shim-removal and Agent in MT-3c step 5 log template with N/A vs Confirmed fill-in guidance
+- Reviewers: 3
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: Confirmed: SKILL.md step 5 template contains Re-read field in correct position
+- Timestamp: 2026-03-25T21:54:49
+
+### Sub-task 52.2: Add re-read step to MT-3c Implementer prompt for critical file edits
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Added step 7 to Implementer prompt instructing re-read after editing SKILL.md/hook/MISSION-PERMISSIONS.json files; return block shifted to step 8
+- Reviewers: 3
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: Confirmed: SKILL.md Implementer prompt step 7 is present and structurally sound
+- Timestamp: 2026-03-25T21:54:49
+
+### Sub-task 52.3: Add Re-read hard-block gate to MT-3d enforcement section
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Added Per-entry Re-read check (hard block) between Agent check and soft-field check in MT-3d; updated soft-field label to "runs only when Agent check and Re-read check passed"
+- Reviewers: 3
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: Confirmed: SKILL.md MT-3d enforcement gate contains Re-read check in correct position
+- Timestamp: 2026-03-25T21:54:49
+
+### Sub-task 51.1: Assessment - MT-3c Prefect prompts are plan reviewers, not log auditors
+- Status: Pass
+- TDD: (no tests)
+- Implementation: No file changes; documented that Agent-field blocking belongs in MT-3d (not MT-3c Prefect prompts which review plan files only)
+- Reviewers: 1
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Timestamp: 2026-03-25T21:35:19
+
+### Sub-task 51.2: Upgrade MT-3d Agent field check to hard-blocking in per-entry field check
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Split MT-3d per-entry field check into Agent check (hard block - triggers step 4 failure on missing Agent) and soft-warning check for Status/Implementation/Timestamp; missing Agent now re-queues the task
+- Reviewers: 1
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Timestamp: 2026-03-25T21:35:19
+
 ### Sub-task 46-2.1: Fix MT-3d enforcement gate to detect zero sub-task log entries
 - Status: Pass
 - TDD: (no tests)
@@ -183,7 +236,23 @@
 
 ## Permission Denials
 
-(filled if hook blocks any tool call)
+### Casualty 1 — 2026-03-25T23:37:07
+- Tool: Grep
+- Input: pattern search against `~/.claude/skills/**`
+- Task: #53 sub-task 1
+- Cause: Permission hook exited non-zero; tool call blocked. Implementer continued and completed successfully.
+
+### Casualty 2 — 2026-03-25T23:37:07
+- Tool: Grep
+- Input: pattern search against `~/.claude/skills/**`
+- Task: #53 sub-task 1
+- Cause: Permission hook exited non-zero; tool call blocked. Implementer continued and completed successfully.
+
+### Casualty 3 — 2026-03-25T23:37:07
+- Tool: Glob
+- Input: glob against `~/.claude/skills/**`
+- Task: #53 sub-task 1
+- Cause: Permission hook exited non-zero; tool call blocked. Implementer continued and completed successfully.
 
 ## Abandonment Records
 
