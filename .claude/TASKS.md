@@ -195,7 +195,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
     Joseph: Pre-mission clarifications captured: (1) planning phase should enumerate exactly which files conflict before implementation; (2) --auto discovers next mission by lowest mission number; (3) #17 (pathfinder/ directory) must be done first -- #34 namespacing assumes files already live in pathfinder/.
     Context: not specified
 
-- [ ] **#35** Enforce full Prefect approval loop; no corner-cutting on nits
+- [ ] **#35** Enforce full Prefect approval loop; no corner-cutting on nits *(implemented)*
   [D:25 C:68] Investigate whether pathfinder-mission-team skips or short-circuits the Prefect review cycle when only minor issues remain, and if so, enforce that implementation never begins until Prefect gives unqualified approval -- the team must always run another reviewer pass rather than waiving remaining issues, consistent with the "slowly and perfectly" mission goal.
   Joseph: In /pathfinder-mission-team, it looks like sometimes, plans are being implemented without the full Prefect approval, would you look into it? Is this just the team cutting corners when all that remains is minor or nits? The goal for this team is more "slowly and perfectly, regardless of effort", so if it is, I'd rather you go back to another round of reviewers instead.
   Context: not specified
