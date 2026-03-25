@@ -234,6 +234,10 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   [D:25 C:45] pathfinder-mission-team may be processing tasks in an arbitrary order rather than following the priority sequence established during premission; investigate whether the priority list from MISSION-PERMISSIONS.json is read and honoured at MT-1 initialization, then fix or clarify.
   Joseph: I think /pathfinder-mission-task might not be respecting the task priority order set out by the /pathfinder-premission. Confirm and fix, or clarify.
   Context: not specified
+  - [ ] **#41-2** M6 live evidence: tasks #39, #49, #50 completed first while higher-listed tasks #19, #43, #47 remain queued
+    [D:25 C:55] MISSION-LOG-6 at ~1h45m shows #39, #49, #50 at Attempts:1/Complete while tasks listed earlier in the premission order (#19, #43, #47 etc.) are still Queued. Confirms that execution order does not follow the premission priority list; provides concrete log data for diagnosing the root cause in the mission-team skill.
+    Joseph-Raw: Following up on #41, /pathfinder-mission-task following unexpected task order. Here's the top of MISSION-LOG-6-skill-log-quality.md, at about 1h 45m into the mission: [log excerpt showing #39/49/50 completed while #19/43/47 still queued]
+    Context: not specified
 
 - [ ] **#42** Rename PROJECT-FOUNDATION to MISSION-#-BRIEF and add task priority order to it in both pathfinder skills
   [D:35 C:55] PROJECT-FOUNDATION.md should be renamed to MISSION-#-BRIEF.md (mission-numbered) in both pathfinder-premission and pathfinder-mission-team, and premission should write the approved task priority order into this file so mission-team can reference it during execution.
@@ -246,14 +250,10 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Context: not specified
 
 
-- [ ] **#46** Enforce sub-task log entry before marking any task complete in mission-team
-  [D:25 C:55] The mission-team skill must require a minimal sub-task log entry (Status, Implementation, Timestamp) before a task can be marked Complete in the Task Status table; the drift checker or a Prefect-style check should flag missing entries as a blocking issue rather than letting them pass silently.
-  Claude: Enforce sub-task log entry for every completed task — mission-team must write at least a minimal log entry (Status, Implementation, Timestamp) before marking a task Complete; missing entries should be flagged by the drift checker or Prefect rather than silently accepted
-  Context: Reviewing MISSION-LOG-5 post-mission; six tasks were marked Complete with no sub-task log entries, making post-mission auditing unreliable
-  - [ ] **#46-2** M5 post-mortem corroboration: six tasks marked Complete with no sub-task log entries
-    [D:55 C:55] Six tasks were marked Complete with no corresponding sub-task log entries, making post-mission auditing unreliable. Update MT-3c/MT-3d to require a minimal log entry (Status, Implementation summary, Timestamp) before completion, with Prefect rejecting completions that lack log entries.
-    Claude: C) **Process issue**: Six tasks (#16, #15, #18, #26, #28, #31) were marked Complete in the task table with no corresponding sub-task log entries. Without log entries there is no verifiable record of what was changed, which edge cases were addressed, or whether the implementation satisfies test criteria defined in PROJECT-FOUNDATION.md. This is a recurring pattern that makes post-mission auditing unreliable. **Suggested fix**: Update the MT-3c or MT-3d step in the mission skill to enforce that a sub-task log entry is written (at minimum: Status, Implementation summary, Timestamp) before a task is marked Complete. The Prefect pass should reject a task completion that has no corresponding log entry.
-    Context: Mission Post-Mortem entry C from SUCCESSFUL-MISSION-LOG-5-pathfinder-skill-overhaul.md -- directly observed during M5
+- [ ] **#46-2** M5 post-mortem corroboration: six tasks marked Complete with no sub-task log entries
+  [D:55 C:55] Six tasks were marked Complete with no corresponding sub-task log entries, making post-mission auditing unreliable. Update MT-3c/MT-3d to require a minimal log entry (Status, Implementation summary, Timestamp) before completion, with Prefect rejecting completions that lack log entries.
+  Claude: C) **Process issue**: Six tasks (#16, #15, #18, #26, #28, #31) were marked Complete in the task table with no corresponding sub-task log entries. Without log entries there is no verifiable record of what was changed, which edge cases were addressed, or whether the implementation satisfies test criteria defined in PROJECT-FOUNDATION.md. This is a recurring pattern that makes post-mission auditing unreliable. **Suggested fix**: Update the MT-3c or MT-3d step in the mission skill to enforce that a sub-task log entry is written (at minimum: Status, Implementation summary, Timestamp) before a task is marked Complete. The Prefect pass should reject a task completion that has no corresponding log entry.
+  Context: Mission Post-Mortem entry C from SUCCESSFUL-MISSION-LOG-5-pathfinder-skill-overhaul.md -- directly observed during M5
 
 - [ ] **#47** Use letters (A, B, C...) for post-mortem entries in mission log
   [D:15 C:80] Mission Post-Mortem section entries in pathfinder mission logs should be labeled A), B), C)... rather than numbered, eliminating visual ambiguity with task numbers (#N format) when reviewing or submitting post-mortem items as add-task entries.
@@ -307,6 +307,11 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 - [ ] **#57** Fix M6 Start-Time recorded ~4 hours ahead of actual local time
   [D:20 C:45] MISSION-LOG-6 shows Start-Time T19:06 but the user reports it is ~15:12 and the mission just started; the timestamp is ~4 hours ahead of actual. Likely a timezone offset being applied incorrectly (double-counted or wrong sign) in the pathfinder Start-Time recording step, introduced after task #36 switched timestamps to Toronto local time.
   Joseph-Raw: Pretty sure M6 Start-Time is wrong. It says T19:06, but it's 3:12PM right now. It only started a few minutes ago, not... 4 hours in the future?? I'm guessing all times will be off for this mission, but I'm not interupting it for just this.
+  Context: not specified
+
+- [ ] **#59** Mirror PreCompact hook entries to the numbered MISSION-LOG file, not just MISSION-LOG-active
+  [D:15 C:60] The PreCompact hook (added in #32) logs compact events to MISSION-LOG-active.md but not to the permanent numbered MISSION-LOG-N-*.md file. Compact events should appear in the human-readable mission log so post-mission review shows exactly when compaction occurred without needing to cross-reference a separate file.
+  Joseph-Raw: On M6, at the 2 hour mark, I checked the logs and the active instance. I believe the precompact hook is firing, and logging into MISSION-LOG-active, but I'd like an entry in the human-readable MISSION-LOG-6* as well!
   Context: not specified
 
 - [ ] **#58** Resolve collision between TASKS.md sub-entry format (#N-2) and pathfinder sub-task nomenclature

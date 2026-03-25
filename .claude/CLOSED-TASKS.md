@@ -24,3 +24,9 @@
   Context: not specified
 - Completed: 2026-03-25T20:54:10
 
+- [ ] **#46** Enforce sub-task log entry before marking any task complete in mission-team
+  [D:25 C:55] The mission-team skill must require a minimal sub-task log entry (Status, Implementation, Timestamp) before a task can be marked Complete in the Task Status table; the drift checker or a Prefect-style check should flag missing entries as a blocking issue rather than letting them pass silently.
+  Claude: Enforce sub-task log entry for every completed task — mission-team must write at least a minimal log entry (Status, Implementation, Timestamp) before marking a task Complete; missing entries should be flagged by the drift checker or Prefect rather than silently accepted
+  Context: Reviewing MISSION-LOG-5 post-mission; six tasks were marked Complete with no sub-task log entries, making post-mission auditing unreliable
+- Completed: 2026-03-25T21:06:29
+
