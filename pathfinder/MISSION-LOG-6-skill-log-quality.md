@@ -5,7 +5,7 @@
 - Date: 2026-03-25
 - Start-Time: 2026-03-25T19:06:43
 - Tasks: #19(P:99), #43(P:99), #47(P:99), #40(P:99), #41(P:99), #46(P:99), #48(P:99), #53(P:99), #45(P:99), #39(P:99), #42(P:99), #49(P:99), #46-2(P:99), #51(P:99), #52(P:99), #50(P:99), #54(P:99)
-- Difficulty: 379/569
+- Difficulty: 429/569
 
 ## Task Status
 
@@ -14,11 +14,11 @@
 | #19  | 99       | Queued | 0        |
 | #43  | 99       | Queued | 0        |
 | #47  | 99       | Queued | 0        |
-| #40  | 99       | Queued | 0        |
+| #40  | 99       | Complete | 1        |
 | #41  | 98       | Queued (blocked, dep #42) | 0        |
 | #46  | 99       | Complete | 1        |
 | #48  | 99       | Queued | 0        |
-| #53  | 99       | Queued | 0        |
+| #53  | 99       | Complete | 1        |
 | #45  | 99       | Complete | 1        |
 | #39  | 99       | Complete | 1        |
 | #42  | 98       | Re-queued | 1        |
@@ -106,6 +106,39 @@
 - Agent: subagent
 - Shim-removal: N/A
 - Timestamp: 2026-03-25T19:25:04
+
+### Sub-task 53.1: Add Min/D computed field to MT-4 Mission Complete section
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Added TOTAL_D=COMPLETED_D and MIN_D computation to MT-4 step 3; added `- Min/D:` line after Duration in Mission Complete template
+- Reviewers: 1
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: Confirmed: SKILL.md MT-4 Mission Complete block contains Min/D field correctly
+- Timestamp: 2026-03-25T23:50:39
+
+### Sub-task 53.2: Add estimated duration display after D-check in pathfinder-premission
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Inserted duration estimate note after PM-1 step 4.5 threshold branches in pathfinder-premission/SKILL.md: "Estimated duration: ~X min (total_D x 0.43)"
+- Reviewers: 1 + 1 retry
+- Prefects: 3 (Prefect-2 found nits; Prefect-3 approved after retry)
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: Confirmed: premission SKILL.md PM-1 section contains duration estimate display correctly
+- Timestamp: 2026-03-25T23:50:39
+
+### Sub-task 53.3: Add ESTIMATED_DURATION to MT-1 start and mission log template
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Added step 2b (ESTIMATED_DURATION = round(T * 0.43)) to MT-1; added Estimated-Duration line to Mission block template in MT-1 step 5
+- Reviewers: 1
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: Confirmed: SKILL.md MT-1 Mission block template contains Estimated-Duration field correctly
+- Timestamp: 2026-03-25T23:50:39
 
 ### Sub-task 52.1: Add Re-read field to MT-3c step 5 log template
 - Status: Pass
@@ -219,6 +252,17 @@
 - Agent: subagent
 - Shim-removal: N/A
 - Timestamp: 2026-03-25T21:00:00
+
+### Sub-task 40.1: Expand MT-1 step 2a skip framing to last-resort with dual confirmation checks
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Replaced generic 3-line skip bullet in MT-1 step 2a with expanded last-resort framing requiring dual confirmation checks (a: HAS_WILDCARD_ENTRY was false, b: all entries scanned), zero-interaction note, and detailed SKIPPED_TASKS reason string with entry count <K>
+- Reviewers: 1
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: Confirmed: SKILL.md MT-1 step 2a last-resort framing with dual confirmation checks present and structurally sound
+- Timestamp: 2026-03-25T23:59:51
 
 ### Sub-task 39.1: Update PM-5 to spawn parallel subagents for batch question prep when task count > 4
 - Status: Pass
