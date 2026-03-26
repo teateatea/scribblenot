@@ -56,11 +56,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 
 
 
-- [ ] **#62** Omit (P:99) priority annotation from Tasks list in MISSION-LOG ## Mission section
-  [D:15 C:42] Tasks listed in the ## Mission Tasks field of MISSION-LOG should drop the "(P:N)" priority suffix so the list reads as plain task IDs (e.g. #19, #43, #47) without redundant annotation noise.
-  Joseph-Raw: In the MISSION-LOG-#, under ## Mission, Tasks: can omit (P:99) on each task. #19, #43, #47, etc is fine.
-  Context: not specified
-
 - [ ] **#64** Add multi-file pattern search to Implementer prompt for repeated-pattern changes
   [D:25 C:75] Add a mandatory step to the Implementer prompt (MT-3c) requiring a grep across the full project including hooks/ for the exact pattern being changed before marking implementation complete, preventing single-file fixes that leave sibling files broken.
   Claude: "Add multi-file pattern search step to Implementer prompt for tasks that modify repeated patterns" -- Before marking implementation complete, the Implementer should grep the full project (including hooks/) for the exact pattern being changed and update all matching locations, preventing single-file fixes that leave sibling files broken.
@@ -88,4 +83,19 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 - [ ] **#73** Enforce strict mission-permissions-only hook policy with pre-emptive denial and robust task abandonment
   [D:75 C:52] Replace fallback-to-system-permissions behavior with a hard deny for any unlisted command during a mission; requires two complementary changes: (1) significantly more thorough missions/default permissions coverage, and (2) a dependency-aware task ordering system that can safely abandon blocked tasks without leaving dangling dependencies.
   Joseph-Raw: Casualties keep appearing on pathfinder missions. Consider making our hooks stricter: If the command doesn't appear on the mission permissions, the agent is pre-emptively denied entirely. No hand back to the system permissions, while a mission is running. Two things will have to change to accomodate this: We'll need a much more thorough missions permissions file (and/or a more thorough default permissions file), and we'll need the dependencies and task order system to be robust enough to confidently abandon tasks without leaving behind dependencies.
+  Context: not specified
+
+- [ ] **#74** Preserve per-mission tracker; split logging into MISSION-N-LOG (human-readable) and MISSION-N-TRACKER (machine-readable, kept per mission)
+  [D:55 C:72] Currently MISSION-LOG-active is wiped at mission end, potentially losing data written there but not surfaced in the human-readable log. Fix by: (1) renaming the human-readable log to MISSION-N-LOG for format consistency, and (2) renaming MISSION-LOG-active to MISSION-N-TRACKER -- keeping it per-mission, machine-readable, accuracy/efficiency-first, never deleted.
+  Joseph-Raw: I think the MISSION-LOG-active should not get wiped at the end of every mission. I think sometimes, things are being added to that log, and not the human readable MISSION-LOG-N. And I think we might be losing valuable data for figuring out what happened and how to prevent casualties. I propose we use two files going forwards: MISSION-N-LOG (slight rename to standardize format, this is the human readable log), and MISSION-N-TRACKER (this is what we currently call the MISSION-LOG-active, but now we keep it for each mission; it just needs to be machine readable, and otherwise can prioritize accuracy and efficiency).
+  Context: not specified
+
+- [ ] **#75** Standardize all mission file naming to MISSION-N-*-COMPLETE/SUCCESS pattern
+  [D:45 C:78] Replace leading SUCCESS-*.md with trailing suffix: default to MISSION-N-*-COMPLETE-*.md, use MISSION-N-*-SUCCESS-*.md only on zero-casualty missions. Apply COMPLETE/SUCCESS suffix to all mission-specific files (log, tracker, etc), keeping all MISSION-N-* files adjacent when sorted.
+  Joseph-Raw: As an addendum to the above, let's do MISSION-N-LOG-COMPLETE-*.md instead of the leading SUCCESS-*.md (this will keep all of the MISSION-N-*.md files together when sorted. And actually, let's apply -COMPLETE- as the default, and -SUCCESS- on 0 casualty missions. We can actually put COMPLETE/SUCCESS on *all* mission specific files (so the tracker, etc too).
+  Context: not specified
+
+- [ ] **#76** Explore moving mission files out of .claude/ to resolve permission/security concerns
+  [D:70 C:35] Having pathfinder write TASKS.md, CLOSED-TASKS.md, plans, etc. inside .claude/ triggers "Claude changing Claude settings" security concerns. Needs /discuss-idea pass first -- user is unsure what the right alternative location is. Outcome of discussion should produce a concrete proposal before planning/implementation.
+  Joseph-Raw: I think we might need to put as many mission files as possible NOT in projectroot/.claude. It seems like that causes a system security concern for "Claude changing Claude settings", but we're just trying to create or edit TASKS, CLOSED-TASKS, plans, etc. I think this may be a /discuss-idea candidate first, I'm not sure what I do want to have instead.
   Context: not specified

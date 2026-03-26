@@ -384,3 +384,9 @@
   Joseph-Raw: In the MISSION-LOG-#, under ## Mission, change "Difficulty: {total completed}/{mission total}" to "Difficulty: {total completed}/{mission total} ({total remaining} remaining)"
   Context: not specified
 - Completed: 2026-03-26T12:10:00
+
+- [ ] **#62** Omit (P:99) priority annotation from Tasks list in MISSION-LOG ## Mission section
+  [D:15 C:42] Tasks listed in the ## Mission Tasks field of MISSION-LOG should drop the "(P:N)" priority suffix so the list reads as plain task IDs (e.g. #19, #43, #47) without redundant annotation noise.
+  Joseph-Raw: In the MISSION-LOG-#, under ## Mission, Tasks: can omit (P:99) on each task. #19, #43, #47, etc is fine.
+  Context: not specified
+- Completed: 2026-03-26T12:20:00

@@ -5,7 +5,7 @@
 - Date: 2026-03-26
 - Start-Time: 2026-03-26T04:06:42
 - Tasks: #64 (P:99), #66 (P:99), #65 (P:99), #68 (P:99), #69 (P:99), #67 (P:99), #63 (P:99), #59 (P:99), #56 (P:99), #55 (P:99), #58 (P:99), #60 (P:99), #56-2 (P:99), #57 (P:99), #61 (P:99), #62 (P:99)
-- Difficulty: 350/420 (70 remaining)
+- Difficulty: 365/420 (55 remaining)
 - Estimated-Duration: ~181 min (T x 0.43)
 - Prior-Auto-Accept: false
 
@@ -28,7 +28,7 @@
 | #56-2  | 99       | Complete | 1       |
 | #57    | 99       | Complete | 1      |
 | #61    | 99       | Complete | 1       |
-| #62    | 99       | Queued | 0        |
+| #62    | 99       | Complete | 1       |
 
 ## Skipped Tasks
 
@@ -390,6 +390,19 @@
 - Bash-used: grep, git add
 - Agent: subagent
 - Timestamp: 2026-03-26T12:10:00
+
+### Sub-task 62.1: Remove (P:N) priority annotation from Tasks field in MT-1 MISSION-LOG template
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 1
+- Prefects: 1
+- Implementation: Updated Tasks line in MT-1 MISSION-LOG template from "comma-separated list with initial priorities" to "comma-separated task IDs, e.g. #64, #66, #65"; zero remaining "initial priorities" occurrences in any skill file
+- Grep: Confirmed zero "initial priorities" matches in pathfinder-mission-team/SKILL.md and all sibling skill files
+- Shim-removal: N/A
+- Re-read: Confirmed line 78 of SKILL.md now reads "- Tasks: <comma-separated task IDs, e.g. #64, #66, #65>"
+- Bash-used: grep, git add
+- Agent: subagent
+- Timestamp: 2026-03-26T12:20:00
 
 ## Prefect Issues (unresolved)
 
