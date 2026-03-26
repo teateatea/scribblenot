@@ -5,7 +5,7 @@
 - Date: 2026-03-25
 - Start-Time: 2026-03-25T19:06:43
 - Tasks: #19(P:99), #43(P:99), #47(P:99), #40(P:99), #41(P:99), #46(P:99), #48(P:99), #53(P:99), #45(P:99), #39(P:99), #42(P:99), #49(P:99), #46-2(P:99), #51(P:99), #52(P:99), #50(P:99), #54(P:99)
-- Difficulty: 474/569
+- Difficulty: 489/569
 
 ## Task Status
 
@@ -13,7 +13,7 @@
 |------|----------|--------|----------|
 | #19  | 99       | Queued | 0        |
 | #43  | 99       | Queued | 0        |
-| #47  | 99       | Queued | 0        |
+| #47  | 99       | Complete | 1        |
 | #40  | 99       | Complete | 1        |
 | #41  | 98       | Queued (blocked, dep #42) | 0        |
 | #46  | 99       | Complete | 1        |
@@ -306,6 +306,17 @@
 - Shim-removal: N/A
 - Re-read: Confirmed: MT-3 init, MT-3d success branch, MT-4 step 3 computation block, and Mission Complete template are structurally sound
 - Timestamp: 2026-03-26T00:25:39
+
+### Sub-task 47.1: Update Mission Post-Mortem Writer prompt to use lettered A/B/C entries
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Updated pathfinder-mission-team SKILL.md MT-4 step 4b: replaced bullet `- **[Slug]**:` format with `A) **[Slug]**:` lettered format in prose description, template block, and clean-mission fallback
+- Reviewers: 1
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: Confirmed: MT-4 step 4b post-mortem template uses A) lettered format correctly
+- Timestamp: 2026-03-26T00:32:10
 
 ## Prefect Issues (unresolved)
 
