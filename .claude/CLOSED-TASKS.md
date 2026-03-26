@@ -348,3 +348,9 @@
     Context: not specified
 - Completed: 2026-03-26T06:32:48
 
+- [ ] **#55** Track premission duration and show estimate before committing to session
+  [D:40 C:55] Add start/end timestamps to pathfinder-premission itself and compute a pre-session duration estimate (using D/C/U metrics) displayed before the user commits, so they can trim the task list when the estimated premission time exceeds available time.
+  Joseph-Raw: I'd like to start tracking how long the pathfinder premission takes too. I assume this should go in the MISSION BRIEF, or recommend a better place. It should include the calculations we're tracking for missions too, premission start process / end process, estimates for duration vs D, C, U. For especially large premissions, I'd like to not be starting one that'll take 30 minutes to complete properly if I only have 10 minutes lol. I'd rather chop the list down, get the premission done, then send the pathfinder team on those priority items before I leave.
+  Context: not specified
+- Completed: 2026-03-26T06:43:56
+

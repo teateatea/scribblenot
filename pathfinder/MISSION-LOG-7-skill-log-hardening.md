@@ -5,7 +5,7 @@
 - Date: 2026-03-26
 - Start-Time: 2026-03-26T04:06:42
 - Tasks: #64 (P:99), #66 (P:99), #65 (P:99), #68 (P:99), #69 (P:99), #67 (P:99), #63 (P:99), #59 (P:99), #56 (P:99), #55 (P:99), #58 (P:99), #60 (P:99), #56-2 (P:99), #57 (P:99), #61 (P:99), #62 (P:99)
-- Difficulty: 195/420
+- Difficulty: 235/420
 - Estimated-Duration: ~181 min (T x 0.43)
 - Prior-Auto-Accept: false
 
@@ -22,7 +22,7 @@
 | #63    | 99       | Complete | 1       |
 | #59    | 99       | Queued | 0        |
 | #56    | 99       | Complete | 1       |
-| #55    | 99       | Queued | 0        |
+| #55    | 99       | Complete | 1       |
 | #58    | 99       | Queued | 0        |
 | #60    | 99       | Queued | 0        |
 | #56-2  | 99       | Queued | 0        |
@@ -179,6 +179,18 @@
 - Re-read: Confirmed: SKILL.md Implementer prompt block has correct step numbering (6-commit, 7-grep, 8-re-read, 9-return) and sub-task log template includes Grep: field with no truncation
 - Agent: subagent
 - Timestamp: 2026-03-26T04:20:53
+
+### Sub-task 55.1: Add premission start/end timestamps and duration estimate
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 2
+- Prefects: 2
+- Implementation: Added step 0 in PM-1 to capture PREMISSION_START via Bash date; inserted estimated premission setup note after step 4.5 difficulty check (formula: round(N * 1.5 + U * 2.5)); added PREMISSION_END capture and elapsed time computation at PM-6 start; inserted Premission Estimate and Premission Actual fields into PM-6 Pre-Flight Summary
+- Grep: Searched PREMISSION_START and Premission duration in both scribblenot and ~/.claude; only pathfinder-premission/SKILL.md (updated) and .jsonl history matched; no other non-historical files required updating
+- Shim-removal: N/A
+- Re-read: Confirmed PM-1 line 18-41 has step 0 PREMISSION_START and PM-6 lines 229-250 have PREMISSION_END capture with Premission Estimate/Actual fields in Pre-Flight Summary
+- Agent: subagent
+- Timestamp: 2026-03-26T06:43:56
 
 ### Sub-task 56.1: Create DEFAULT-PERMISSIONS.json schema and update premission baseline read
 - Status: Pass
