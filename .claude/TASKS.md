@@ -222,10 +222,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 
 
 
-- [ ] **#43** Drop UTC offset from pathfinder timestamps, output bare local datetime
-  [D:10 C:60] Change pathfinder skill timestamp format from `2026-03-25T15:30:00-0400` to `2026-03-25T15:30:00` by stripping the offset suffix -- single user, single machine, offset is noise.
-  Joseph: On pathfinder skills, the current date-time format is 2026-03-25T15:30:00-0400. Let's omit the UTC offset (the -0400), I'm a single user working on a single machine and don't expect timezones to be important ever. (Possibly for that ONE hour per year where daylight savings skips backwards, but that's an acceptable risk for reducing noise for the rest of the year.)
-  Context: not specified
 
 
 
