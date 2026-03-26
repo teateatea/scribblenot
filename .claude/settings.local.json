@@ -21,7 +21,10 @@
       "Bash(printf:*)",
       "Skill(pathfinder-premission)",
       "Skill(index-project)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "Skill(discuss-idea)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\(''''hooks'''', {}\\), indent=2\\)\\)\")"
     ]
-  }
+  },
+  "autoAcceptEdits": true
 }
