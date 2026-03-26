@@ -42,150 +42,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 
 ## Pathfinder Improvements
 
-- [x] **#3** Fix hook logging all tool calls as PERMISSION DENIED in mission log
-  [D:30 C:60] The MISSION-LOG-active.md hook appends every tool call as a permission denial entry regardless of outcome, polluting mission logs with noise. Needs hook filter on actual denial exit codes or watch-pattern rename.
-  Joseph: Hook collision: MISSION-LOG-active.md hook appends every tool call as a PERMISSION DENIED entry regardless of outcome - pollutes mission logs with noise. Fix: rename active log away from hook watch pattern, or filter hook on actual denial exit codes.
-  Context: First pathfinder mission run on scribblenot, flagged during mission initialization
-
-- [x] **#4** Premission should enumerate all commands the mission loop may run
-  [D:20 C:60] MISSION-PERMISSIONS.json only includes `cargo build` and `cargo clippy` but the mission TDD phase also needs `cargo test`. Premission must require explicit approval for every command the loop may invoke.
-  Joseph: MISSION-PERMISSIONS.json goes stale after premission: only `cargo build` and `cargo clippy` were approved for dead-code-cleanup mission, but the mission loop needs `cargo test` too. Fix: premission should enumerate all commands the mission loop may run (including cargo test) and require explicit approval per command.
-  Context: First pathfinder mission run on scribblenot, flagged during mission initialization
-
-- [x] **#5** Add TDD-feasibility check to Decomposer for event-loop and TUI code
-  [D:40 C:60] The mission loop assumes failing unit tests can always be written before implementation, but crossterm key-event handling has no test harness. The Decomposer should detect sub-tasks where compile-time failing tests are infeasible and set test_runner to none.
-  Joseph: TDD feasibility gap for TUI/event-loop apps: pathfinder assumes failing unit tests can always be written before implementation, but crossterm key-event handling is tightly coupled to mutable TUI state and has no test harness. Fix: add a TDD-feasibility check step to the Decomposer that sets test_runner to none for sub-tasks where compile-time tests are impossible to write.
-  Context: First pathfinder mission run on scribblenot, flagged during mission initialization
-
-- [x] **#6** Cap or coarsen Decomposer sub-task count to reduce subagent overhead
-  [D:25 C:60] Decomposer can produce 7+ sub-tasks per task, each triggering up to 6 subagent spawns, totalling 40+ agents for one feature. Add a 5 sub-task cap or coarseness heuristic to group related incremental steps.
-  Joseph: Decomposer sub-task count bloat: for tightly coupled incremental features the decomposer can produce 7+ sub-tasks, each triggering 6 subagent spawns. Fix: add a cap (e.g. 5 sub-tasks max) or a coarseness heuristic to the Decomposer prompt so related implementation steps are grouped.
-  Context: First pathfinder mission run on scribblenot, flagged during mission initialization
-
-- [x] **#7** Mission MT-1 must validate task list against premission scope before starting
-  [D:35 C:60] Tasks added after premission was run will have no approved permissions or test criteria. Mission initialization must cross-check each task against MISSION-PERMISSIONS.json and skip (with log entry) any task not explicitly covered.
-  Joseph: Mission must validate premission scope before starting: if a task was added after premission was run it will not have approved permissions, tool allowlists, or test criteria. Fix: at MT-1 initialization, cross-check each task in TASK_LIST against MISSION-PERMISSIONS.json approved_actions and TASKS.md entries; skip any task not explicitly covered in premission and log the skip.
-  Context: First pathfinder mission run on scribblenot, flagged during mission initialization
-
-- [x] **#8** Premission should prompt clarifying questions when a task's D score exceeds its C score
-  [D:25 C:55] During premission setup, any task where difficulty exceeds clarity confidence should trigger targeted user questions before going dark; low-D tasks can be fast-pathed automatically while high-D/low-C tasks warrant deeper discussion to avoid mid-mission surprises.
-  Joseph: In pathfinder PREMISSION, any task with D greater than C should be discussed to clarify. Likely the minor fixes can be passed over quickly, anything that's Difficult but not Clear should prompt additional questioning while the user is available.
-  Context: First pathfinder mission run on scribblenot, flagged during graceful mission exit
-
-- [x] **#9** Replace `Original:` label in add-task entries with `Joseph:` or `Claude:` to indicate who submitted the task
-  [D:10 C:58] The add-task skill's entry format uses a generic `Original:` label, but tasks can be submitted by the user (Joseph) or autonomously by Claude. Replacing the label with the actual source prevents ambiguity when reviewing task history.
-  Joseph: The add-task skill can be prompted by either Joseph OR Claude. Change "Original" to either "Joseph:" or "Claude:" as appropriate to prevent ambiguity about the original source.
-  Context: First pathfinder mission run on scribblenot, flagged during graceful mission exit
-
-- [x] **#10** ~~Commander should execute simple skill/config edits directly without spawning subagents~~ [ABANDONED]
-  [D:35 C:55] Adds a routing heuristic to pathfinder-mission-team where the Commander skips the Planner/Reviewer/Implementer subagent loop for low-complexity tasks (skill/config file edits, no compilation or deep exploration needed), executing changes directly in the main conversation to preserve context budget, avoid permission walls, and prevent Rule #31 casualties; reserves the full subagent loop for high-D, destructive, or exploration-heavy tasks.
-  Claude: When pathfinder runs tasks that only edit skill/config files (no code compilation or complex exploration needed), the Commander should do the work directly in the main conversation rather than spawning Planner/Reviewer/Implementer subagents. Subagents cost context, hit permission walls, and can't create .md files (Rule #31). Direct execution from the main conversation is faster, cheaper, and avoids cascading casualties. The plan-review loop should be reserved for tasks that genuinely benefit from multi-agent review (complex code changes, destructive operations, high D-score tasks).
-  Context: not specified
-
-- [x] **#11** Mission team should rename completed task plans to COMPLETED-*.md on success
-  [D:30 C:55] After pathfinder-mission-team successfully completes a task, it should rename the corresponding plan file with a COMPLETED- prefix so that /lets-start and future agents can identify and skip stale plans without cross-referencing TASKS.md.
-  Joseph: I think /pathfinder-mission-team leaves plans unmarked when complete. Pretty sure after completing each task successfully, it should rename that plan COMPLETED-*.md, so that later agents know to ignore them.
-  Context: not specified
-
-- [x] **#12** Track cumulative mission difficulty in MISSION-LOG header, updated after each task
-  [D:35 C:52] Add a Difficulty field under the ## MISSION heading in MISSION-LOG that shows completed vs total difficulty (e.g. "Difficulty: X/T"). The pathfinder-mission-team updates this after each task completes, enabling post-failure analysis of a suspected ~200-point difficulty ceiling.
-  Joseph: MISSION-LOG should note Difficulty (meaning the total difficulty of all the tasks in this mission), probably under the ## MISSION heading. /pathfinder-mission-team should update that number after each task ("Difficulty: X/T", where X is the total difficulty of tasks completed, and T is the total difficulty of all tasks in this mission), so that if the mission fails, we'll learn about a difficulty ceiling. I suspect we can't go about 200, based on mission 3 (D: 115, main instance context got to 65%)
-  Context: not specified
-
-- [x] **#13** Warn user in premission when total mission difficulty exceeds context-load thresholds (140/200)
-  [D:35 C:52] The premission step should sum D scores across all tasks and emit a warning if the total exceeds 140, indicating the main instance may run out of context. If the total exceeds 200, require a second explicit confirmation since that load level is untested.
-  Joseph: /pathfinder-premission should note when a mission's total difficulty exceeds 140, and warn the user that the main instance's context may be overtaxed by the tasks included. If the total difficulty exceeds 200, confirm a second time to make absolutely certain; it's unknown whether this difficulty is possible.
-  Context: not specified
-
-- [x] **#14** Record Start-Time and End-Time in MISSION-LOG for duration tracking
-  [D:35 C:45] The mission team should write timestamps when a mission begins and ends into the MISSION-LOG file. This data will eventually enable premission to estimate completion time based on task difficulty.
-  Joseph: /pathfinder-mission-team should write Start-Time and End-Time into MISSION-LOG, when it starts and ends. We can start to gather data about difficulty vs duration, so that in the future, premission can give a completion time estimate.
-  Context: not specified
-
-- [x] **#15** Suppress diff-view windows during pathfinder-mission-team execution *(implemented)*
-  [D:30 C:50] File edits made by mission-team subagents trigger diff view windows that pop over the user's active window during autonomous operation, creating a risk of accidental input if the user is typing elsewhere. Diff windows should be disabled or suppressed for the duration of a mission-team run.
-  Joseph: The /pathfinder-mission-team opens diffs when it creates or edits files ( I think). These open in a new window but because the permission gets handled (correctly) by the mission team, no user input is required. However, this is not intended behaviour, and introduces the possiblity of accidental input. Sometimes I'm typng somewhere else, and the window pops open for and it'd be pretty easy for me to cause problems if the timing was unlucky. When I'm working closely with Claude, I do like those diff windows, but they should not be used in pathfinder-mission-team.
-  Context: not specified
-
-- [x] **#16** Preserve Prefect-1 review report when Prefect-2 begins *(implemented)*
-  [D:20 C:55] During pathfinder-mission-team, the plan file written by Prefect 1 is deleted before Prefect 2 starts, erasing the audit trail of where review changes originated. The Prefect-1 report should be retained so post-mission review can trace issues to specific review stages.
-  Joseph: I'm not sure if it's from plan-review-team, or from pathfinder-mission-team, but during a /pathfinder-mission-team, the report that Prefect 1 writes gets removed before P2 begins. This is unnecessary, and actually introduces some ambiguity about where a change came from. Please do not remove that report, I'd like to be able to see where things happened, so I know what to look for if something goes wrong.
-  Context: not specified
-  - [x] **#16-2** Eliminate mechanical Prefect Report cleanup step between Pass 1 and Pass 2
-    [D:25 C:55] After Pass 1 returns PREFECT FIXED, the Commander reads and edits out the Prefect Report section before spawning Pass 2 -- pure overhead. Options: (a) Pass 1 outputs findings as return text only; (b) Pass 2 ignores/overwrites any existing Prefect Report section; (c) Pass 1 writes findings to a temp location instead of the plan file.
-    Claude: Eliminate manual Prefect Report removal step between Pass 1 and Pass 2: after Prefect Pass 1 returns PREFECT FIXED, the Commander must read the plan file, find the Prefect Report section boundary, edit it out, then spawn Pass 2. This is pure mechanical overhead. Options: (a) instruct Prefect Pass 1 to output its findings only as return text, not write them to the plan file; (b) instruct Prefect Pass 2 to ignore and overwrite any existing Prefect Report section without requiring Commander intervention; or (c) have Prefect Pass 1 write findings to a separate temp location rather than injecting into the plan.
-    Context: Observed during mission 4 (tdd-warn-tracking). Every PREFECT FIXED result required a Commander read-edit-spawn cycle before Pass 2 could run, adding overhead to every plan that needed Prefect fixes.
-
-- [x] **#17** Organize pathfinder mission artifacts into a dedicated [project]/pathfinder/ directory
-  [D:50 C:52] PROJECT-FOUNDATION.md, MISSION-PERMISSIONS.json, and MISSION-LOG files are currently scattered in the project root; they should live under [project]/pathfinder/ to keep mission-specific artifacts separate. PROJECT_LOG.md and project tests remain in .claude/ since they serve broader, non-mission purposes -- user's read on this split is correct.
-  Joseph: The files related to pathfinder-premission or mission-team should probably go into a [project]/pathfinder folder. That includes PROJECT-FOUNDATION, MISSION-PERMISSIONS, MISSION-LOGS. I *think* PROJECT_LOG AND PROJECT_TESTS can remain in project/.claude, because those could be used outside of pathfinder missions, but please advise.
-  Context: not specified
-
-- [x] **#18** Audit and eliminate blank-line churn in mission-team review loop
-  [D:25 C:42] Diffs during pathfinder-mission-team show whitespace-only changes (e.g. two blank lines collapsed to one), suggesting one phase writes extra blank lines that a subsequent phase removes. Need to identify which phase introduces the unnecessary lines and stop adding them at the source.
-  Joseph: In /pathfinder-mission-team, I notice some of the diffs involve only tidying up whitespace, like changing two blank lines into one. Please check the review loop, are we writing in blank lines, then removing them? If so, let's just stop adding the unnecessary lines to begin with.
-  Context: not specified
-  - [x] **#18-2** Audit Planner prompt template for blank-line generation patterns
-    [D:20 C:50] The Planner prompt or its examples may be the source of extra blank lines that reviewers then flag and remove as whitespace-only diffs. Targeting the Planner specifically to eliminate the root cause rather than just the symptom.
-    Claude: Blank line churn in plan review loop: planners are adding extra blank lines that reviewers or prefects then flag and remove, producing whitespace-only diffs with no semantic value. Audit the Planner prompt template to remove any instructions or examples that generate double blank lines between sections.
-    Context: Observed during mission 4 (tdd-warn-tracking) and confirmed by Joseph in new task added post-mission. Review loop is spending subagent cycles on blank line normalization.
-
-- [x] **#20** Fix mission-team timestamps to use actual time, not hardcoded midnight *(implemented)*
-  [D:10 C:72] MISSION-LOG entries show timestamps like `2026-03-24T00:00:00Z` -- the date is correct but time is always midnight, indicating the skill constructs timestamps from the date alone without calling `date` to get the real time. Fix: run `date` and format the result as a proper ISO 8601 timestamp.
-  Joseph: I'm pretty sure /pathfinder-mission-team doesn't run bash(date), I'm seeing multiple "Timestamp: 2026-03-24T00:00:00Z" entries. Please correctly add the time, not just the date!
-  Context: not specified
-
-- [x] **#24** Rename mission log to SUCCESSFUL-*.md when all tasks complete
-  [D:10 C:75] On full mission completion, pathfinder-mission-team should rename the active MISSION-LOG file with a SUCCESSFUL- prefix so completed missions are immediately distinguishable from in-progress, failed, or abandoned ones without opening the file.
-  Joseph: When /pathfinder-mission-team is able to complete all tasks, they should rename their mission log SUCCESSFUL-*.md when they're done.
-  Context: not specified
-
-- [x] **#25** Add "Context at finish:" field to Mission Complete section in MISSION-LOG template
-  [D:10 C:72] Append a "Context at finish:" line to the ## Mission Complete section so Joseph can optionally record main-instance context usage after each mission. Enables correlation of context % vs mission difficulty over time to determine whether context is actually a limiting factor.
-  Joseph: For /pathfinder-mission-team, at the end of the ## Mission Complete section, add a new line "Context at finish:" for Joseph to optionally record. Considering 2 missions have now completed with context usage around 65-70% (despite mission difficulties of 125 and 175), context might not actually matter as much as I thought, but I'd like to record the data to confirm it.
-  Context: not specified
-
-- [x] **#29** Add Task Observations and Mission Post-Mortem sections to MISSION-LOG at wrap-up *(implemented)*
-  [D:25 C:68] Insert two sections just before ## Mission Complete: "Task Observations" (clear gaps between intent and implementation with suggested next steps -- omit if nothing obvious) and "Mission Post-Mortem" (process inefficiencies noted during this mission, written with enough detail to be submitted directly as /add-task entries). Both written by the mission team during wrap-up.
-  Joseph: The /pathfinder-mission team should add two sections just before ## Mission Complete: 1) Task Observations: Please note any obvious next steps related to the completed tasks in this mission, and explain why you think they'd be an improvement. This section can be empty, only record clear gaps in intent vs implementation. 2) Mission Post-Mortem: Please note any inefficiencies that you'd note in the /pathfinder-mission-team process from this mission in enough detail that it could be successfully used as an /add-task.
-  Context: not specified
-  - [x] **#29-2** Use subagents for wrap-up sections to avoid maxing main instance context
-    [D:15 C:60] The Task Observations and Mission Post-Mortem sections should be written via subagents rather than inline on the main instance; running this step in the main context immediately after mission completion previously forced a /compact.
-    Joseph: additional instructions for 29: This should continue to use subagents in sequence. Calling this immediately after Mission 3 completed maxxed out the main instance's context forcing a /compact, which should be avoided.
-    Context: not specified
-
-
-- [x] **#26** Provide prior-attempt context to Decomposer on task re-queues
-  [D:30 C:55] When a task is re-queued after failed project tests, the Decomposer prompt should include the prior attempt's sub-tasks and failed test criteria so it generates targeted gap-filling sub-tasks instead of re-discovering the full task scope from scratch.
-  Claude: Decomposer context blindness on re-runs: when a task is re-queued after a failed project-test run, the Decomposer has no context about what was already attempted and what gaps remain. For task #5, the first-pass Decomposer generated sub-tasks to verify existing content (already implemented), wasting ~6 subagent spawns before the re-queue cycle generated the correct targeted fix. The Decomposer prompt (or Commander pre-prompt) should include prior attempt context -- what sub-tasks were run, what project-test criteria failed -- so it generates gap-targeted sub-tasks instead of re-discovering the whole task from scratch.
-  Context: Observed during mission 4 (tdd-warn-tracking). Task #5 required two full decompose/plan/implement cycles because attempt 1 verified already-present content and missed rationale field + named step criteria.
-
-
-- [x] **#28** Add mv fallback when git mv fails for gitignored plan files in COMPLETED- rename step *(implemented)*
-  [D:20 C:60] Plan files in .claude/plans/ are gitignored in project repos, so git mv fails with "not under version control" for most renames. MT-3d should catch this error and fall back to regular mv, then git add the COMPLETED- file if the destination directory is tracked.
-  Claude: git mv fallback for gitignored plan files: plan files live in .claude/plans/ which is gitignored in the scribblenot repo, so git mv fails silently for most of them during the COMPLETED- rename step. The MT-3d rename logic should try git mv first, catch the 'not under version control' error, and fall back to regular mv + git add for the new COMPLETED- file.
-  Context: Observed during mission 4 finale. 9 of 12 plan renames required manual mv fallback because .claude/ is gitignored. The git mv partial-failure caused a commit that only captured 3 of 12 renames.
-
-- [x] **#30** Prefix pathfinder plan filenames with mission number (e.g. M5-20-1-slug.md)
-  [D:20 C:58] Pathfinder-mission-team should prepend the current mission number to each plan filename it creates, so plans from different missions are immediately distinguishable -- especially useful if a mission is interrupted and plans from multiple missions coexist in .claude/plans/.
-  Joseph: Pathfinder plans need to include the mission number too. For example, M5-20-1-three-word-name.md. If a mission is ever interupted for any reason, it would help to be able to distinguish which mission a plan came from.
-  Context: not specified
-
-- [x] **#32** Add PreCompact hook to log compact events with timestamp during pathfinder missions
-  [D:30 C:55] Install a PreCompact hook that fires just before Claude's automatic /compact, appending a timestamped entry to the active MISSION-LOG so post-mission review can identify exactly when compaction occurred and whether it had any negative effect on mission continuity.
-  Joseph: For /pathfinder-mission-team, create a PreCompact hook. Claude agents can't actually see their context usage, so they don't know how close they are to an automatic /compact. IN THEORY, the pathfinder mission team relies fairly heavily on .md to track the progress, so it should be resilient against /compact information dilution. But just before a compact happens, we might as well immediately log it so we know where it happened in the process, what exact time, etc. Then Claude can do a review later to see if there was any negative effect.
-  Context: not specified
-
-- [x] **#31** Move completed task entries from TASKS.md to CLOSED-TASKS.md with completion timestamp *(implemented)*
-  [D:25 C:58] When pathfinder-mission-team successfully completes a task, it should remove that task's entry from TASKS.md and append it to CLOSED-TASKS.md (creating the file if absent) with the completion date and time, keeping TASKS.md focused only on actionable work.
-  Joseph: When /pathfinder-mission-team completes a task, let's actually move it to CLOSED-TASKS.md, just appended at the end of the file (and add the date and time please). No need to have TASKS.md cluttered up with tasks that no longer require action.
-  Context: not specified
-
-- [x] **#33** Add second clarification threshold to premission (D > 50, C < 70)
-  [D:20 C:72] Extend /pathfinder-premission's clarification question trigger with a second condition: any task scoring D > 50 with C < 70 should prompt the user for more detail before going dark, ensuring medium-to-high difficulty tasks have a sufficient explanation on record.
-  Joseph: In /pathfinder-premission, add a second clarification questions threshold: D > 50 with C < 70. Likely, we'll tweak these numbers, but for any reasonably complex task, I'd like to set a fairly high requirement for having a detailed explanation.
-  Context: not specified
-
 - [ ] **#34** Support staged multi-premission briefings and --auto chain execution
   [D:65 C:55] Two linked features: (1) namespace all premission artifacts (MISSION-PERMISSIONS.json, PROJECT-FOUNDATION.md, MISSION-LOG, etc.) with mission numbers so multiple premissions can be staged concurrently without collisions -- requires analysis of exactly which files conflict before implementation; (2) add a --auto mode to pathfinder-mission-team that, after completing a mission, auto-discovers the next staged premission briefing and continues until all queued missions are exhausted.
   Joseph: Assuming /compacting doesn't actually interfere with /pathfinder-mission-team (we'll find out 2-3 missions after #32 is completed), it's actually possible we could have an incredibly long series of tasks assigned without issue. With this in mind, I'd like to be able to do two things: I'd like to be able to stage multiple /pathfinder-premission's without causing conflicts. This probably requires mission-numbered PERMISSIONS.json (is that true?), PROJECT-FOUNDATION, etc. Please confirm where the conflicts would be before this task gets to /pathfinder-mission-team. And second, I'd like something like "/pathfinder-mission-team --auto", where the mission team can pick up one of the premission "briefings" (collection of tasks, permissions, etc), complete it, and then move onto the NEXT mission automatically, repeating until all missions have been addressed.
@@ -195,43 +51,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
     [D:65 C:60] Namespace premission artifacts by mission number for concurrent staging without conflicts; --auto chains missions by lowest number first; planning phase must enumerate conflicting files before implementation; #17 (pathfinder/ dir) must complete first.
     Joseph: Pre-mission clarifications captured: (1) planning phase should enumerate exactly which files conflict before implementation; (2) --auto discovers next mission by lowest mission number; (3) #17 (pathfinder/ directory) must be done first -- #34 namespacing assumes files already live in pathfinder/.
     Context: Removed from M6 during premission - requires /discuss-idea first before planning or implementation; too involved for autonomous mission without deeper design discussion.
-
-- [x] **#35** Enforce full Prefect approval loop; no corner-cutting on nits *(implemented)*
-  [D:25 C:68] Investigate whether pathfinder-mission-team skips or short-circuits the Prefect review cycle when only minor issues remain, and if so, enforce that implementation never begins until Prefect gives unqualified approval -- the team must always run another reviewer pass rather than waiving remaining issues, consistent with the "slowly and perfectly" mission goal.
-  Joseph: In /pathfinder-mission-team, it looks like sometimes, plans are being implemented without the full Prefect approval, would you look into it? Is this just the team cutting corners when all that remains is minor or nits? The goal for this team is more "slowly and perfectly, regardless of effort", so if it is, I'd rather you go back to another round of reviewers instead.
-  Context: not specified
-  - [x] **#35-2** Log Prefect-skip findings in Task Observations if root cause is unexpected
-    [D:10 C:52] If the investigation in #35 reveals the Prefect approval is being skipped for a reason other than corner-cutting on nits, record the findings and the unexpected behavior in the Task Observations section of the MISSION-LOG so it can be reviewed and addressed.
-    Joseph: as an addition to 35, please include the results of your findings in the Task Observations at the end of the mission if there's something else going on here.
-    Context: not specified
-
-- [x] **#36** Use local Toronto time instead of UTC in pathfinder timestamps
-  [D:10 C:78] Pathfinder MISSION-LOG timestamps are correctly formatted as ISO 8601 but use the UTC/Zulu offset (Z suffix); since a single machine runs this skill, switch to local Toronto time (America/Toronto, ET) for all timestamps so they match the user's clock without requiring mental UTC conversion.
-  Joseph: The pathfinder skills appear to use ISO 8601 (correctly), but the time is set to Zulu time (T07:30:29Z). Given that there's only one computer running this skill on one project at a time, let's just use local time (Toronto) for easier user comprehension.
-  Context: not specified
-
-- [x] **#37** Fix priority direction and replace linear decay with X² cumulative reduction *(implemented)*
-  [D:40 C:62] Confirm whether tasks start at the wrong priority floor (0 instead of 99), then overhaul the decay algorithm: reduce priority by X² on each consecutive failed attempt (1, 4, 9, 16, 25...) where X resets to 1 after a successful intervening task completes; dependent tasks must receive the same reduction in lockstep; minimum priority is 0.
-  Joseph: In /pathfinder-mission-team, I suspect the priority works backwards, please confirm. I think that tasks get abandoned at 0, meaning all tasks should probably start at 99. And actually, the priority deprecation should probably be a cumulative score: Priority is reduced by X^2, where X is the number of consecutive attempts count. So after the first attempt, reduce priority by 1, then 4, 9, 16, 25 etc. But if another task is successfully completed in between (because the first task got bumped below it), that X is reset back to one. Make sure that tasks with dependencies all receive the reduction to keep them in sync. Minimum priority score is 0.
-  Context: not specified
-
-- [x] **#38** Mirror casualty entries to numbered MISSION-LOG permission denials section
-  [D:20 C:70] Casualty (permission denial) events are written to MISSION-LOG-active.md but not copied to the permanent numbered MISSION-LOG-#-*.md file under its Permission Denials heading; both files should receive the entry so the archived mission record is complete.
-  Joseph: In pathfinder-mission-team, I think casualties get reported to MISSION-active, but not into the MISSION-LOG-#-*.md under the permission denials heading, but they should be there too!
-  Context: not specified
-
-
-
-
-
-
-
-
-
-
-
-    Context: not specified
-
 
 - [ ] **#55** Track premission duration and show estimate before committing to session
   [D:40 C:55] Add start/end timestamps to pathfinder-premission itself and compute a pre-session duration estimate (using D/C/U metrics) displayed before the user commits, so they can trim the task list when the estimated premission time exceeds available time.
@@ -280,4 +99,47 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph-Raw: In the MISSION-LOG-#, under ## Mission, Tasks: can omit (P:99) on each task. #19, #43, #47, etc is fine.
   Context: not specified
 
----
+- [ ] **#63** Cross-reference PROJECT-TESTS.md criteria into task descriptions at creation time
+  [D:35 C:68] Modify the task-creation flow to check PROJECT-TESTS.md for criteria matching a new task and include them in the TASKS.md entry, so implementers see the full acceptance bar without consulting a separate file.
+  Claude: "Cross-reference PROJECT-TESTS.md criteria into TASKS.md task descriptions at task-creation time" -- When a task is added, any matching PROJECT-TESTS.md criterion should be copied into or linked from the task description so implementers see the full acceptance bar without consulting a separate file.
+  Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Task #42 attempt 1 failed because a required test criterion existed in PROJECT-TESTS.md but was absent from the task description.
+
+- [ ] **#64** Add multi-file pattern search to Implementer prompt for repeated-pattern changes
+  [D:25 C:75] Add a mandatory step to the Implementer prompt (MT-3c) requiring a grep across the full project including hooks/ for the exact pattern being changed before marking implementation complete, preventing single-file fixes that leave sibling files broken.
+  Claude: "Add multi-file pattern search step to Implementer prompt for tasks that modify repeated patterns" -- Before marking implementation complete, the Implementer should grep the full project (including hooks/) for the exact pattern being changed and update all matching locations, preventing single-file fixes that leave sibling files broken.
+  Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Task #43 attempt 1 failed because the subagent updated SKILL.md but missed the identical pattern in pre-compact-mission-log.sh.
+
+- [ ] **#65** Rewrite MT-3d plan-rename step to use individual mv + git add commands per file
+  [D:20 C:82] Replace the compound bash command in the MT-3d plan-rename block with individual mv and git add calls per file, eliminating the compound-command pattern that consistently triggers the permission hook denial.
+  Claude: "Rewrite MT-3d plan-rename step to emit individual mv + git add commands instead of compound bash" -- Changing the rename block to issue one mv and one git add per file eliminates the compound-command pattern that the permission hook rejects, removing a recurring casualty source.
+  Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Casualties 4 and 5 show MT-3d plan-rename consistently triggering permission-hook denials with compound commands.
+
+- [ ] **#66** Replace tilde paths with absolute paths in all subagent prompts referencing ~/.claude *(implemented)*
+  [D:20 C:85] Search all Implementer and Reviewer subagent prompts in pathfinder-mission-team/SKILL.md for ~/.claude references and substitute the literal path C:/Users/solar/.claude, eliminating the recurring permission-hook denial class from tilde expansion.
+  Claude: "Replace tilde paths with absolute paths in all Implementer and Reviewer subagent prompts that reference ~/.claude" -- Substituting the literal home directory path (C:/Users/solar/.claude) for ~ in skill prompts eliminates a recurring permission-hook denial class with no functional change.
+  Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Casualties 1-3 show subagents searching ~/.claude/skills/** with tilde paths blocked by the permission hook.
+
+- [ ] **#67** Store premission rank in PRIORITY_MAP from BRIEF and use it as primary sort key in MT-2 and MT-3a
+  [D:40 C:72] Extend MT-1 step 2-A to extract each task's list position from ## Task Priority Order as its PRIORITY_MAP rank; update MT-2 reorder and MT-3a tie-break to sort by rank before D score, making execution order match the user-reviewed premission sequence.
+  Claude: "Store premission rank in PRIORITY_MAP during MT-1 2-A branch and use it as the primary sort key in MT-2 and MT-3a" -- After sub-task 42.1 added Task Priority Order to the BRIEF, MT-1 2-A reads task IDs from that section but does not extract their position as a rank value; storing rank-as-priority and sorting by it before D score would make execution order match the user-reviewed premission sequence.
+  Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - All M6 tasks ran at P:99 with MT-2/MT-3a falling back to D-score ordering, inverting the user-set premission sequence.
+
+- [ ] **#68** Upgrade MT-3d Status/Implementation/Timestamp check from soft warning to hard block
+  [D:20 C:80] The MT-3d enforcement gate checks Status, Implementation, and Timestamp fields with a soft warning that does not block task completion; upgrade these to a hard block (same pattern as the Agent check added by task #51) so a missing core log field re-queues the task rather than letting it pass with a warning.
+  Claude: Task Observation from Mission 6: Both #46 and #46-2 stated the log entry check should be a blocking issue, but the MT-3d enforcement gate for Status/Implementation/Timestamp fields was implemented as a soft warning; only the Agent field (added by #51) became a hard block. Upgrade the Status/Implementation/Timestamp soft-warning check to a hard block so missing core log fields re-queue the task.
+  Context: Mission 6 Task Observations (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Gap between stated intent (#46/#46-2 wanted hard blocks) and what was implemented (soft warning).
+
+- [ ] **#69** Truncate MISSION-LOG-active.md at mission end to prevent indefinite accumulation
+  [D:15 C:88] Add a truncation step to MT-4 that empties MISSION-LOG-active.md after relevant entries have been copied to the numbered log, so each mission starts with a clean file instead of inheriting all prior mission history.
+  Claude: Truncate MISSION-LOG-active.md at mission end (MT-4) -- the active log is never cleared between missions, causing it to accumulate indefinitely (87KB after 6 missions). MT-4 should truncate or empty the file after copying relevant entries to the numbered log, so each mission starts with a clean slate.
+  Context: pathfinder/MISSION-LOG-active.md found at 87KB, containing entries from all 6 missions with no rotation/clear step
+
+- [ ] **#70** Audit why diff windows still open during M7 despite two completed suppress-diff tasks
+  [D:35 C:62] Tasks #15 and #48 were both marked complete and claimed to suppress diff windows during pathfinder missions, but Mission 7 still opens diffs. This task asks for an audit of what was actually implemented and why it is not working, with findings reported in the M7 mission log.
+  Joseph-Raw: We have a handful of completed tasks in our CLOSED_TASKS.md, suggesting that diffs should not be opening anymore during pathfinder missions. M7 has just started, and it definitely still opens diffs. Please audit and report findings in mission log.
+  Context: not specified
+
+- [ ] **#71** Add cumulative review-round counter to Reviewer and Prefect entries in sub-task log
+  [D:45 C:58] Each sub-task log entry should track which review round a Reviewer or Prefect approval came from (e.g., 'Prefect-1 [R3]'), making it clear whether approval was first-pass or after multiple retries. The task also requests investigation into whether Prefect reports are still being removed, and if so, stopping that behavior.
+  Joseph-Raw: In pathfinder missions, I think Reviewers and Prefects should have a cumulative count number, per sub-task. There's a big difference between Prefect-1 approving, and Prefect-1 approving on the third round of reviews. This also means we can stop removing Prefect reports, which I believe is still happening. Please review in detail?
+  Context: not specified
