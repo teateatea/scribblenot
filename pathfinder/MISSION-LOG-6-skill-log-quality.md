@@ -5,7 +5,7 @@
 - Date: 2026-03-25
 - Start-Time: 2026-03-25T19:06:43
 - Tasks: #19(P:99), #43(P:99), #47(P:99), #40(P:99), #41(P:99), #46(P:99), #48(P:99), #53(P:99), #45(P:99), #39(P:99), #42(P:99), #49(P:99), #46-2(P:99), #51(P:99), #52(P:99), #50(P:99), #54(P:99)
-- Difficulty: 499/569
+- Difficulty: 534/569
 
 ## Task Status
 
@@ -21,7 +21,7 @@
 | #53  | 99       | Complete | 1        |
 | #45  | 99       | Complete | 1        |
 | #39  | 99       | Complete | 1        |
-| #42  | 98       | Re-queued | 1        |
+| #42  | 98       | Complete | 2        |
 | #49  | 99       | Complete | 1        |
 | #46-2 | 99      | Complete | 1        |
 | #51  | 99       | Complete | 1        |
@@ -340,6 +340,17 @@
 - Re-read: Confirmed: zero %z occurrences remain in SKILL.md
 - Timestamp: 2026-03-26T00:39:27
 
+### Sub-task 42.4: Add BRIEF filename detection branch to MT-1 step 2
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Added 2-A BRIEF filename detection to MT-1 step 2: when ARGUMENTS matches MISSION-<digits>-BRIEF[.md], skill reads ## Task Priority Order from the file and uses those IDs as TASK_LIST; existing #N token parse becomes 2-B fallback; TASKS.md read and T computation follow both branches unconditionally
+- Reviewers: 2
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: Confirmed: MT-1 step 2 contains 2-A BRIEF detection and 2-B fallback branches, structurally sound
+- Timestamp: 2026-03-26T00:50:03
+
 ## Prefect Issues (unresolved)
 
 - Task #42 sub-task 1 (M6-42-1-premission-brief-rename.md) Prefect-3 N1: Step 5 diff inserts an extra blank `>` line that would create two consecutive blank blockquote lines; the existing source line 144 already provides separation. Proceeding to implementation despite this nit.
@@ -363,6 +374,12 @@
 - Input: glob against `~/.claude/skills/**`
 - Task: #53 sub-task 1
 - Cause: Permission hook exited non-zero; tool call blocked. Implementer continued and completed successfully.
+
+### Casualty 4 — 2026-03-26T00:52:53
+- Tool: Bash
+- Input: multi-line for-loop renaming 4 plan files (M6-42-*.md → COMPLETED-M6-42-*.md)
+- Task: #42 MT-3d success branch (plan rename)
+- Cause: Permission hook exited non-zero; command flagged for containing newlines. Fallback mv + git add -f completed successfully for all 4 files.
 
 ## Abandonment Records
 
