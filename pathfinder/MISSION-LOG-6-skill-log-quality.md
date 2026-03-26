@@ -5,14 +5,14 @@
 - Date: 2026-03-25
 - Start-Time: 2026-03-25T19:06:43
 - Tasks: #19(P:99), #43(P:99), #47(P:99), #40(P:99), #41(P:99), #46(P:99), #48(P:99), #53(P:99), #45(P:99), #39(P:99), #42(P:99), #49(P:99), #46-2(P:99), #51(P:99), #52(P:99), #50(P:99), #54(P:99)
-- Difficulty: 559/569
+- Difficulty: 569/569
 
 ## Task Status
 
 | Task | Priority | Status | Attempts |
 |------|----------|--------|----------|
 | #19  | 99       | Complete | 1        |
-| #43  | 98       | Re-queued | 1        |
+| #43  | 98       | Complete | 2        |
 | #47  | 99       | Complete | 1        |
 | #40  | 99       | Complete | 1        |
 | #41  | 98       | Complete | 1        |
@@ -433,6 +433,17 @@ Tasks #19, #43, #47 (listed first in premission order) completed near the END of
 - Shim-removal: N/A
 - Re-read: N/A
 - Timestamp: 2026-03-26T01:17:58
+
+### Sub-task 43.1: Fix pre-compact-mission-log.sh line 21 - remove %z from timestamp format
+- Status: Pass
+- TDD: (no tests) — shell hook script, TDD-infeasible
+- Implementation: Edited C:/Users/solar/.claude/hooks/pre-compact-mission-log.sh line 21: removed %z from date format string; now outputs bare local datetime (e.g. 2026-03-26T01:53:07) matching the SKILL.md fix from attempt 1
+- Reviewers: 1
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: Confirmed: grep -n "%z" on hook returns no matches; line 21 reads TIMESTAMP="$(TZ=America/Toronto date +"%Y-%m-%dT%H:%M:%S")"
+- Timestamp: 2026-03-26T01:53:07
 
 ## Prefect Issues (unresolved)
 
