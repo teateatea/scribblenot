@@ -54,11 +54,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 
 
 
-- [ ] **#57** Fix M6 Start-Time recorded ~4 hours ahead of actual local time
-  [D:20 C:45] MISSION-LOG-6 shows Start-Time T19:06 but the user reports it is ~15:12 and the mission just started; the timestamp is ~4 hours ahead of actual. Likely a timezone offset being applied incorrectly (double-counted or wrong sign) in the pathfinder Start-Time recording step, introduced after task #36 switched timestamps to Toronto local time.
-  Joseph-Raw: Pretty sure M6 Start-Time is wrong. It says T19:06, but it's 3:12PM right now. It only started a few minutes ago, not... 4 hours in the future?? I'm guessing all times will be off for this mission, but I'm not interupting it for just this.
-  Context: not specified
-
 - [ ] **#59** Mirror PreCompact hook entries to the numbered MISSION-LOG file, not just MISSION-LOG-active
   [D:15 C:60] The PreCompact hook (added in #32) logs compact events to MISSION-LOG-active.md but not to the permanent numbered MISSION-LOG-N-*.md file. Compact events should appear in the human-readable mission log so post-mission review shows exactly when compaction occurred without needing to cross-reference a separate file.
   Joseph-Raw: On M6, at the 2 hour mark, I checked the logs and the active instance. I believe the precompact hook is firing, and logging into MISSION-LOG-active, but I'd like an entry in the human-readable MISSION-LOG-6* as well!
@@ -99,3 +94,8 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
     [D:25 C:28] Refines #72 -- the Reviewer subagent is the likely culprit for opening diffs, but the behavior is task-conditional, suggesting a specific code path or trigger in the Reviewer logic rather than a blanket misconfiguration.
     Joseph-Raw: Yeah, the reviewer opening diffs when it's not supposed to be, but it seems like it might not be for all tasks? Very strange.
     Context: not specified
+
+- [ ] **#73** Enforce strict mission-permissions-only hook policy with pre-emptive denial and robust task abandonment
+  [D:75 C:52] Replace fallback-to-system-permissions behavior with a hard deny for any unlisted command during a mission; requires two complementary changes: (1) significantly more thorough missions/default permissions coverage, and (2) a dependency-aware task ordering system that can safely abandon blocked tasks without leaving dangling dependencies.
+  Joseph-Raw: Casualties keep appearing on pathfinder missions. Consider making our hooks stricter: If the command doesn't appear on the mission permissions, the agent is pre-emptively denied entirely. No hand back to the system permissions, while a mission is running. Two things will have to change to accomodate this: We'll need a much more thorough missions permissions file (and/or a more thorough default permissions file), and we'll need the dependencies and task order system to be robust enough to confidently abandon tasks without leaving behind dependencies.
+  Context: not specified

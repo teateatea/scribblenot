@@ -366,3 +366,9 @@
   Context: not specified
 - Completed: 2026-03-26T07:16:31
 
+
+- [ ] **#57** Fix M6 Start-Time recorded ~4 hours ahead of actual local time
+  [D:20 C:45] MISSION-LOG-6 shows Start-Time T19:06 but the user reports it is ~15:12 and the mission just started; the timestamp is ~4 hours ahead of actual. Likely a timezone offset being applied incorrectly (double-counted or wrong sign) in the pathfinder Start-Time recording step, introduced after task #36 switched timestamps to Toronto local time.
+  Joseph-Raw: Pretty sure M6 Start-Time is wrong. It says T19:06, but it's 3:12PM right now. It only started a few minutes ago, not... 4 hours in the future?? I'm guessing all times will be off for this mission, but I'm not interupting it for just this.
+  Context: not specified
+- Completed: 2026-03-26T07:50:00
