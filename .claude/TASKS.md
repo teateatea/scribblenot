@@ -251,10 +251,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph-Raw: In pathfinder missions, post-mortem entries should be lettered instead of numbered (A) Process issue:, B) Process issue:, etc.) to avoid conflict with task numbers
   Context: not specified
 
-- [ ] **#48** Suppress diff windows globally when the auto-approve permission hook is active
-  [D:25 C:45] The permission auto-approve hook approves file changes before the user can interact with a diff, leaving empty/stale diff windows behind. Locate where diff-view behavior is configured (settings.json, CLAUDE.md, or IDE settings) and disable diffs for the duration the hook is active.
-  Joseph-Raw: I think we should not use diffs while we have that hook running lol, they'll nearly always misfire if you're going to change it anyways. /add-task ? That might touch on CLAUDE.md, I'm not sure where your instructions about using diffs live.
-  Context: not specified
 
 
 
