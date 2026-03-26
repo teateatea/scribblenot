@@ -55,10 +55,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 
 
 
-- [ ] **#61** Add remaining count to Difficulty field in MISSION-LOG mission section
-  [D:15 C:52] Update the Difficulty display format in MISSION-LOG files to append remaining difficulty in parentheses, e.g. "Difficulty: 3/10 (7 remaining)". Small formatting change to an existing log field updated by pathfinder-mission-team.
-  Joseph-Raw: In the MISSION-LOG-#, under ## Mission, change "Difficulty: {total completed}/{mission total}" to "Difficulty: {total completed}/{mission total} ({total remaining} remaining)"
-  Context: not specified
 
 - [ ] **#62** Omit (P:99) priority annotation from Tasks list in MISSION-LOG ## Mission section
   [D:15 C:42] Tasks listed in the ## Mission Tasks field of MISSION-LOG should drop the "(P:N)" priority suffix so the list reads as plain task IDs (e.g. #19, #43, #47) without redundant annotation noise.

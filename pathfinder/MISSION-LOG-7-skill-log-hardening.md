@@ -5,7 +5,7 @@
 - Date: 2026-03-26
 - Start-Time: 2026-03-26T04:06:42
 - Tasks: #64 (P:99), #66 (P:99), #65 (P:99), #68 (P:99), #69 (P:99), #67 (P:99), #63 (P:99), #59 (P:99), #56 (P:99), #55 (P:99), #58 (P:99), #60 (P:99), #56-2 (P:99), #57 (P:99), #61 (P:99), #62 (P:99)
-- Difficulty: 335/420 (85 remaining)
+- Difficulty: 350/420 (70 remaining)
 - Estimated-Duration: ~181 min (T x 0.43)
 - Prior-Auto-Accept: false
 
@@ -27,7 +27,7 @@
 | #60    | 99       | Complete | 1       |
 | #56-2  | 99       | Complete | 1       |
 | #57    | 99       | Complete | 1      |
-| #61    | 99       | Queued | 0        |
+| #61    | 99       | Complete | 1       |
 | #62    | 99       | Queued | 0        |
 
 ## Skipped Tasks
@@ -378,11 +378,31 @@
 - Agent: subagent
 - Timestamp: 2026-03-26T11:52:00
 
+### Sub-task 61.1: Update Difficulty field format to include remaining count
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 1
+- Prefects: 2
+- Implementation: Updated MT-1 template initial Difficulty line to `0/<T> (<T> remaining)` and MT-3 Difficulty update instruction to rewrite the field as `COMPLETED_D/T (remaining remaining)` where remaining = T - COMPLETED_D
+- Grep: Confirmed no other SKILL.md files write Difficulty field format; both target lines updated correctly
+- Shim-removal: N/A
+- Re-read: Confirmed both Difficulty lines in SKILL.md show new format with remaining count
+- Bash-used: grep, git add
+- Agent: subagent
+- Timestamp: 2026-03-26T12:10:00
+
 ## Prefect Issues (unresolved)
 
 - Task #67 sub-task 1 (M7-67-1-mt1-rank-storage.md): Nit - duplicate ## Changelog sections due to Prefect-1/Prefect-2 report insertion ordering; all blocking/minor issues resolved.
 
 ## Permission Denials
+
+### Casualty 3 - Task #59 archival
+- Tool: Bash (cat >> CLOSED-TASKS.md)
+- File: C:/Users/solar/Documents/Claude Projects/scribblenot/.claude/CLOSED-TASKS.md
+- Reason: Hook flagged append to .claude/CLOSED-TASKS.md as sensitive file access
+- Resolution: User approved; content written successfully
+- Timestamp: 2026-03-26T11:55:00
 
 ### Casualty 2 - Task #59 sub-task 59.2 Implementer
 - Tool: Edit

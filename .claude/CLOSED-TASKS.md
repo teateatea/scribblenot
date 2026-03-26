@@ -378,3 +378,9 @@
   Joseph-Raw: On M6, at the 2 hour mark, I checked the logs and the active instance. I believe the precompact hook is firing, and logging into MISSION-LOG-active, but I'd like an entry in the human-readable MISSION-LOG-6* as well!
   Context: not specified
 - Completed: 2026-03-26T11:52:00
+
+- [ ] **#61** Add remaining count to Difficulty field in MISSION-LOG mission section
+  [D:15 C:52] Update the Difficulty display format in MISSION-LOG files to append remaining difficulty in parentheses, e.g. "Difficulty: 3/10 (7 remaining)". Small formatting change to an existing log field updated by pathfinder-mission-team.
+  Joseph-Raw: In the MISSION-LOG-#, under ## Mission, change "Difficulty: {total completed}/{mission total}" to "Difficulty: {total completed}/{mission total} ({total remaining} remaining)"
+  Context: not specified
+- Completed: 2026-03-26T12:10:00
