@@ -117,7 +117,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - All M6 tasks ran at P:99 with MT-2/MT-3a falling back to D-score ordering, inverting the user-set premission sequence.
 
 
-- [ ] **#69** Truncate MISSION-LOG-active.md at mission end to prevent indefinite accumulation
+- [ ] **#69** Truncate MISSION-LOG-active.md at mission end to prevent indefinite accumulation *(implemented)*
   [D:15 C:88] Add a truncation step to MT-4 that empties MISSION-LOG-active.md after relevant entries have been copied to the numbered log, so each mission starts with a clean file instead of inheriting all prior mission history.
   Claude: Truncate MISSION-LOG-active.md at mission end (MT-4) -- the active log is never cleared between missions, causing it to accumulate indefinitely (87KB after 6 missions). MT-4 should truncate or empty the file after copying relevant entries to the numbered log, so each mission starts with a clean slate.
   Context: pathfinder/MISSION-LOG-active.md found at 87KB, containing entries from all 6 missions with no rotation/clear step
