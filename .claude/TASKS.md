@@ -64,10 +64,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph-Raw: On M6, at the 2 hour mark, I checked the logs and the active instance. I believe the precompact hook is firing, and logging into MISSION-LOG-active, but I'd like an entry in the human-readable MISSION-LOG-6* as well!
   Context: not specified
 
-- [ ] **#58** Resolve collision between TASKS.md sub-entry format (#N-2) and pathfinder sub-task nomenclature
-  [D:35 C:40] TASKS.md uses #N-2 / #N-3 suffixes for supplementary context entries under a parent task, but pathfinder-mission-team uses its own sub-task numbering internally. When the mission team reads TASKS.md and encounters an entry like #53-2, it likely misinterprets it as a prior-run decomposed sub-task rather than a clarification/context record for #53, causing incorrect task-list parsing or re-queue behavior.
-  Joseph-Raw: I'm pretty sure pathfinder-mission-team doesn't handle entries in TASKS like #53-2 very well. I suspect it conflicts with their subtask nomenclature, but in TASKS it's supposed to be additional information and context on #53
-  Context: not specified
 
 - [ ] **#60** Add Initial and Current Estimated Completion Time fields to MISSION-LOG Task Status
   [D:30 C:55] Under ## Task Status in MISSION-LOG, add two wall-clock ETA fields: "Initial Estimated Completion Time: HH:mm (Started at HH:mm)" computed once at mission start from total D * 0.43 min/D rate, and "Current Estimated Completion Time: HH:mm (Updated at HH:mm)" recomputed from remaining D each time a new task begins (not sub-tasks).

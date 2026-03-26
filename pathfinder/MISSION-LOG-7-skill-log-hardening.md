@@ -5,7 +5,7 @@
 - Date: 2026-03-26
 - Start-Time: 2026-03-26T04:06:42
 - Tasks: #64 (P:99), #66 (P:99), #65 (P:99), #68 (P:99), #69 (P:99), #67 (P:99), #63 (P:99), #59 (P:99), #56 (P:99), #55 (P:99), #58 (P:99), #60 (P:99), #56-2 (P:99), #57 (P:99), #61 (P:99), #62 (P:99)
-- Difficulty: 235/420
+- Difficulty: 270/420
 - Estimated-Duration: ~181 min (T x 0.43)
 - Prior-Auto-Accept: false
 
@@ -23,7 +23,7 @@
 | #59    | 99       | Queued | 0        |
 | #56    | 99       | Complete | 1       |
 | #55    | 99       | Complete | 1       |
-| #58    | 99       | Queued | 0        |
+| #58    | 99       | Complete | 1       |
 | #60    | 99       | Queued | 0        |
 | #56-2  | 99       | Queued | 0        |
 | #57    | 99       | Queued | 0        |
@@ -179,6 +179,42 @@
 - Re-read: Confirmed: SKILL.md Implementer prompt block has correct step numbering (6-commit, 7-grep, 8-re-read, 9-return) and sub-task log template includes Grep: field with no truncation
 - Agent: subagent
 - Timestamp: 2026-03-26T04:20:53
+
+### Sub-task 58.1: Audit #N-2 collision scope in TASKS.md and skill parsers
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 1
+- Prefects: 2
+- Implementation: Research sub-task; confirmed all #N-2 entries (34-2, 72-2) are indented 2-space sub-bullets not top-level tasks; identified real collision paths in PM-1 step 3 (multi-select listing) and MT-2 Scout (if sub-entry enters TASK_LIST via 2-B); no autonomous collision today, only user-triggered
+- Grep: Searched #N-2 and sub-entry in both scribblenot and ~/.claude; add-task SKILL.md already had pattern awareness; no historical actionable matches
+- Shim-removal: N/A
+- Re-read: Confirmed plan findings accurate against TASKS.md lines 50/109, premission PM-1 step 3, and mission-team MT-1/MT-2
+- Agent: subagent
+- Timestamp: 2026-03-26T06:52:00
+
+### Sub-task 58.2: Skip #N-2 sub-entries in premission PM-1 task listing
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 1
+- Prefects: 1
+- Implementation: Appended sentence to PM-1 step 3 in pathfinder-premission/SKILL.md instructing skill to skip task IDs matching #<digits>-<digits> in both explicit-ARGUMENTS and empty-ARGUMENTS (multi-select) paths
+- Grep: Searched sub-entry and #<digits>-<digits> in both scribblenot and ~/.claude; only premission SKILL.md (updated), add-task/add-todo SKILL.md (describe format, not filter), and .jsonl history matched
+- Shim-removal: N/A
+- Re-read: Confirmed line 23 of pathfinder-premission/SKILL.md has appended filter sentence verbatim
+- Agent: subagent
+- Timestamp: 2026-03-26T06:56:00
+
+### Sub-task 58.3: Skip #N-2 sub-entries in mission-team MT-1 and MT-2
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 1
+- Prefects: 1
+- Implementation: Added #\d+-\d+ skip filter to MT-1 2-A BRIEF extraction (line 27) and sub-entry exclusion note to MT-2 Dependency Scout prompt (line 135) in pathfinder-mission-team/SKILL.md
+- Grep: All sub-entry matches outside updated file were historical snapshots or add-task SKILL.md (defines sub-entries, not filters); no additional files needed updating
+- Shim-removal: N/A
+- Re-read: Confirmed both changes correct at target lines in pathfinder-mission-team/SKILL.md
+- Agent: subagent
+- Timestamp: 2026-03-26T06:59:59
 
 ### Sub-task 55.1: Add premission start/end timestamps and duration estimate
 - Status: Pass
