@@ -111,7 +111,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 
 
 
-- [ ] **#67** Store premission rank in PRIORITY_MAP from BRIEF and use it as primary sort key in MT-2 and MT-3a
+- [ ] **#67** Store premission rank in PRIORITY_MAP from BRIEF and use it as primary sort key in MT-2 and MT-3a *(implemented sub-task 2)*
   [D:40 C:72] Extend MT-1 step 2-A to extract each task's list position from ## Task Priority Order as its PRIORITY_MAP rank; update MT-2 reorder and MT-3a tie-break to sort by rank before D score, making execution order match the user-reviewed premission sequence.
   Claude: "Store premission rank in PRIORITY_MAP during MT-1 2-A branch and use it as the primary sort key in MT-2 and MT-3a" -- After sub-task 42.1 added Task Priority Order to the BRIEF, MT-1 2-A reads task IDs from that section but does not extract their position as a rank value; storing rank-as-priority and sorting by it before D score would make execution order match the user-reviewed premission sequence.
   Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - All M6 tasks ran at P:99 with MT-2/MT-3a falling back to D-score ordering, inverting the user-set premission sequence.
@@ -127,3 +127,12 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   [D:45 C:58] Each sub-task log entry should track which review round a Reviewer or Prefect approval came from (e.g., 'Prefect-1 [R3]'), making it clear whether approval was first-pass or after multiple retries. The task also requests investigation into whether Prefect reports are still being removed, and if so, stopping that behavior.
   Joseph-Raw: In pathfinder missions, I think Reviewers and Prefects should have a cumulative count number, per sub-task. There's a big difference between Prefect-1 approving, and Prefect-1 approving on the third round of reviews. This also means we can stop removing Prefect reports, which I believe is still happening. Please review in detail?
   Context: not specified
+
+- [ ] **#72** Investigate planner/reviewer subagent as source of errant diff windows
+  [D:30 C:35] Follow-on hypothesis to #70 -- user suspects the Planner or Reviewer subagent spawned during pathfinder missions is the process opening diff windows; confirm the hypothesis and implement a targeted fix in the offending subagent.
+  Joseph-Raw: It seems to be the planner or reviewer opening up the errant diffs?
+  Context: not specified
+  - [ ] **#72-2** Reviewer opens diffs intermittently -- behavior not consistent across all tasks
+    [D:25 C:28] Refines #72 -- the Reviewer subagent is the likely culprit for opening diffs, but the behavior is task-conditional, suggesting a specific code path or trigger in the Reviewer logic rather than a blanket misconfiguration.
+    Joseph-Raw: Yeah, the reviewer opening diffs when it's not supposed to be, but it seems like it might not be for all tasks? Very strange.
+    Context: not specified
