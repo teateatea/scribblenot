@@ -5,7 +5,7 @@
 - Date: 2026-03-26
 - Start-Time: 2026-03-26T04:06:42
 - Tasks: #64 (P:99), #66 (P:99), #65 (P:99), #68 (P:99), #69 (P:99), #67 (P:99), #63 (P:99), #59 (P:99), #56 (P:99), #55 (P:99), #58 (P:99), #60 (P:99), #56-2 (P:99), #57 (P:99), #61 (P:99), #62 (P:99)
-- Difficulty: 20/420
+- Difficulty: 40/420
 - Estimated-Duration: ~181 min (T x 0.43)
 - Prior-Auto-Accept: false
 
@@ -15,7 +15,7 @@
 |--------|----------|--------|----------|
 | #64    | 98       | Re-queued | 1      |
 | #66    | 99       | Complete | 1       |
-| #65    | 99       | Queued | 0        |
+| #65    | 99       | Complete | 1       |
 | #68    | 99       | Queued | 0        |
 | #69    | 99       | Queued | 0        |
 | #67    | 99       | Queued | 0        |
@@ -47,6 +47,30 @@
 - Re-read: N/A
 - Agent: subagent
 - Timestamp: 2026-03-26T04:26:39
+
+### Sub-task 65.1: Rewrite MT-3d plan-rename block to individual mv + git add per file
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 4
+- Prefects: 3
+- Implementation: Replaced lines 381-384 of SKILL.md with individual mv then git add block, removing git mv and the &&-fallback pattern; added gitignore note
+- Grep: git mv pattern not found in any editable source files; only in .jsonl conversation logs (not actionable)
+- Shim-removal: N/A
+- Re-read: Confirmed: Lines 381-385 of SKILL.md now show individual mv + git add per file with no git mv or compound commands
+- Agent: subagent
+- Timestamp: 2026-03-26T04:39:22
+
+### Sub-task 65.2: Verify rewritten MT-3d plan-rename block correctness
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 2
+- Prefects: 1
+- Implementation: Verified all 5 grep checks on SKILL.md lines 381-385 - zero && matches, zero shell-separator semicolons, zero git mv occurrences, exactly one mv command (line 383), exactly one git add command (line 385)
+- Grep: git mv - zero matches in pathfinder-mission-team/SKILL.md; matches only in CLOSED-TASKS.md and old COMPLETED-* plan files (historical)
+- Shim-removal: N/A
+- Re-read: N/A
+- Agent: subagent
+- Timestamp: 2026-03-26T04:44:08
 
 ### Sub-task 64.1: Insert mandatory multi-file grep step into MT-3c Implementer subagent prompt
 - Status: Pass

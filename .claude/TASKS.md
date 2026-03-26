@@ -109,10 +109,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Claude: "Add multi-file pattern search step to Implementer prompt for tasks that modify repeated patterns" -- Before marking implementation complete, the Implementer should grep the full project (including hooks/) for the exact pattern being changed and update all matching locations, preventing single-file fixes that leave sibling files broken.
   Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Task #43 attempt 1 failed because the subagent updated SKILL.md but missed the identical pattern in pre-compact-mission-log.sh.
 
-- [ ] **#65** Rewrite MT-3d plan-rename step to use individual mv + git add commands per file *(implemented)*
-  [D:20 C:82] Replace the compound bash command in the MT-3d plan-rename block with individual mv and git add calls per file, eliminating the compound-command pattern that consistently triggers the permission hook denial.
-  Claude: "Rewrite MT-3d plan-rename step to emit individual mv + git add commands instead of compound bash" -- Changing the rename block to issue one mv and one git add per file eliminates the compound-command pattern that the permission hook rejects, removing a recurring casualty source.
-  Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Casualties 4 and 5 show MT-3d plan-rename consistently triggering permission-hook denials with compound commands.
 
 
 - [ ] **#67** Store premission rank in PRIORITY_MAP from BRIEF and use it as primary sort key in MT-2 and MT-3a

@@ -308,4 +308,9 @@
   Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Casualties 1-3 show subagents searching ~/.claude/skills/** with tilde paths blocked by the permission hook.
 - Completed: 2026-03-26T04:27:39
 
+- [ ] **#65** Rewrite MT-3d plan-rename step to use individual mv + git add commands per file *(implemented)*
+  [D:20 C:82] Replace the compound bash command in the MT-3d plan-rename block with individual mv and git add calls per file, eliminating the compound-command pattern that consistently triggers the permission hook denial.
+  Claude: "Rewrite MT-3d plan-rename step to emit individual mv + git add commands instead of compound bash" -- Changing the rename block to issue one mv and one git add per file eliminates the compound-command pattern that the permission hook rejects, removing a recurring casualty source.
+  Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Casualties 4 and 5 show MT-3d plan-rename consistently triggering permission-hook denials with compound commands.
+- Completed: 2026-03-26T04:45:12
 
