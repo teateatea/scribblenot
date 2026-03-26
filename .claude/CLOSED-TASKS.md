@@ -332,3 +332,9 @@
   Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - All M6 tasks ran at P:99 with MT-2/MT-3a falling back to D-score ordering, inverting the user-set premission sequence.
 - Completed: 2026-03-26T05:31:20
 
+- [ ] **#63** Cross-reference PROJECT-TESTS.md criteria into task descriptions at creation time
+  [D:35 C:68] Modify the task-creation flow to check PROJECT-TESTS.md for criteria matching a new task and include them in the TASKS.md entry, so implementers see the full acceptance bar without consulting a separate file.
+  Claude: "Cross-reference PROJECT-TESTS.md criteria into TASKS.md task descriptions at task-creation time" -- When a task is added, any matching PROJECT-TESTS.md criterion should be copied into or linked from the task description so implementers see the full acceptance bar without consulting a separate file.
+  Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Task #42 attempt 1 failed because a required test criterion existed in PROJECT-TESTS.md but was absent from the task description.
+- Completed: 2026-03-26T06:02:22
+

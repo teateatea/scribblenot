@@ -99,11 +99,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph-Raw: In the MISSION-LOG-#, under ## Mission, Tasks: can omit (P:99) on each task. #19, #43, #47, etc is fine.
   Context: not specified
 
-- [ ] **#63** Cross-reference PROJECT-TESTS.md criteria into task descriptions at creation time
-  [D:35 C:68] Modify the task-creation flow to check PROJECT-TESTS.md for criteria matching a new task and include them in the TASKS.md entry, so implementers see the full acceptance bar without consulting a separate file.
-  Claude: "Cross-reference PROJECT-TESTS.md criteria into TASKS.md task descriptions at task-creation time" -- When a task is added, any matching PROJECT-TESTS.md criterion should be copied into or linked from the task description so implementers see the full acceptance bar without consulting a separate file.
-  Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Task #42 attempt 1 failed because a required test criterion existed in PROJECT-TESTS.md but was absent from the task description.
-
 - [ ] **#64** Add multi-file pattern search to Implementer prompt for repeated-pattern changes
   [D:25 C:75] Add a mandatory step to the Implementer prompt (MT-3c) requiring a grep across the full project including hooks/ for the exact pattern being changed before marking implementation complete, preventing single-file fixes that leave sibling files broken.
   Claude: "Add multi-file pattern search step to Implementer prompt for tasks that modify repeated patterns" -- Before marking implementation complete, the Implementer should grep the full project (including hooks/) for the exact pattern being changed and update all matching locations, preventing single-file fixes that leave sibling files broken.

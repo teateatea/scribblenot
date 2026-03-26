@@ -5,7 +5,7 @@
 - Date: 2026-03-26
 - Start-Time: 2026-03-26T04:06:42
 - Tasks: #64 (P:99), #66 (P:99), #65 (P:99), #68 (P:99), #69 (P:99), #67 (P:99), #63 (P:99), #59 (P:99), #56 (P:99), #55 (P:99), #58 (P:99), #60 (P:99), #56-2 (P:99), #57 (P:99), #61 (P:99), #62 (P:99)
-- Difficulty: 115/420
+- Difficulty: 150/420
 - Estimated-Duration: ~181 min (T x 0.43)
 - Prior-Auto-Accept: false
 
@@ -19,7 +19,7 @@
 | #68    | 99       | Complete | 1       |
 | #69    | 99       | Complete | 1       |
 | #67    | 99       | Complete | 1       |
-| #63    | 99       | Queued | 0        |
+| #63    | 99       | Complete | 1       |
 | #59    | 99       | Queued | 0        |
 | #56    | 99       | Queued | 0        |
 | #55    | 99       | Queued | 0        |
@@ -131,6 +131,42 @@
 - Re-read: Confirmed: Line 149 now reads "On a tie, pick the one with the highest PRIORITY_MAP score" with old TASK_LIST reference fully removed
 - Agent: subagent
 - Timestamp: 2026-03-26T05:30:30
+
+### Sub-task 63.1: Document PROJECT-TESTS.md structure and matching heuristics
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 2
+- Prefects: 2
+- Implementation: Research sub-task; documented PROJECT-TESTS.md format (## Task #N: heading, - [ ] criterion lines), colon-terminated regex heuristic to avoid #N-2 false positives, and Tests: block indentation spec (2-space label, 7-space criteria); no file edits
+- Grep: Searched M7-63-1 and project-tests-structure in both scribblenot and ~/.claude; all .claude matches were .jsonl conversation history (not actionable)
+- Shim-removal: N/A
+- Re-read: Confirmed plan file present at .claude/plans/M7-63-1-project-tests-structure.md with correct structure analysis
+- Agent: subagent
+- Timestamp: 2026-03-26T05:55:00
+
+### Sub-task 63.2: Add PROJECT-TESTS.md lookup step to add-task/SKILL.md
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 1
+- Prefects: 2
+- Implementation: Inserted Step 4a (Look up PROJECT-TESTS.md criteria) between Steps 4 and 5 in add-task/SKILL.md; updated Step 5 to include optional Tests: block (2-space/7-space indentation) when TESTS_FOR_N is non-empty; absent-file and no-match paths both produce silent no-op
+- Grep: Searched Step 4a, TESTS_FOR_N, PROJECT-TESTS.md in both scribblenot and ~/.claude; only add-task/SKILL.md has functional matches; plan-review-team/SKILL.md has unrelated Step 4a heading; all other matches are .jsonl history
+- Shim-removal: N/A
+- Re-read: Confirmed SKILL.md lines 79-127 contain Step 4a with clauses a-d and updated Step 5 Tests: block format
+- Agent: subagent
+- Timestamp: 2026-03-26T05:58:00
+
+### Sub-task 63.3: Verify add-task Tests: lookup via scenario trace
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 1
+- Prefects: 2
+- Implementation: Verification-only; traced match path (task #1 finds criteria in PROJECT-TESTS.md), no-match path (task #44 finds no criteria), and absent-file path; all three produce correct output per Step 4a spec; no SKILL.md edits required
+- Grep: Searched Step 4a and TESTS_FOR_N in both scribblenot and ~/.claude; only add-task/SKILL.md has functional matches; no updates needed to sibling files
+- Shim-removal: N/A
+- Re-read: Confirmed SKILL.md Steps 4, 4a, and 5 are correct and internally consistent
+- Agent: subagent
+- Timestamp: 2026-03-26T06:00:55
 
 ### Sub-task 64.1: Insert mandatory multi-file grep step into MT-3c Implementer subagent prompt
 - Status: Pass
