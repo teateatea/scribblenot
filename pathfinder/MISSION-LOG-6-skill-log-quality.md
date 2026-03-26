@@ -12,7 +12,7 @@
 | Task | Priority | Status | Attempts |
 |------|----------|--------|----------|
 | #19  | 99       | Complete | 1        |
-| #43  | 99       | Queued | 0        |
+| #43  | 98       | Re-queued | 1        |
 | #47  | 99       | Complete | 1        |
 | #40  | 99       | Complete | 1        |
 | #41  | 98       | Queued (blocked, dep #42) | 0        |
@@ -365,6 +365,13 @@
 - Cause: Permission hook exited non-zero; tool call blocked. Implementer continued and completed successfully.
 
 ## Abandonment Records
+
+### Task #43 - Attempt 1 failure (2026-03-26T00:39:27)
+- Failed criterion: PROJECT-TESTS.md #43 criterion 2: "pre-compact-mission-log.sh is also updated to use the bare format"
+- Criterion 1 PASSED; only criterion 2 failed
+- Root cause: Implementer updated pathfinder-mission-team/SKILL.md (5 date commands) but missed the pre-compact-mission-log.sh hook script which also contains a `TZ=America/Toronto date +"%Y-%m-%dT%H:%M:%S%z"` call on line 21
+- Prevention plan: Next attempt must explicitly update `C:/Users/solar/.claude/hooks/pre-compact-mission-log.sh` line 21 to remove `%z` before task is marked complete
+- Priority reduced from 99 to 98 (X=1, X²=1)
 
 ### Task #42 - Attempt 1 failure (2026-03-25T20:19:04)
 - Failed criterion: PROJECT-TESTS.md #42 criterion 4: "Running /pathfinder-mission-team MISSION-N-BRIEF (with BRIEF filename as argument) loads the task list from the file"
