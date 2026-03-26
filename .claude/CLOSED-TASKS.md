@@ -84,3 +84,9 @@
   Context: not specified
 - Completed: 2026-03-26T00:39:27
 
+- [ ] **#42** Rename PROJECT-FOUNDATION to MISSION-#-BRIEF and add task priority order to it in both pathfinder skills
+  [D:35 C:55] PROJECT-FOUNDATION.md should be renamed to MISSION-#-BRIEF.md (mission-numbered) in both pathfinder-premission and pathfinder-mission-team, and premission should write the approved task priority order into this file so mission-team can reference it during execution.
+  Joseph: /pathfinder-premission should probably include its task priority order in the PROJECT-FOUNDATION, which we should now be naming the MISSION-#-BRIEF (in both pathfinder skills).
+  Context: not specified
+- Completed: 2026-03-26T00:52:53
+

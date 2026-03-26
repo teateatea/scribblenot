@@ -230,10 +230,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
     Joseph-Raw: Following up on #41, /pathfinder-mission-task following unexpected task order. Here's the top of MISSION-LOG-6-skill-log-quality.md, at about 1h 45m into the mission: [log excerpt showing #39/49/50 completed while #19/43/47 still queued]
     Context: not specified
 
-- [ ] **#42** Rename PROJECT-FOUNDATION to MISSION-#-BRIEF and add task priority order to it in both pathfinder skills
-  [D:35 C:55] PROJECT-FOUNDATION.md should be renamed to MISSION-#-BRIEF.md (mission-numbered) in both pathfinder-premission and pathfinder-mission-team, and premission should write the approved task priority order into this file so mission-team can reference it during execution.
-  Joseph: /pathfinder-premission should probably include its task priority order in the PROJECT-FOUNDATION, which we should now be naming the MISSION-#-BRIEF (in both pathfinder skills).
-  Context: not specified
 
 - [ ] **#43** Drop UTC offset from pathfinder timestamps, output bare local datetime
   [D:10 C:60] Change pathfinder skill timestamp format from `2026-03-25T15:30:00-0400` to `2026-03-25T15:30:00` by stripping the offset suffix -- single user, single machine, offset is noise.
