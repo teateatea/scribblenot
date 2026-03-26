@@ -257,10 +257,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 
     Context: not specified
 
-- [ ] **#54** Add Min/C and Min/U stats to Mission Complete section alongside Min/D
-  [D:20 C:68] Extend the ## Mission Complete section in MISSION-LOG to include two new computed fields placed near Min/D: `Min/C` (mission duration divided by total C score) and `Min/U` (mission duration divided by U, where U = (number_of_tasks x 100) - sum(C)), enabling future correlation of clarity and uncertainty against actual mission duration. Example: 3 tasks with C:10,20,30 gives U = 300-60 = 240.
-  Joseph-Raw: In pathfinder missions, it seems that D scores may be useful in predicting mission duration estimates. I'd like to use the C scores, but I suspect we should also track U (100-C). The Uncertainty score is the amount of "Missing" C. Please add the min/U (does uncertainty have an effect on duration) and min/C (does certainty have an effect on duration) in the same Mission Complete section near the min/D result too.
-  Context: U formula clarified during M6 premission: U = (number_of_tasks x 100) - sum(C), not a simple 100-C per task.
 
 - [ ] **#55** Track premission duration and show estimate before committing to session
   [D:40 C:55] Add start/end timestamps to pathfinder-premission itself and compute a pre-session duration estimate (using D/C/U metrics) displayed before the user commits, so they can trim the task list when the estimated premission time exceeds available time.
