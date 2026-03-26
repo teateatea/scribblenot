@@ -5,7 +5,7 @@
 - Date: 2026-03-26
 - Start-Time: 2026-03-26T04:06:42
 - Tasks: #64 (P:99), #66 (P:99), #65 (P:99), #68 (P:99), #69 (P:99), #67 (P:99), #63 (P:99), #59 (P:99), #56 (P:99), #55 (P:99), #58 (P:99), #60 (P:99), #56-2 (P:99), #57 (P:99), #61 (P:99), #62 (P:99)
-- Difficulty: 75/420
+- Difficulty: 115/420
 - Estimated-Duration: ~181 min (T x 0.43)
 - Prior-Auto-Accept: false
 
@@ -18,7 +18,7 @@
 | #65    | 99       | Complete | 1       |
 | #68    | 99       | Complete | 1       |
 | #69    | 99       | Complete | 1       |
-| #67    | 99       | Queued | 0        |
+| #67    | 99       | Complete | 1       |
 | #63    | 99       | Queued | 0        |
 | #59    | 99       | Queued | 0        |
 | #56    | 99       | Queued | 0        |
@@ -96,6 +96,42 @@
 - Agent: subagent
 - Timestamp: 2026-03-26T05:03:17
 
+### Sub-task 67.1: Update MT-1 2-A to store premission rank in PRIORITY_MAP
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 4
+- Prefects: 3
+- Implementation: Updated MT-1 2-A to assign PRIORITY_MAP[task_id] = 100 - position during BRIEF extraction; updated MT-3 PRIORITY_MAP initialization to three-source precedence (BRIEF rank, TASKS.md P score, 99 default)
+- Grep: Pattern found only in .jsonl conversation history; correctly absent from SKILL.md source after edit
+- Shim-removal: N/A
+- Re-read: Confirmed: MT-1 2-A (lines 27-31) has 100-position assignment block; MT-3 (line 143) has three-source precedence description
+- Agent: subagent
+- Timestamp: 2026-03-26T05:22:02
+
+### Sub-task 67.2: Update MT-2 sort key to use PRIORITY_MAP score
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 2
+- Prefects: 2
+- Implementation: Updated MT-2 reorder sentence (line 137) to sort by PRIORITY_MAP score descending with D score as tiebreaker; old "position in TASK_LIST" language removed
+- Grep: Old pattern found 0 matches in scribblenot; 45 matches in ~/.claude all in .jsonl conversation logs (not actionable)
+- Shim-removal: N/A
+- Re-read: Confirmed: Line 137 now reads "sort by PRIORITY_MAP score descending...use D score as tiebreaker only when two tasks share the same PRIORITY_MAP score"
+- Agent: subagent
+- Timestamp: 2026-03-26T05:27:36
+
+### Sub-task 67.3: Update MT-3a tiebreak to use highest PRIORITY_MAP score
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 1
+- Prefects: 1
+- Implementation: Changed MT-3a tiebreak from "earliest position in TASK_LIST" to "highest PRIORITY_MAP score" (line 149)
+- Grep: Old pattern found in SUCCESSFUL-MISSION-LOG-6 (historical log, not actionable); all ~/.claude/ matches are .jsonl conversation logs
+- Shim-removal: N/A
+- Re-read: Confirmed: Line 149 now reads "On a tie, pick the one with the highest PRIORITY_MAP score" with old TASK_LIST reference fully removed
+- Agent: subagent
+- Timestamp: 2026-03-26T05:30:30
+
 ### Sub-task 64.1: Insert mandatory multi-file grep step into MT-3c Implementer subagent prompt
 - Status: Pass
 - TDD: (no tests)
@@ -107,6 +143,10 @@
 - Re-read: Confirmed: SKILL.md Implementer prompt block has correct step numbering (6-commit, 7-grep, 8-re-read, 9-return) and sub-task log template includes Grep: field with no truncation
 - Agent: subagent
 - Timestamp: 2026-03-26T04:20:53
+
+## Prefect Issues (unresolved)
+
+- Task #67 sub-task 1 (M7-67-1-mt1-rank-storage.md): Nit - duplicate ## Changelog sections due to Prefect-1/Prefect-2 report insertion ordering; all blocking/minor issues resolved.
 
 ## Permission Denials
 

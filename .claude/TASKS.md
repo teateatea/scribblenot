@@ -109,15 +109,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Claude: "Add multi-file pattern search step to Implementer prompt for tasks that modify repeated patterns" -- Before marking implementation complete, the Implementer should grep the full project (including hooks/) for the exact pattern being changed and update all matching locations, preventing single-file fixes that leave sibling files broken.
   Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Task #43 attempt 1 failed because the subagent updated SKILL.md but missed the identical pattern in pre-compact-mission-log.sh.
 
-
-
-- [ ] **#67** Store premission rank in PRIORITY_MAP from BRIEF and use it as primary sort key in MT-2 and MT-3a *(implemented sub-task 2)*
-  [D:40 C:72] Extend MT-1 step 2-A to extract each task's list position from ## Task Priority Order as its PRIORITY_MAP rank; update MT-2 reorder and MT-3a tie-break to sort by rank before D score, making execution order match the user-reviewed premission sequence.
-  Claude: "Store premission rank in PRIORITY_MAP during MT-1 2-A branch and use it as the primary sort key in MT-2 and MT-3a" -- After sub-task 42.1 added Task Priority Order to the BRIEF, MT-1 2-A reads task IDs from that section but does not extract their position as a rank value; storing rank-as-priority and sorting by it before D score would make execution order match the user-reviewed premission sequence.
-  Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - All M6 tasks ran at P:99 with MT-2/MT-3a falling back to D-score ordering, inverting the user-set premission sequence.
-
-
-
 - [ ] **#70** Audit why diff windows still open during M7 despite two completed suppress-diff tasks
   [D:35 C:62] Tasks #15 and #48 were both marked complete and claimed to suppress diff windows during pathfinder missions, but Mission 7 still opens diffs. This task asks for an audit of what was actually implemented and why it is not working, with findings reported in the M7 mission log.
   Joseph-Raw: We have a handful of completed tasks in our CLOSED_TASKS.md, suggesting that diffs should not be opening anymore during pathfinder missions. M7 has just started, and it definitely still opens diffs. Please audit and report findings in mission log.

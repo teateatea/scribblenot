@@ -326,3 +326,9 @@
   Context: pathfinder/MISSION-LOG-active.md found at 87KB, containing entries from all 6 missions with no rotation/clear step
 - Completed: 2026-03-26T05:04:05
 
+- [ ] **#67** Store premission rank in PRIORITY_MAP from BRIEF and use it as primary sort key in MT-2 and MT-3a *(implemented sub-task 2)*
+  [D:40 C:72] Extend MT-1 step 2-A to extract each task's list position from ## Task Priority Order as its PRIORITY_MAP rank; update MT-2 reorder and MT-3a tie-break to sort by rank before D score, making execution order match the user-reviewed premission sequence.
+  Claude: "Store premission rank in PRIORITY_MAP during MT-1 2-A branch and use it as the primary sort key in MT-2 and MT-3a" -- After sub-task 42.1 added Task Priority Order to the BRIEF, MT-1 2-A reads task IDs from that section but does not extract their position as a rank value; storing rank-as-priority and sorting by it before D score would make execution order match the user-reviewed premission sequence.
+  Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - All M6 tasks ran at P:99 with MT-2/MT-3a falling back to D-score ordering, inverting the user-set premission sequence.
+- Completed: 2026-03-26T05:31:20
+
