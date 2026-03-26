@@ -116,10 +116,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Claude: "Store premission rank in PRIORITY_MAP during MT-1 2-A branch and use it as the primary sort key in MT-2 and MT-3a" -- After sub-task 42.1 added Task Priority Order to the BRIEF, MT-1 2-A reads task IDs from that section but does not extract their position as a rank value; storing rank-as-priority and sorting by it before D score would make execution order match the user-reviewed premission sequence.
   Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - All M6 tasks ran at P:99 with MT-2/MT-3a falling back to D-score ordering, inverting the user-set premission sequence.
 
-- [ ] **#68** Upgrade MT-3d Status/Implementation/Timestamp check from soft warning to hard block
-  [D:20 C:80] The MT-3d enforcement gate checks Status, Implementation, and Timestamp fields with a soft warning that does not block task completion; upgrade these to a hard block (same pattern as the Agent check added by task #51) so a missing core log field re-queues the task rather than letting it pass with a warning.
-  Claude: Task Observation from Mission 6: Both #46 and #46-2 stated the log entry check should be a blocking issue, but the MT-3d enforcement gate for Status/Implementation/Timestamp fields was implemented as a soft warning; only the Agent field (added by #51) became a hard block. Upgrade the Status/Implementation/Timestamp soft-warning check to a hard block so missing core log fields re-queue the task.
-  Context: Mission 6 Task Observations (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Gap between stated intent (#46/#46-2 wanted hard blocks) and what was implemented (soft warning).
 
 - [ ] **#69** Truncate MISSION-LOG-active.md at mission end to prevent indefinite accumulation
   [D:15 C:88] Add a truncation step to MT-4 that empties MISSION-LOG-active.md after relevant entries have been copied to the numbered log, so each mission starts with a clean file instead of inheriting all prior mission history.

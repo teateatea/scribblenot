@@ -314,3 +314,9 @@
   Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Casualties 4 and 5 show MT-3d plan-rename consistently triggering permission-hook denials with compound commands.
 - Completed: 2026-03-26T04:45:12
 
+- [ ] **#68** Upgrade MT-3d Status/Implementation/Timestamp check from soft warning to hard block
+  [D:20 C:80] The MT-3d enforcement gate checks Status, Implementation, and Timestamp fields with a soft warning that does not block task completion; upgrade these to a hard block (same pattern as the Agent check added by task #51) so a missing core log field re-queues the task rather than letting it pass with a warning.
+  Claude: Task Observation from Mission 6: Both #46 and #46-2 stated the log entry check should be a blocking issue, but the MT-3d enforcement gate for Status/Implementation/Timestamp fields was implemented as a soft warning; only the Agent field (added by #51) became a hard block. Upgrade the Status/Implementation/Timestamp soft-warning check to a hard block so missing core log fields re-queue the task.
+  Context: Mission 6 Task Observations (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Gap between stated intent (#46/#46-2 wanted hard blocks) and what was implemented (soft warning).
+- Completed: 2026-03-26T04:57:06
+

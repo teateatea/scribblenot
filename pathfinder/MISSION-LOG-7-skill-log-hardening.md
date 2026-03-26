@@ -5,7 +5,7 @@
 - Date: 2026-03-26
 - Start-Time: 2026-03-26T04:06:42
 - Tasks: #64 (P:99), #66 (P:99), #65 (P:99), #68 (P:99), #69 (P:99), #67 (P:99), #63 (P:99), #59 (P:99), #56 (P:99), #55 (P:99), #58 (P:99), #60 (P:99), #56-2 (P:99), #57 (P:99), #61 (P:99), #62 (P:99)
-- Difficulty: 40/420
+- Difficulty: 60/420
 - Estimated-Duration: ~181 min (T x 0.43)
 - Prior-Auto-Accept: false
 
@@ -16,7 +16,7 @@
 | #64    | 98       | Re-queued | 1      |
 | #66    | 99       | Complete | 1       |
 | #65    | 99       | Complete | 1       |
-| #68    | 99       | Queued | 0        |
+| #68    | 99       | Complete | 1       |
 | #69    | 99       | Queued | 0        |
 | #67    | 99       | Queued | 0        |
 | #63    | 99       | Queued | 0        |
@@ -71,6 +71,18 @@
 - Re-read: N/A
 - Agent: subagent
 - Timestamp: 2026-03-26T04:44:08
+
+### Sub-task 68.1: Upgrade MT-3d soft-field check to hard block
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 3
+- Prefects: 1
+- Implementation: Changed "Per-entry soft-field check" label to hard block, added failure-routing sentence matching Agent/Re-read pattern, removed "Do NOT block completion based on soft-field warnings" line
+- Grep: Pattern found only in edited SKILL.md and conversation .jsonl history; no other source files needed updating
+- Shim-removal: N/A
+- Re-read: Confirmed: Line 368 has hard block label; line 375 routes to step 4 on missing fields; permissive language absent
+- Agent: subagent
+- Timestamp: 2026-03-26T04:56:14
 
 ### Sub-task 64.1: Insert mandatory multi-file grep step into MT-3c Implementer subagent prompt
 - Status: Pass
