@@ -351,6 +351,45 @@
 - Re-read: Confirmed: MT-1 step 2 contains 2-A BRIEF detection and 2-B fallback branches, structurally sound
 - Timestamp: 2026-03-26T00:50:03
 
+### Sub-task 41.1: Audit MT-2 and MT-3a ordering logic - confirm PRIORITY_MAP init and root cause
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Investigation only; no production files changed. Root cause confirmed: all M6 tasks at P:99 (no [P:N] annotations), MT-2 tie-breaks by D score discarding premission order; MISSION-6-BRIEF.md lacks Task Priority Order because premission ran before sub-task 42.1 added the section. Findings documented in log.
+- Reviewers: 1
+- Prefects: 2
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: N/A
+- Timestamp: 2026-03-26T01:02:37
+
+**Findings:**
+
+**Evidence - M6 execution sequence vs premission order:**
+The M6 mission log header lists premission priority order as: #19, #43, #47, #40, #41, #46, #48, #53, #45, #39, #42, #49, #46-2, #51, #52, #50, #54. All tasks initialized with P:99.
+The sub-task log timestamps show actual execution order was: #50.1 (19:18), #50.2 (19:25), #49.1 (19:37), #49.2 (19:37), #39.1 (20:33), #42.1-#42.3 (20:19), #45.x (20:54), #46.1 (21:00), #46.2 (21:06), #46-2.x (21:24), #51.x (21:35), #52.x (21:54), #53.x (23:50), #48.x (00:08-00:17), #54.1 (00:25), #47.1 (00:32), #19.1 (00:39), #43.1 (00:39).
+Tasks #19, #43, #47 (listed first in premission order) completed near the END of the mission. Tasks #50, #49 (listed 16th/12th) completed first. This confirms execution order does not follow premission priority list.
+
+**Root cause - three-part chain confirmed:**
+
+1. **PRIORITY_MAP initialization**: MT-3 definition (SKILL.md line 139) initializes PRIORITY_MAP to "99 per task, or the P score from TASKS.md if a `[P:N ...]` annotation is present." A search of TASKS.md confirms zero `[P:N ...]` annotations exist for any M6 task. Therefore ALL tasks enter the queue at priority 99 - confirmed by the mission log Tasks line showing every task as `(P:99)`.
+
+2. **MT-2 reorder**: The Dependency Scout prompt (SKILL.md line 133) instructs: "Reorder the TASK_QUEUE based on the DAG: highest priority first, hardest (highest D score) first within the same priority tier." With all tasks at P:99, the tie-break is purely D score descending. This re-sorts the queue by difficulty, discarding the premission order.
+
+3. **MT-3a tie-break**: MT-3a (SKILL.md line 145) selects "highest-priority unblocked task; on a tie, pick the one with the highest difficulty score." This is consistent with MT-2 - both reinforce D-score ordering over premission order.
+
+**MISSION-6-BRIEF.md has no `## Task Priority Order` section**: Confirmed by grep. The file contains Goals, Requirements, Explicit Non-Goals, Constraints, and Test Criteria sections - but no `## Task Priority Order` section. MT-1 step 2-A (added by sub-task 42.4) reads task IDs from this section; its absence means 2-A falls back to 2-B (token list parse) and the file-based priority order is never used.
+
+**Why MISSION-6-BRIEF.md lacks `## Task Priority Order`**: Sub-task 42.1 (timestamp 2026-03-25T20:19:04) was the edit that added `## Task Priority Order` to pathfinder-premission/SKILL.md Foundation Author prompt. The M6 premission ran BEFORE mission execution began (mission Start-Time: 2026-03-25T19:06:43), which is before sub-task 42.1's timestamp of 2026-03-25T20:19:04. Therefore MISSION-6-BRIEF.md was produced by the old premission template that did not include the section.
+
+**Verification checks:**
+- MISSION-6-BRIEF.md has no `## Task Priority Order` section: CONFIRMED (grep returns no matches)
+- No TASKS.md entry for M6 tasks carries a `[P:N ...]` annotation: CONFIRMED (grep returns 0 matches)
+
+**Summary for sub-tasks 2-4:**
+- Sub-task 2: premission now writes `## Task Priority Order` into BRIEF (done by #42). Future missions will have this section available.
+- Sub-task 3: PRIORITY_MAP must read premission rank from BRIEF `## Task Priority Order` instead of defaulting all tasks to 99. Currently MT-1 2-A only reads task IDs, not ranks - it needs to also extract and store rank values.
+- Sub-task 4: MT-2 reorder and MT-3a tie-break must consult PRIORITY_MAP values from premission rank rather than treating all 99s as equal and falling back to D score alone.
+
 ## Prefect Issues (unresolved)
 
 - Task #42 sub-task 1 (M6-42-1-premission-brief-rename.md) Prefect-3 N1: Step 5 diff inserts an extra blank `>` line that would create two consecutive blank blockquote lines; the existing source line 144 already provides separation. Proceeding to implementation despite this nit.
