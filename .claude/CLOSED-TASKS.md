@@ -390,3 +390,9 @@
   Joseph-Raw: In the MISSION-LOG-#, under ## Mission, Tasks: can omit (P:99) on each task. #19, #43, #47, etc is fine.
   Context: not specified
 - Completed: 2026-03-26T12:20:00
+
+- [ ] **#64** Add multi-file pattern search to Implementer prompt for repeated-pattern changes
+  [D:25 C:75] Add a mandatory step to the Implementer prompt (MT-3c) requiring a grep across the full project including hooks/ for the exact pattern being changed before marking implementation complete, preventing single-file fixes that leave sibling files broken.
+  Claude: "Add multi-file pattern search step to Implementer prompt for tasks that modify repeated patterns" -- Before marking implementation complete, the Implementer should grep the full project (including hooks/) for the exact pattern being changed and update all matching locations, preventing single-file fixes that leave sibling files broken.
+  Context: Mission 6 post-mortem
+- Completed: 2026-03-26T12:30:00

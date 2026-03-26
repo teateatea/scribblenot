@@ -56,10 +56,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 
 
 
-- [ ] **#64** Add multi-file pattern search to Implementer prompt for repeated-pattern changes
-  [D:25 C:75] Add a mandatory step to the Implementer prompt (MT-3c) requiring a grep across the full project including hooks/ for the exact pattern being changed before marking implementation complete, preventing single-file fixes that leave sibling files broken.
-  Claude: "Add multi-file pattern search step to Implementer prompt for tasks that modify repeated patterns" -- Before marking implementation complete, the Implementer should grep the full project (including hooks/) for the exact pattern being changed and update all matching locations, preventing single-file fixes that leave sibling files broken.
-  Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Task #43 attempt 1 failed because the subagent updated SKILL.md but missed the identical pattern in pre-compact-mission-log.sh.
 
 - [ ] **#70** Audit why diff windows still open during M7 despite two completed suppress-diff tasks
   [D:35 C:62] Tasks #15 and #48 were both marked complete and claimed to suppress diff windows during pathfinder missions, but Mission 7 still opens diffs. This task asks for an audit of what was actually implemented and why it is not working, with findings reported in the M7 mission log.

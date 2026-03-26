@@ -5,7 +5,7 @@
 - Date: 2026-03-26
 - Start-Time: 2026-03-26T04:06:42
 - Tasks: #64 (P:99), #66 (P:99), #65 (P:99), #68 (P:99), #69 (P:99), #67 (P:99), #63 (P:99), #59 (P:99), #56 (P:99), #55 (P:99), #58 (P:99), #60 (P:99), #56-2 (P:99), #57 (P:99), #61 (P:99), #62 (P:99)
-- Difficulty: 365/420 (55 remaining)
+- Difficulty: 390/420 (30 remaining)
 - Estimated-Duration: ~181 min (T x 0.43)
 - Prior-Auto-Accept: false
 
@@ -13,7 +13,7 @@
 
 | Task   | Priority | Status | Attempts |
 |--------|----------|--------|----------|
-| #64    | 98       | Re-queued | 1      |
+| #64    | 98       | Complete | 2       |
 | #66    | 99       | Complete | 1       |
 | #65    | 99       | Complete | 1       |
 | #68    | 99       | Complete | 1       |
@@ -403,6 +403,19 @@
 - Bash-used: grep, git add
 - Agent: subagent
 - Timestamp: 2026-03-26T12:20:00
+
+### Sub-task 64.2: Update step 7 to grep both PROJECT_ROOT and C:/Users/solar/.claude/ explicitly
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 1
+- Prefects: 1
+- Implementation: Replaced step 7 single-grep text (PROJECT_ROOT only) with dual-grep instruction naming both PROJECT_ROOT and C:/Users/solar/.claude/ explicitly; old "full project root including hooks/" text confirmed absent
+- Grep: Confirmed "C:/Users/solar/.claude/" appears in step 7 at line 330; old single-directory text gone
+- Shim-removal: N/A
+- Re-read: Confirmed line 330 of SKILL.md reads "grep BOTH of the following directory trees" with both (a) PROJECT_ROOT and (b) C:/Users/solar/.claude/ named explicitly
+- Bash-used: grep, git add
+- Agent: subagent
+- Timestamp: 2026-03-26T12:30:00
 
 ## Prefect Issues (unresolved)
 
