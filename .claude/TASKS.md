@@ -154,10 +154,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
     Joseph: additional instructions for 29: This should continue to use subagents in sequence. Calling this immediately after Mission 3 completed maxxed out the main instance's context forcing a /compact, which should be avoided.
     Context: not specified
 
-- [ ] **#19** Remove the C:60 cap from add-task initial scoring; allow full 0-99 range *(implemented)*
-  [D:10 C:58] The add-task skill clamps Clarity Confidence at 60, deferring higher scores to later review passes. The cap should be removed so the initial score can reflect the full 0-99 range accurately. Review passes then serve their intended purpose -- correcting toward accuracy -- rather than mechanically bumping capped values upward.
-  Joseph: I believe it's the add-task skill that is only allowed to score a new task up to C: 60, not greater. Originally, I thought we'd wait for a later review to bump it higher. Let's not do that, the initial score should be allowed to be the full range 0-99. This let's the initial scoring not be artificially clamped down. We can still do later reviews, but instead of those reviews pushing tasks higher, they'll now be pushing the clarity towards more *accurate*, which is the intended goal anyways.
-  Context: not specified
 
 - [x] **#26** Provide prior-attempt context to Decomposer on task re-queues
   [D:30 C:55] When a task is re-queued after failed project tests, the Decomposer prompt should include the prior attempt's sub-tasks and failed test criteria so it generates targeted gap-filling sub-tasks instead of re-discovering the full task scope from scratch.

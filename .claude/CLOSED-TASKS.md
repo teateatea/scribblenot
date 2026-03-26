@@ -78,3 +78,9 @@
   Context: not specified
 - Completed: 2026-03-26T00:32:10
 
+- [ ] **#19** Remove the C:60 cap from add-task initial scoring; allow full 0-99 range *(implemented)*
+  [D:10 C:58] The add-task skill clamps Clarity Confidence at 60, deferring higher scores to later review passes. The cap should be removed so the initial score can reflect the full 0-99 range accurately. Review passes then serve their intended purpose -- correcting toward accuracy -- rather than mechanically bumping capped values upward.
+  Joseph: I believe it's the add-task skill that is only allowed to score a new task up to C: 60, not greater. Originally, I thought we'd wait for a later review to bump it higher. Let's not do that, the initial score should be allowed to be the full range 0-99. This let's the initial scoring not be artificially clamped down. We can still do later reviews, but instead of those reviews pushing tasks higher, they'll now be pushing the clarity towards more *accurate*, which is the intended goal anyways.
+  Context: not specified
+- Completed: 2026-03-26T00:39:27
+
