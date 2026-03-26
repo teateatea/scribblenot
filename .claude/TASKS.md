@@ -154,7 +154,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
     Joseph: additional instructions for 29: This should continue to use subagents in sequence. Calling this immediately after Mission 3 completed maxxed out the main instance's context forcing a /compact, which should be avoided.
     Context: not specified
 
-- [ ] **#19** Remove the C:60 cap from add-task initial scoring; allow full 0-99 range
+- [ ] **#19** Remove the C:60 cap from add-task initial scoring; allow full 0-99 range *(implemented)*
   [D:10 C:58] The add-task skill clamps Clarity Confidence at 60, deferring higher scores to later review passes. The cap should be removed so the initial score can reflect the full 0-99 range accurately. Review passes then serve their intended purpose -- correcting toward accuracy -- rather than mechanically bumping capped values upward.
   Joseph: I believe it's the add-task skill that is only allowed to score a new task up to C: 60, not greater. Originally, I thought we'd wait for a later review to bump it higher. Let's not do that, the initial score should be allowed to be the full range 0-99. This let's the initial scoring not be artificially clamped down. We can still do later reviews, but instead of those reviews pushing tasks higher, they'll now be pushing the clarity towards more *accurate*, which is the intended goal anyways.
   Context: not specified
@@ -289,6 +289,16 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   - "Initial Estimated Completion Time: HH:mm (Started at HH:mm)" (based on the total difficulty; I'd like a time not a duration)
   - "Current Estimated Completion Time: HH:mm (Updated at HH:mm)" (based on the current remaining difficulty)
   - These are calculated by whatever our min/D rate is, right now I think it's D * 0.43? But we only need to update these numbers every time we start a new task, not for sub-tasks.
+  Context: not specified
+
+- [ ] **#61** Add remaining count to Difficulty field in MISSION-LOG mission section
+  [D:15 C:52] Update the Difficulty display format in MISSION-LOG files to append remaining difficulty in parentheses, e.g. "Difficulty: 3/10 (7 remaining)". Small formatting change to an existing log field updated by pathfinder-mission-team.
+  Joseph-Raw: In the MISSION-LOG-#, under ## Mission, change "Difficulty: {total completed}/{mission total}" to "Difficulty: {total completed}/{mission total} ({total remaining} remaining)"
+  Context: not specified
+
+- [ ] **#62** Omit (P:99) priority annotation from Tasks list in MISSION-LOG ## Mission section
+  [D:15 C:42] Tasks listed in the ## Mission Tasks field of MISSION-LOG should drop the "(P:N)" priority suffix so the list reads as plain task IDs (e.g. #19, #43, #47) without redundant annotation noise.
+  Joseph-Raw: In the MISSION-LOG-#, under ## Mission, Tasks: can omit (P:99) on each task. #19, #43, #47, etc is fine.
   Context: not specified
 
 ---
