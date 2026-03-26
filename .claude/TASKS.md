@@ -65,13 +65,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Context: not specified
 
 
-- [ ] **#60** Add Initial and Current Estimated Completion Time fields to MISSION-LOG Task Status
-  [D:30 C:55] Under ## Task Status in MISSION-LOG, add two wall-clock ETA fields: "Initial Estimated Completion Time: HH:mm (Started at HH:mm)" computed once at mission start from total D * 0.43 min/D rate, and "Current Estimated Completion Time: HH:mm (Updated at HH:mm)" recomputed from remaining D each time a new task begins (not sub-tasks).
-  Joseph-Raw: In the MISSION-LOG-#, under ## Task Status, let's add some information so I can check in mid-mission:
-  - "Initial Estimated Completion Time: HH:mm (Started at HH:mm)" (based on the total difficulty; I'd like a time not a duration)
-  - "Current Estimated Completion Time: HH:mm (Updated at HH:mm)" (based on the current remaining difficulty)
-  - These are calculated by whatever our min/D rate is, right now I think it's D * 0.43? But we only need to update these numbers every time we start a new task, not for sub-tasks.
-  Context: not specified
 
 - [ ] **#61** Add remaining count to Difficulty field in MISSION-LOG mission section
   [D:15 C:52] Update the Difficulty display format in MISSION-LOG files to append remaining difficulty in parentheses, e.g. "Difficulty: 3/10 (7 remaining)". Small formatting change to an existing log field updated by pathfinder-mission-team.

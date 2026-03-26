@@ -5,7 +5,7 @@
 - Date: 2026-03-26
 - Start-Time: 2026-03-26T04:06:42
 - Tasks: #64 (P:99), #66 (P:99), #65 (P:99), #68 (P:99), #69 (P:99), #67 (P:99), #63 (P:99), #59 (P:99), #56 (P:99), #55 (P:99), #58 (P:99), #60 (P:99), #56-2 (P:99), #57 (P:99), #61 (P:99), #62 (P:99)
-- Difficulty: 270/420
+- Difficulty: 300/420
 - Estimated-Duration: ~181 min (T x 0.43)
 - Prior-Auto-Accept: false
 
@@ -24,7 +24,7 @@
 | #56    | 99       | Complete | 1       |
 | #55    | 99       | Complete | 1       |
 | #58    | 99       | Complete | 1       |
-| #60    | 99       | Queued | 0        |
+| #60    | 99       | Complete | 1       |
 | #56-2  | 99       | Queued | 0        |
 | #57    | 99       | Queued | 0        |
 | #61    | 99       | Queued | 0        |
@@ -179,6 +179,42 @@
 - Re-read: Confirmed: SKILL.md Implementer prompt block has correct step numbering (6-commit, 7-grep, 8-re-read, 9-return) and sub-task log template includes Grep: field with no truncation
 - Agent: subagent
 - Timestamp: 2026-03-26T04:20:53
+
+### Sub-task 60.1: Add ETA placeholder fields to MISSION-LOG Task Status template
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 2
+- Prefects: 2
+- Implementation: Added Initial Estimated Completion Time and Current Estimated Completion Time placeholder lines (with <INITIAL_ETA>, <CURRENT_ETA>, <START_TIME>, <UPDATE_TIME> tokens) between Estimated-Duration and ## Task Status in MT-1 MISSION-LOG template
+- Grep: Searched INITIAL_ETA and Initial Estimated Completion Time in both scribblenot and ~/.claude; only SKILL.md (updated) and session cache matched; no other non-historical files needed updating
+- Shim-removal: N/A
+- Re-read: Confirmed SKILL.md lines 78-82 show ETA fields between Estimated-Duration and ## Task Status in correct order
+- Agent: subagent
+- Timestamp: 2026-03-26T07:10:00
+
+### Sub-task 60.2: Add INITIAL_ETA computation to MT-1 initialization
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 1
+- Prefects: 1
+- Implementation: Inserted step 2c into MT-1 to compute INITIAL_ETA as START_TIME + ESTIMATED_DURATION minutes (HH:mm with midnight wrap), set CURRENT_ETA = INITIAL_ETA and UPDATE_TIME = HH:mm portion of START_TIME
+- Grep: Searched INITIAL_ETA and CURRENT_ETA in both scribblenot and ~/.claude; only SKILL.md lines 64, 81, 82 matched (template tokens already present); no other files needed updating
+- Shim-removal: N/A
+- Re-read: Confirmed step 2c inserted between 2b and step 3 at line 64 with correct wording
+- Agent: subagent
+- Timestamp: 2026-03-26T07:13:00
+
+### Sub-task 60.3: Add Current ETA recomputation to MT-3a on task start
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 1
+- Prefects: 1
+- Implementation: Inserted 7-step ETA recomputation block into MT-3a immediately after PLAN_FILES/PRIOR_ATTEMPT_MAP initialization, computing remaining_D = T - COMPLETED_D and current_eta = now + round(remaining_D * 0.43) min, then overwriting Current Estimated Completion Time line in MISSION-LOG with Edit tool
+- Grep: Searched CURRENT_ETA and Current Estimated Completion Time in both scribblenot and ~/.claude; only SKILL.md (updated) and historical log files matched; no other files needed updating
+- Shim-removal: N/A
+- Re-read: Confirmed MT-3a has 7-step ETA recomputation block between line 155 and MT-3b at line 170
+- Agent: subagent
+- Timestamp: 2026-03-26T07:16:31
 
 ### Sub-task 58.1: Audit #N-2 collision scope in TASKS.md and skill parsers
 - Status: Pass

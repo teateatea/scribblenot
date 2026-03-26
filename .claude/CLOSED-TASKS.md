@@ -360,3 +360,9 @@
   Context: not specified
 - Completed: 2026-03-26T06:59:59
 
+- [ ] **#60** Add Initial and Current Estimated Completion Time fields to MISSION-LOG Task Status
+  [D:30 C:55] Under ## Task Status in MISSION-LOG, add two wall-clock ETA fields: "Initial Estimated Completion Time: HH:mm (Started at HH:mm)" computed once at mission start from total D * 0.43 min/D rate, and "Current Estimated Completion Time: HH:mm (Updated at HH:mm)" recomputed from remaining D each time a new task begins (not sub-tasks).
+  Joseph-Raw: In the MISSION-LOG-#, under ## Task Status, let's add some information so I can check in mid-mission.
+  Context: not specified
+- Completed: 2026-03-26T07:16:31
+
