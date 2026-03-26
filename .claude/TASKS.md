@@ -114,10 +114,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Claude: "Rewrite MT-3d plan-rename step to emit individual mv + git add commands instead of compound bash" -- Changing the rename block to issue one mv and one git add per file eliminates the compound-command pattern that the permission hook rejects, removing a recurring casualty source.
   Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Casualties 4 and 5 show MT-3d plan-rename consistently triggering permission-hook denials with compound commands.
 
-- [ ] **#66** Replace tilde paths with absolute paths in all subagent prompts referencing ~/.claude *(implemented)*
-  [D:20 C:85] Search all Implementer and Reviewer subagent prompts in pathfinder-mission-team/SKILL.md for ~/.claude references and substitute the literal path C:/Users/solar/.claude, eliminating the recurring permission-hook denial class from tilde expansion.
-  Claude: "Replace tilde paths with absolute paths in all Implementer and Reviewer subagent prompts that reference ~/.claude" -- Substituting the literal home directory path (C:/Users/solar/.claude) for ~ in skill prompts eliminates a recurring permission-hook denial class with no functional change.
-  Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Casualties 1-3 show subagents searching ~/.claude/skills/** with tilde paths blocked by the permission hook.
 
 - [ ] **#67** Store premission rank in PRIORITY_MAP from BRIEF and use it as primary sort key in MT-2 and MT-3a
   [D:40 C:72] Extend MT-1 step 2-A to extract each task's list position from ## Task Priority Order as its PRIORITY_MAP rank; update MT-2 reorder and MT-3a tie-break to sort by rank before D score, making execution order match the user-reviewed premission sequence.
