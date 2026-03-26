@@ -225,11 +225,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Context: not specified
 
 
-- [ ] **#40** Require detailed MISSION-LOG justification whenever mission-team skips a premission-approved task
-  [D:25 C:58] pathfinder-mission-team must never silently drop a task from the user's starting command; any skip requires a written justification entry in MISSION-LOG, and the team's default stance should be that premission-approved tasks are mandatory -- skipping is a last resort that demands explicit reasoning on record.
-  Joseph: When /pathfinder-mission-team skips any task listed in the user's starting command while building its initial task, it MUST justify this in the MISSION-LOG, in detail. As a general rule, the /pathfinder-mission-team should NEVER be skipping tasks, especially if they've gone through /pathfinder-premission! Their whole deal is to always get the job done.
-  Context: not specified
-
 - [ ] **#41** Confirm and fix mission-team task execution order to respect premission priority ranking
   [D:25 C:45] pathfinder-mission-team may be processing tasks in an arbitrary order rather than following the priority sequence established during premission; investigate whether the priority list from MISSION-PERMISSIONS.json is read and honoured at MT-1 initialization, then fix or clarify.
   Joseph: I think /pathfinder-mission-task might not be respecting the task priority order set out by the /pathfinder-premission. Confirm and fix, or clarify.

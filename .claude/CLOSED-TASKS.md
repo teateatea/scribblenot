@@ -54,3 +54,9 @@
   Context: not specified
 - Completed: 2026-03-25T23:50:39
 
+- [ ] **#40** Require detailed MISSION-LOG justification whenever mission-team skips a premission-approved task
+  [D:25 C:58] pathfinder-mission-team must never silently drop a task from the user's starting command; any skip requires a written justification entry in MISSION-LOG, and the team's default stance should be that premission-approved tasks are mandatory -- skipping is a last resort that demands explicit reasoning on record.
+  Joseph: When /pathfinder-mission-team skips any task listed in the user's starting command while building its initial task, it MUST justify this in the MISSION-LOG, in detail. As a general rule, the /pathfinder-mission-team should NEVER be skipping tasks, especially if they've gone through /pathfinder-premission! Their whole deal is to always get the job done.
+  Context: not specified
+- Completed: 2026-03-25T23:59:51
+
