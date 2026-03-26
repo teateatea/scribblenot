@@ -54,12 +54,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 
 
 
-- [ ] **#59** Mirror PreCompact hook entries to the numbered MISSION-LOG file, not just MISSION-LOG-active
-  [D:15 C:60] The PreCompact hook (added in #32) logs compact events to MISSION-LOG-active.md but not to the permanent numbered MISSION-LOG-N-*.md file. Compact events should appear in the human-readable mission log so post-mission review shows exactly when compaction occurred without needing to cross-reference a separate file.
-  Joseph-Raw: On M6, at the 2 hour mark, I checked the logs and the active instance. I believe the precompact hook is firing, and logging into MISSION-LOG-active, but I'd like an entry in the human-readable MISSION-LOG-6* as well!
-  Context: not specified
-
-
 
 - [ ] **#61** Add remaining count to Difficulty field in MISSION-LOG mission section
   [D:15 C:52] Update the Difficulty display format in MISSION-LOG files to append remaining difficulty in parentheses, e.g. "Difficulty: 3/10 (7 remaining)". Small formatting change to an existing log field updated by pathfinder-mission-team.

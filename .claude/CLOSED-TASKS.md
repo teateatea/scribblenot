@@ -372,3 +372,9 @@
   Joseph-Raw: Pretty sure M6 Start-Time is wrong. It says T19:06, but it's 3:12PM right now. It only started a few minutes ago, not... 4 hours in the future?? I'm guessing all times will be off for this mission, but I'm not interupting it for just this.
   Context: not specified
 - Completed: 2026-03-26T07:50:00
+
+- [ ] **#59** Mirror PreCompact hook entries to the numbered MISSION-LOG file, not just MISSION-LOG-active
+  [D:15 C:60] The PreCompact hook (added in #32) logs compact events to MISSION-LOG-active.md but not to the permanent numbered MISSION-LOG-N-*.md file. Compact events should appear in the human-readable mission log so post-mission review shows exactly when compaction occurred without needing to cross-reference a separate file.
+  Joseph-Raw: On M6, at the 2 hour mark, I checked the logs and the active instance. I believe the precompact hook is firing, and logging into MISSION-LOG-active, but I'd like an entry in the human-readable MISSION-LOG-6* as well!
+  Context: not specified
+- Completed: 2026-03-26T11:52:00
