@@ -90,3 +90,13 @@
   Context: not specified
 - Completed: 2026-03-26T00:52:53
 
+- [ ] **#41** Confirm and fix mission-team task execution order to respect premission priority ranking *(sub-task 2 implemented)*
+  [D:25 C:45] pathfinder-mission-team may be processing tasks in an arbitrary order rather than following the priority sequence established during premission; investigate whether the priority list from MISSION-PERMISSIONS.json is read and honoured at MT-1 initialization, then fix or clarify.
+  Joseph: I think /pathfinder-mission-task might not be respecting the task priority order set out by the /pathfinder-premission. Confirm and fix, or clarify.
+  Context: not specified
+  - [ ] **#41-2** M6 live evidence: tasks #39, #49, #50 completed first while higher-listed tasks #19, #43, #47 remain queued
+    [D:25 C:55] MISSION-LOG-6 at ~1h45m shows #39, #49, #50 at Attempts:1/Complete while tasks listed earlier in the premission order (#19, #43, #47 etc.) are still Queued. Confirms that execution order does not follow the premission priority list; provides concrete log data for diagnosing the root cause in the mission-team skill.
+    Joseph-Raw: Following up on #41, /pathfinder-mission-task following unexpected task order. Here's the top of MISSION-LOG-6-skill-log-quality.md, at about 1h 45m into the mission: [log excerpt showing #39/49/50 completed while #19/43/47 still queued]
+    Context: not specified
+- Completed: 2026-03-26T01:46:08
+
