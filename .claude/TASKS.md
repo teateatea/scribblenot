@@ -221,7 +221,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Context: not specified
 
 
-- [ ] **#41** Confirm and fix mission-team task execution order to respect premission priority ranking
+- [ ] **#41** Confirm and fix mission-team task execution order to respect premission priority ranking *(sub-task 2 implemented)*
   [D:25 C:45] pathfinder-mission-team may be processing tasks in an arbitrary order rather than following the priority sequence established during premission; investigate whether the priority list from MISSION-PERMISSIONS.json is read and honoured at MT-1 initialization, then fix or clarify.
   Joseph: I think /pathfinder-mission-task might not be respecting the task priority order set out by the /pathfinder-premission. Confirm and fix, or clarify.
   Context: not specified
