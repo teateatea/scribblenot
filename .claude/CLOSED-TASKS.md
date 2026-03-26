@@ -72,3 +72,9 @@
   Context: U formula clarified during M6 premission: U = (number_of_tasks x 100) - sum(C), not a simple 100-C per task.
 - Completed: 2026-03-26T00:26:44
 
+- [ ] **#47** Use letters (A, B, C...) for post-mortem entries in mission log
+  [D:15 C:80] Mission Post-Mortem section entries in pathfinder mission logs should be labeled A), B), C)... rather than numbered, eliminating visual ambiguity with task numbers (#N format) when reviewing or submitting post-mortem items as add-task entries.
+  Joseph-Raw: In pathfinder missions, post-mortem entries should be lettered instead of numbered (A) Process issue:, B) Process issue:, etc.) to avoid conflict with task numbers
+  Context: not specified
+- Completed: 2026-03-26T00:32:10
+

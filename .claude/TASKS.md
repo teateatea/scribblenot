@@ -246,10 +246,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 
 
 
-- [ ] **#47** Use letters (A, B, C...) for post-mortem entries in mission log
-  [D:15 C:80] Mission Post-Mortem section entries in pathfinder mission logs should be labeled A), B), C)... rather than numbered, eliminating visual ambiguity with task numbers (#N format) when reviewing or submitting post-mortem items as add-task entries.
-  Joseph-Raw: In pathfinder missions, post-mortem entries should be lettered instead of numbered (A) Process issue:, B) Process issue:, etc.) to avoid conflict with task numbers
-  Context: not specified
 
 
 
@@ -285,6 +281,14 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 - [ ] **#58** Resolve collision between TASKS.md sub-entry format (#N-2) and pathfinder sub-task nomenclature
   [D:35 C:40] TASKS.md uses #N-2 / #N-3 suffixes for supplementary context entries under a parent task, but pathfinder-mission-team uses its own sub-task numbering internally. When the mission team reads TASKS.md and encounters an entry like #53-2, it likely misinterprets it as a prior-run decomposed sub-task rather than a clarification/context record for #53, causing incorrect task-list parsing or re-queue behavior.
   Joseph-Raw: I'm pretty sure pathfinder-mission-team doesn't handle entries in TASKS like #53-2 very well. I suspect it conflicts with their subtask nomenclature, but in TASKS it's supposed to be additional information and context on #53
+  Context: not specified
+
+- [ ] **#60** Add Initial and Current Estimated Completion Time fields to MISSION-LOG Task Status
+  [D:30 C:55] Under ## Task Status in MISSION-LOG, add two wall-clock ETA fields: "Initial Estimated Completion Time: HH:mm (Started at HH:mm)" computed once at mission start from total D * 0.43 min/D rate, and "Current Estimated Completion Time: HH:mm (Updated at HH:mm)" recomputed from remaining D each time a new task begins (not sub-tasks).
+  Joseph-Raw: In the MISSION-LOG-#, under ## Task Status, let's add some information so I can check in mid-mission:
+  - "Initial Estimated Completion Time: HH:mm (Started at HH:mm)" (based on the total difficulty; I'd like a time not a duration)
+  - "Current Estimated Completion Time: HH:mm (Updated at HH:mm)" (based on the current remaining difficulty)
+  - These are calculated by whatever our min/D rate is, right now I think it's D * 0.43? But we only need to update these numbers every time we start a new task, not for sub-tasks.
   Context: not specified
 
 ---
