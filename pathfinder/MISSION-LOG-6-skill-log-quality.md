@@ -5,7 +5,7 @@
 - Date: 2026-03-25
 - Start-Time: 2026-03-25T19:06:43
 - Tasks: #19(P:99), #43(P:99), #47(P:99), #40(P:99), #41(P:99), #46(P:99), #48(P:99), #53(P:99), #45(P:99), #39(P:99), #42(P:99), #49(P:99), #46-2(P:99), #51(P:99), #52(P:99), #50(P:99), #54(P:99)
-- Difficulty: 534/569
+- Difficulty: 559/569
 
 ## Task Status
 
@@ -15,7 +15,7 @@
 | #43  | 98       | Re-queued | 1        |
 | #47  | 99       | Complete | 1        |
 | #40  | 99       | Complete | 1        |
-| #41  | 98       | Queued (blocked, dep #42) | 0        |
+| #41  | 98       | Complete | 1        |
 | #46  | 99       | Complete | 1        |
 | #48  | 99       | Complete | 1        |
 | #53  | 99       | Complete | 1        |
@@ -390,6 +390,50 @@ Tasks #19, #43, #47 (listed first in premission order) completed near the END of
 - Sub-task 3: PRIORITY_MAP must read premission rank from BRIEF `## Task Priority Order` instead of defaulting all tasks to 99. Currently MT-1 2-A only reads task IDs, not ranks - it needs to also extract and store rank values.
 - Sub-task 4: MT-2 reorder and MT-3a tie-break must consult PRIORITY_MAP values from premission rank rather than treating all 99s as equal and falling back to D score alone.
 
+### Sub-task 41.2: Fix MT-2 reorder tie-break from D score to TASK_LIST position
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Updated SKILL.md line 133: MT-2 reorder now uses TASK_LIST insertion position (earlier = higher priority) as tie-break instead of D score within same priority tier
+- Reviewers: 1
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: Confirmed: SKILL.md line 133 uses TASK_LIST position tie-break
+- Timestamp: 2026-03-26T01:06:45
+
+### Sub-task 41.3: Fix MT-3a tie-break from D score to TASK_LIST position
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Updated SKILL.md line 145: MT-3a tie-break now uses earliest position in TASK_LIST (lower index = higher priority) instead of highest difficulty score; consistent with MT-2 fix from sub-task 41.2
+- Reviewers: 1
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: Confirmed: SKILL.md line 145 uses TASK_LIST position tie-break
+- Timestamp: 2026-03-26T01:09:39
+
+### Sub-task 41.4: Assess PRIORITY_MAP init change for 2-B path (no change needed)
+- Status: Pass
+- TDD: (no tests)
+- Implementation: No file changes. Sub-tasks 41.2 and 41.3 tie-break fixes are sufficient — all tasks initialize at P:99, MT-2 and MT-3a both now sort ties by TASK_LIST position, so premission order is honoured without descending-integer PRIORITY_MAP values (which would corrupt X² decay)
+- Reviewers: 1
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: N/A
+- Timestamp: 2026-03-26T01:13:32
+
+### Sub-task 41.5: Verify ordering fix traces correctly against M6 evidence
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Doc check passed; SKILL.md line 133 and 145 contain TASK_LIST-position tie-break; old rule caused M6 inversion (#50 D:65 first, #19 D:10 last); new rule restores premission order (#19 pos:0 before #50 pos:15)
+- Reviewers: 1
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: N/A
+- Timestamp: 2026-03-26T01:17:58
+
 ## Prefect Issues (unresolved)
 
 - Task #42 sub-task 1 (M6-42-1-premission-brief-rename.md) Prefect-3 N1: Step 5 diff inserts an extra blank `>` line that would create two consecutive blank blockquote lines; the existing source line 144 already provides separation. Proceeding to implementation despite this nit.
@@ -419,6 +463,12 @@ Tasks #19, #43, #47 (listed first in premission order) completed near the END of
 - Input: multi-line for-loop renaming 4 plan files (M6-42-*.md → COMPLETED-M6-42-*.md)
 - Task: #42 MT-3d success branch (plan rename)
 - Cause: Permission hook exited non-zero; command flagged for containing newlines. Fallback mv + git add -f completed successfully for all 4 files.
+
+### Casualty 5 — 2026-03-26T01:44:16
+- Tool: Bash
+- Input: compound mv command renaming 4 plan files (M6-41-1/3/4/5 → COMPLETED-M6-41-*) using && chaining
+- Task: #41 MT-3d success branch (plan rename)
+- Cause: Permission hook exited non-zero; compound bash command with && flagged. Files renamed successfully; git add pending.
 
 ## Abandonment Records
 
