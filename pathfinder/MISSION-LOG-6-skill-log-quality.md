@@ -5,13 +5,13 @@
 - Date: 2026-03-25
 - Start-Time: 2026-03-25T19:06:43
 - Tasks: #19(P:99), #43(P:99), #47(P:99), #40(P:99), #41(P:99), #46(P:99), #48(P:99), #53(P:99), #45(P:99), #39(P:99), #42(P:99), #49(P:99), #46-2(P:99), #51(P:99), #52(P:99), #50(P:99), #54(P:99)
-- Difficulty: 489/569
+- Difficulty: 499/569
 
 ## Task Status
 
 | Task | Priority | Status | Attempts |
 |------|----------|--------|----------|
-| #19  | 99       | Queued | 0        |
+| #19  | 99       | Complete | 1        |
 | #43  | 99       | Queued | 0        |
 | #47  | 99       | Complete | 1        |
 | #40  | 99       | Complete | 1        |
@@ -317,6 +317,28 @@
 - Shim-removal: N/A
 - Re-read: Confirmed: MT-4 step 4b post-mortem template uses A) lettered format correctly
 - Timestamp: 2026-03-26T00:32:10
+
+### Sub-task 19.1: Remove C:60 cap from add-task skill, allow full 1-99 range
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Updated add-task/SKILL.md: C score description changed from 1-60 to 1-99 with 61-99 High/clear band; agent prompt c_score changed from integer 1-60 to 1-99; NEVER above 60 language removed
+- Reviewers: 1
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: Confirmed: both cap references removed; 1-99 range in place
+- Timestamp: 2026-03-26T00:39:27
+
+### Sub-task 43.1: Strip %z UTC offset from all pathfinder-mission-team timestamp commands
+- Status: Pass
+- TDD: (no tests)
+- Implementation: Removed %z suffix from all 5 TZ=America/Toronto date commands in pathfinder-mission-team/SKILL.md (lines 50, 310, 404, 430, 454); zero remaining %z matches confirmed
+- Reviewers: 1
+- Prefects: 1
+- Agent: subagent
+- Shim-removal: N/A
+- Re-read: Confirmed: zero %z occurrences remain in SKILL.md
+- Timestamp: 2026-03-26T00:39:27
 
 ## Prefect Issues (unresolved)
 
