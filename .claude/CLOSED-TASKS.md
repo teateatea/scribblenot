@@ -338,3 +338,13 @@
   Context: Mission 6 post-mortem (pathfinder/SUCCESSFUL-MISSION-LOG-6-skill-log-quality.md) - Task #42 attempt 1 failed because a required test criterion existed in PROJECT-TESTS.md but was absent from the task description.
 - Completed: 2026-03-26T06:02:22
 
+- [ ] **#56** Log command usage per mission; add Default Permissions baseline pulled into each premission
+  [D:45 C:55] Mission-team records which approved commands were actually invoked vs. unused during a run; a persistent DEFAULT-PERMISSIONS file is read by premission as a starting baseline so per-mission manifests extend rather than replace accumulated history, preventing nuanced per-permission rationale from being silently overwritten.
+  Joseph-Raw: Can the pathfinder mission note which commands did and didn't get used? I'd like to set up a "Default Permissions" file, that the pathfinder's can automatically pull from for each individual mission reliably (so that we don't accidentally overwrite a permission with a nuanced history).
+  Context: not specified
+  - [ ] **#56-2** Track per-mission command hit counts in DEFAULT-PERMISSIONS; add post-mortem recommendation section
+    [D:30 C:58] Extend DEFAULT-PERMISSIONS to record how many missions used each command (binary used/unused per mission, not individual call counts), surfacing high-frequency entries as essential inclusions; add a dedicated post-mortem section for recommending commands be promoted to DEFAULT-PERMISSIONS with written justification.
+    Joseph-Raw: It'd be nice if the DEFAULT-PERMISSIONS could also track the number of missions that ended up using that command (more than 0 times is sufficient, no need to count individual uses of each command). Over time, we'll see which commands are VERY IMPORTANT TO INCLUDE. And the MISSION post-mortem should include a new section about recommending a command be added to the default-permissions, and justify what issues it could prevent.
+    Context: not specified
+- Completed: 2026-03-26T06:32:48
+

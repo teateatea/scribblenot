@@ -57,14 +57,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph-Raw: I'd like to start tracking how long the pathfinder premission takes too. I assume this should go in the MISSION BRIEF, or recommend a better place. It should include the calculations we're tracking for missions too, premission start process / end process, estimates for duration vs D, C, U. For especially large premissions, I'd like to not be starting one that'll take 30 minutes to complete properly if I only have 10 minutes lol. I'd rather chop the list down, get the premission done, then send the pathfinder team on those priority items before I leave.
   Context: not specified
 
-- [ ] **#56** Log command usage per mission; add Default Permissions baseline pulled into each premission
-  [D:45 C:55] Mission-team records which approved commands were actually invoked vs. unused during a run; a persistent DEFAULT-PERMISSIONS file is read by premission as a starting baseline so per-mission manifests extend rather than replace accumulated history, preventing nuanced per-permission rationale from being silently overwritten.
-  Joseph-Raw: Can the pathfinder mission note which commands did and didn't get used? I'd like to set up a "Default Permissions" file, that the pathfinder's can automatically pull from for each individual mission reliably (so that we don't accidentally overwrite a permission with a nuanced history).
-  Context: not specified
-  - [ ] **#56-2** Track per-mission command hit counts in DEFAULT-PERMISSIONS; add post-mortem recommendation section
-    [D:30 C:58] Extend DEFAULT-PERMISSIONS to record how many missions used each command (binary used/unused per mission, not individual call counts), surfacing high-frequency entries as essential inclusions; add a dedicated post-mortem section for recommending commands be promoted to DEFAULT-PERMISSIONS with written justification.
-    Joseph-Raw: It'd be nice if the DEFAULT-PERMISSIONS could also track the number of missions that ended up using that command (more than 0 times is sufficient, no need to count individual uses of each command). Over time, we'll see which commands are VERY IMPORTANT TO INCLUDE. And the MISSION post-mortem should include a new section about recommending a command be added to the default-permissions, and justify what issues it could prevent.
-    Context: not specified
 
 - [ ] **#57** Fix M6 Start-Time recorded ~4 hours ahead of actual local time
   [D:20 C:45] MISSION-LOG-6 shows Start-Time T19:06 but the user reports it is ~15:12 and the mission just started; the timestamp is ~4 hours ahead of actual. Likely a timezone offset being applied incorrectly (double-counted or wrong sign) in the pathfinder Start-Time recording step, introduced after task #36 switched timestamps to Toronto local time.
