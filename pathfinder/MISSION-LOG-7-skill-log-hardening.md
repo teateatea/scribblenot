@@ -5,7 +5,7 @@
 - Date: 2026-03-26
 - Start-Time: 2026-03-26T04:06:42
 - Tasks: #64 (P:99), #66 (P:99), #65 (P:99), #68 (P:99), #69 (P:99), #67 (P:99), #63 (P:99), #59 (P:99), #56 (P:99), #55 (P:99), #58 (P:99), #60 (P:99), #56-2 (P:99), #57 (P:99), #61 (P:99), #62 (P:99)
-- Difficulty: 60/420
+- Difficulty: 75/420
 - Estimated-Duration: ~181 min (T x 0.43)
 - Prior-Auto-Accept: false
 
@@ -17,7 +17,7 @@
 | #66    | 99       | Complete | 1       |
 | #65    | 99       | Complete | 1       |
 | #68    | 99       | Complete | 1       |
-| #69    | 99       | Queued | 0        |
+| #69    | 99       | Complete | 1       |
 | #67    | 99       | Queued | 0        |
 | #63    | 99       | Queued | 0        |
 | #59    | 99       | Queued | 0        |
@@ -83,6 +83,18 @@
 - Re-read: Confirmed: Line 368 has hard block label; line 375 routes to step 4 on missing fields; permissive language absent
 - Agent: subagent
 - Timestamp: 2026-03-26T04:56:14
+
+### Sub-task 69.1: Add MT-4 truncation step for MISSION-LOG-active.md
+- Status: Pass
+- TDD: (no tests)
+- Reviewers: 1
+- Prefects: 1
+- Implementation: Inserted step 5.6 in MT-4 after step 5.5 rename commit; step runs truncate -s 0, git add, and git commit to zero out and version MISSION-LOG-active.md
+- Grep: Pattern found only in edited SKILL.md and conversation .jsonl history; no other source files needed updating
+- Shim-removal: N/A
+- Re-read: Confirmed: SKILL.md lines 556-559 contain step 5.6 with truncate -s 0, git add, and git commit for MISSION-LOG-active.md correctly placed after step 5.5
+- Agent: subagent
+- Timestamp: 2026-03-26T05:03:17
 
 ### Sub-task 64.1: Insert mandatory multi-file grep step into MT-3c Implementer subagent prompt
 - Status: Pass
