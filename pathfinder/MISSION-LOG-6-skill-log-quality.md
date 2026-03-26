@@ -496,3 +496,41 @@ Tasks #19, #43, #47 (listed first in premission order) completed near the END of
 - Root cause: criterion 4 was not in the original TASKS.md description for #42 but appears in PROJECT-TESTS.md; the implementation covered the stated scope but missed this test criterion
 - Prevention plan: Next attempt should add BRIEF-filename argument parsing to MT-1 of pathfinder-mission-team/SKILL.md before task is marked complete
 - Priority reduced from 99 to 98 (X=1, X²=1); #41 also reduced to 98
+
+## Task Observations
+
+### #46 Enforce sub-task log entry before marking any task complete in mission-team
+- **Gap**: Both #46 and #46-2 stated the log entry check should be a blocking issue ("Prefect rejecting completions"), but the MT-3d enforcement gate for Status/Implementation/Timestamp fields was implemented as a soft warning that does not block task completion; only the Agent field (added later by #51) became a hard block.
+- **Suggested next step**: Upgrade the MT-3d Status/Implementation/Timestamp soft-warning check to a hard block (same pattern as the Agent check in sub-task 51.2) so a missing core log field re-queues the task rather than letting it pass with a warning.
+
+## Mission Post-Mortem
+
+Process inefficiencies observed during this mission. Each entry is formatted as a ready-to-submit /add-task entry.
+
+A) **[scope-miss-abandonment]**: Task #42 attempt 1 failed because a required test criterion (BRIEF filename argument parsing) existed in PROJECT-TESTS.md but was absent from the TASKS.md description, causing the implementer to produce a partial implementation that passed visual scope review but failed automated tests.
+  Suggested task: "Cross-reference PROJECT-TESTS.md criteria into TASKS.md task descriptions at task-creation time" -- When a task is added, any matching PROJECT-TESTS.md criterion should be copied into or linked from the task description so implementers see the full acceptance bar without consulting a separate file.
+
+B) **[hook-file-missed]**: Task #43 attempt 1 failed because the subagent updated SKILL.md timestamp commands but did not search for the same pattern in the pre-compact-mission-log.sh hook script, which contained an identical `%z` suffix that was the only failing criterion.
+  Suggested task: "Add multi-file pattern search step to Implementer prompt for tasks that modify repeated patterns" -- Before marking implementation complete, the Implementer should grep the full project (including hooks/) for the exact pattern being changed and update all matching locations, preventing single-file fixes that leave sibling files broken.
+
+C) **[multiline-bash-denial]**: Casualties 4 and 5 show the MT-3d plan-rename step consistently triggering permission-hook denials when it emits multi-line for-loops or `&&`-chained bash commands; the fallback to individual mv calls adds extra round-trips and log noise on every task completion.
+  Suggested task: "Rewrite MT-3d plan-rename step to emit individual mv + git add commands instead of compound bash" -- Changing the rename block to issue one mv and one git add per file eliminates the compound-command pattern that the permission hook rejects, removing a recurring casualty source.
+
+D) **[tilde-path-denial]**: Casualties 1-3 show that subagents searching `~/.claude/skills/**` with tilde paths are blocked by the permission hook, causing repeated Grep/Glob denials that force the subagent to continue without those search results.
+  Suggested task: "Replace tilde paths with absolute paths in all Implementer and Reviewer subagent prompts that reference ~/.claude" -- Substituting the literal home directory path (C:/Users/solar/.claude) for `~` in skill prompts eliminates a recurring permission-hook denial class with no functional change.
+
+E) **[priority-order-inversion]**: All M6 tasks entered the queue at P:99 with no premission rank in PRIORITY_MAP, causing MT-2 and MT-3a to sort ties by D score descending; tasks #19/#43/#47 (first in premission order, low D scores) executed last while tasks #50/#49 (late in premission order, high D scores) executed first.
+  Suggested task: "Store premission rank in PRIORITY_MAP during MT-1 2-A branch and use it as the primary sort key in MT-2 and MT-3a" -- After sub-task 42.1 added `## Task Priority Order` to the BRIEF, MT-1 2-A reads task IDs from that section but does not extract their position as a rank value; storing rank-as-priority and sorting by it before D score would make execution order match the user-reviewed premission sequence.
+
+## Mission Complete
+
+- Tasks completed: #19, #40, #41, #42, #43, #45, #46, #46-2, #47, #48, #49, #50, #51, #52, #53, #54, #39
+- Tasks abandoned: none
+- Total sub-tasks run: 36
+- Total TDD cycles: 0
+- End-Time: 2026-03-26T01:54:31
+- Duration: 6h 47m
+- Min/D: 0.72 min/D (407 min / D:569)
+- Min/C: 0.42 min/C (407 min / C:968)
+- Min/U: 0.56 min/U (407 min / U:732)
+- Context at finish:

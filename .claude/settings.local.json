@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(~/.claude/skills/gstack/bin/gstack-review-read)",
+      "Bash(CARGO=\"$USERPROFILE/.cargo/bin/cargo.exe\" PATH=\"$PATH:$USERPROFILE/.cargo/bin:$USERPROFILE/scoop/apps/mingw/15.2.0-rt_v13-rev1/bin\" cd \"/c/scribble\" \"$CARGO\" build --release)",
+      "Skill(gstack)",
+      "Bash(gh:*)",
+      "Bash(git:*)",
+      "Bash(powershell.exe -Command \"$env:PATH += ';C:\\\\Users\\\\solar\\\\.cargo\\\\bin;C:\\\\Users\\\\solar\\\\scoop\\\\apps\\\\mingw\\\\15.2.0-rt_v13-rev1\\\\bin'; Set-Location 'C:\\\\scribble'; cargo build 2>&1\")",
+      "Bash(powershell.exe -Command \"$env:PATH = $env:PATH + ';C:\\\\Users\\\\solar\\\\.cargo\\\\bin;C:\\\\Users\\\\solar\\\\scoop\\\\apps\\\\mingw\\\\15.2.0-rt_v13-rev1\\\\bin'; Set-Location 'C:\\\\scribble'; cargo build 2>&1\")",
+      "Bash(powershell.exe -NoProfile -Command \"[System.Environment]::SetEnvironmentVariable\\('PATH', [System.Environment]::GetEnvironmentVariable\\('PATH','Process'\\) + ';C:\\\\Users\\\\solar\\\\.cargo\\\\bin;C:\\\\Users\\\\solar\\\\scoop\\\\apps\\\\mingw\\\\15.2.0-rt_v13-rev1\\\\bin', 'Process'\\); Set-Location 'C:\\\\scribble'; & cargo build 2>&1\")",
+      "Bash(powershell.exe -NoProfile -Command \"[System.Environment]::SetEnvironmentVariable\\('PATH', [System.Environment]::GetEnvironmentVariable\\('PATH','Process'\\) + ';C:\\\\Users\\\\solar\\\\.cargo\\\\bin;C:\\\\Users\\\\solar\\\\scoop\\\\apps\\\\mingw\\\\15.2.0-rt_v13-rev1\\\\bin', 'Process'\\); Set-Location 'C:\\\\scribble'; & cargo clippy 2>&1\")",
+      "Bash(cargo build:*)",
+      "Bash(tasklist)",
+      "Bash(cargo check:*)",
+      "Skill(close-session)",
+      "Skill(update-config)",
+      "Bash(for f:*)",
+      "Bash(do mv:*)",
+      "Bash(done)",
+      "Bash(printf:*)",
+      "Skill(pathfinder-premission)",
+      "Skill(index-project)",
+      "Bash(xargs grep:*)"
+    ]
+  }
+}
