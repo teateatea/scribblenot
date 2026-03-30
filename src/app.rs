@@ -621,6 +621,23 @@ impl App {
             return;
         }
 
+        if self.is_super_confirm(&key) {
+            let value = {
+                let modal = self.modal.as_ref().unwrap();
+                let q = modal.query.trim().to_string();
+                if !q.is_empty() {
+                    Some(q)
+                } else {
+                    modal.selected_value().map(String::from)
+                }
+            };
+            match value {
+                Some(v) => self.confirm_modal_value(v),
+                None => { self.modal = None; }
+            }
+            return;
+        }
+
         let focus = match &self.modal {
             Some(m) => m.focus.clone(),
             None => return,
