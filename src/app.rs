@@ -272,7 +272,7 @@ impl App {
 
         // Hint key navigation
         if let KeyCode::Char(c) = key.code {
-            let hints = self.data.keybindings.hints.clone();
+            let hints = crate::data::combined_hints(&self.data.keybindings);
             let case_sensitive = self.config.hint_labels_case_sensitive;
             let key_str: String = if case_sensitive {
                 c.to_string()
@@ -285,7 +285,7 @@ impl App {
                 MapHintLevel::Groups => {
                     for (g_idx, _group) in self.data.groups.iter().enumerate() {
                         if let Some(h) = hints.get(g_idx) {
-                            let h_str = if case_sensitive { h.clone() } else { h.to_ascii_lowercase().to_string() };
+                            let h_str = if case_sensitive { h.to_string() } else { h.to_ascii_lowercase().to_string() };
                             if key_str == h_str {
                                 self.map_hint_level = MapHintLevel::Sections(g_idx);
                                 return;
@@ -296,7 +296,7 @@ impl App {
                 MapHintLevel::Sections(g_idx) => {
                     // Parent group hint → back to groups
                     if let Some(h) = hints.get(g_idx) {
-                        let h_str = if case_sensitive { h.clone() } else { h.to_ascii_lowercase().to_string() };
+                        let h_str = if case_sensitive { h.to_string() } else { h.to_ascii_lowercase().to_string() };
                         if key_str == h_str {
                             self.map_hint_level = MapHintLevel::Groups;
                             return;
@@ -305,7 +305,7 @@ impl App {
                     // Section hints: hints in order, skipping g_idx
                     let section_hints: Vec<String> = hints.iter().enumerate()
                         .filter(|(i, _)| *i != g_idx)
-                        .map(|(_, h)| if case_sensitive { h.clone() } else { h.to_ascii_lowercase().to_string() })
+                        .map(|(_, h)| if case_sensitive { h.to_string() } else { h.to_ascii_lowercase().to_string() })
                         .collect();
                     let group_start: usize = self.data.groups.iter().take(g_idx).map(|g| g.sections.len()).sum();
                     let group_len = self.data.groups.get(g_idx).map(|g| g.sections.len()).unwrap_or(0);
@@ -340,7 +340,7 @@ impl App {
     }
 
     pub fn section_hint_key_idx(&self, flat_idx: usize) -> Option<usize> {
-        let hints = &self.data.keybindings.hints;
+        let hints = crate::data::combined_hints(&self.data.keybindings);
         let mut fi = 0usize;
         for (g_idx, group) in self.data.groups.iter().enumerate() {
             for s_idx in 0..group.sections.len() {
@@ -381,7 +381,7 @@ impl App {
         if self.is_quit(&key) && self.focus != Focus::Map {
             let is_hint_key = if let KeyCode::Char(c) = key.code {
                 let c_str = c.to_ascii_lowercase().to_string();
-                self.data.keybindings.hints.iter().any(|h| h.to_ascii_lowercase().to_string() == c_str)
+                crate::data::combined_hints(&self.data.keybindings).iter().any(|h| h.to_ascii_lowercase() == c_str)
             } else {
                 false
             };
@@ -490,14 +490,14 @@ impl App {
     fn handle_header_key(&mut self, key: KeyEvent) {
         // Hint key handling: group/section hint → return to map, field hints → jump to field
         if let KeyCode::Char(c) = key.code {
-            let hints = self.data.keybindings.hints.clone();
+            let hints = crate::data::combined_hints(&self.data.keybindings);
             let case_sensitive = self.config.hint_labels_case_sensitive;
             let c_str = if case_sensitive { c.to_string() } else { c.to_ascii_lowercase().to_string() };
             let g_idx = self.group_idx_for_section(self.current_idx);
 
             // Group hint → go to map at Groups level (broader navigation)
             if let Some(gh) = hints.get(g_idx) {
-                let gh_str = if case_sensitive { gh.clone() } else { gh.to_ascii_lowercase().to_string() };
+                let gh_str = if case_sensitive { gh.to_string() } else { gh.to_ascii_lowercase().to_string() };
                 if c_str == gh_str {
                     self.focus = Focus::Map;
                     self.map_cursor = self.current_idx;
@@ -508,7 +508,7 @@ impl App {
 
             if let Some(shi) = self.section_hint_key_idx(self.current_idx) {
                 if let Some(sh) = hints.get(shi) {
-                    let sh_str = if case_sensitive { sh.clone() } else { sh.to_ascii_lowercase().to_string() };
+                    let sh_str = if case_sensitive { sh.to_string() } else { sh.to_ascii_lowercase().to_string() };
                     if c_str == sh_str {
                         self.focus = Focus::Map;
                         self.map_cursor = self.current_idx;
@@ -526,7 +526,7 @@ impl App {
                 for f_idx in 0..n_fields {
                     if let Some(&hint_idx) = field_hint_indices.get(f_idx) {
                         if let Some(fh) = hints.get(hint_idx) {
-                            let fh_str = if case_sensitive { fh.clone() } else { fh.to_ascii_lowercase().to_string() };
+                            let fh_str = if case_sensitive { fh.to_string() } else { fh.to_ascii_lowercase().to_string() };
                             if c_str == fh_str {
                                 if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                                     s.field_index = f_idx;
@@ -616,7 +616,7 @@ impl App {
             None
         };
         if let Some(cfg) = field_cfg {
-            let window_size = self.data.keybindings.hints.len();
+            let window_size = crate::data::combined_hints(&self.data.keybindings).len();
             let modal = if let Some(composite) = cfg.composite {
                 SearchModal::new_composite(field_idx, cfg.id, composite, &self.config.sticky_values, window_size)
             } else if !cfg.options.is_empty() {
@@ -637,7 +637,7 @@ impl App {
     }
 
     fn handle_modal_key(&mut self, key: KeyEvent) {
-        let hints = self.data.keybindings.hints.clone();
+        let hints = crate::data::combined_hints(&self.data.keybindings);
 
         if key.code == KeyCode::Esc {
             self.modal = None;
@@ -729,7 +729,7 @@ impl App {
                     }
                 }
                 KeyCode::Char(c) => {
-                    if let Some(hint_pos) = hints.iter().position(|h| h == &c.to_string()) {
+                    if let Some(hint_pos) = hints.iter().position(|h| *h == c.to_string().as_str()) {
                         if let Some(val) = self.modal.as_ref().unwrap().hint_value(hint_pos).map(String::from) {
                             self.confirm_modal_value(val);
                         }
@@ -1142,14 +1142,14 @@ impl App {
     /// Returns true if navigation happened.
     fn try_navigate_to_map_via_hint(&mut self, key: &KeyEvent) -> bool {
         if let KeyCode::Char(c) = key.code {
-            let hints = self.data.keybindings.hints.clone();
+            let hints = crate::data::combined_hints(&self.data.keybindings);
             let case_sensitive = self.config.hint_labels_case_sensitive;
             let c_str = if case_sensitive { c.to_string() } else { c.to_ascii_lowercase().to_string() };
             let g_idx = self.group_idx_for_section(self.current_idx);
 
             // Group hint → map at Groups level (broader navigation)
             if let Some(gh) = hints.get(g_idx) {
-                let gh_str = if case_sensitive { gh.clone() } else { gh.to_ascii_lowercase().to_string() };
+                let gh_str = if case_sensitive { gh.to_string() } else { gh.to_ascii_lowercase().to_string() };
                 if c_str == gh_str {
                     self.focus = Focus::Map;
                     self.map_cursor = self.current_idx;
@@ -1161,7 +1161,7 @@ impl App {
             // Section hint → map at Sections level for this group
             if let Some(shi) = self.section_hint_key_idx(self.current_idx) {
                 if let Some(sh) = hints.get(shi) {
-                    let sh_str = if case_sensitive { sh.clone() } else { sh.to_ascii_lowercase().to_string() };
+                    let sh_str = if case_sensitive { sh.to_string() } else { sh.to_ascii_lowercase().to_string() };
                     if c_str == sh_str {
                         self.focus = Focus::Map;
                         self.map_cursor = self.current_idx;

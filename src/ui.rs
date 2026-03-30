@@ -64,7 +64,7 @@ pub fn render(f: &mut Frame, app: &App) {
 }
 
 fn render_section_map(f: &mut Frame, app: &App, area: Rect) {
-    let hints = &app.data.keybindings.hints;
+    let hints = crate::data::combined_hints(&app.data.keybindings);
     let capitalized = app.config.hint_labels_capitalized;
     let map_focused = app.focus == Focus::Map;
 
@@ -73,7 +73,7 @@ fn render_section_map(f: &mut Frame, app: &App, area: Rect) {
     let mut flat_idx = 0usize;
 
     for (g_idx, group) in app.data.groups.iter().enumerate() {
-        let group_hint_raw = hints.get(g_idx).map(String::as_str).unwrap_or(" ");
+        let group_hint_raw = hints.get(g_idx).copied().unwrap_or(" ");
         let group_hint_display = if capitalized { group_hint_raw.to_uppercase() } else { group_hint_raw.to_string() };
 
         let current_group = app.group_idx_for_section(app.current_idx);
@@ -108,7 +108,7 @@ fn render_section_map(f: &mut Frame, app: &App, area: Rect) {
         // Section hints: hints in order, skipping the group's own hint index
         let section_hints: Vec<&str> = hints.iter().enumerate()
             .filter(|(i, _)| *i != g_idx)
-            .map(|(_, h)| h.as_str())
+            .map(|(_, h)| *h)
             .collect();
 
         for (si, section) in group.sections.iter().enumerate() {
@@ -202,14 +202,14 @@ fn render_wizard_widget(f: &mut Frame, app: &App, area: Rect) {
 
     let hints_active = !map_preview && app.modal.is_none();
     let field_hints = {
-        let hints = &app.data.keybindings.hints;
+        let hints = crate::data::combined_hints(&app.data.keybindings);
         let cap = app.config.hint_labels_capitalized;
         let g_idx = app.group_idx_for_section(idx);
         if let Some(shi) = app.section_hint_key_idx(idx) {
             (0..hints.len())
                 .filter(|&i| i != shi && i != g_idx)
                 .filter_map(|i| hints.get(i))
-                .map(|h| if cap { h.to_uppercase() } else { h.clone() })
+                .map(|h| if cap { h.to_uppercase() } else { h.to_string() })
                 .collect()
         } else {
             vec![]
@@ -673,7 +673,7 @@ fn render_search_modal(f: &mut Frame, app: &App, wizard_area: Rect) {
     };
 
     let modal_width = wizard_area.width.saturating_sub(4).min(60);
-    let hints = &app.data.keybindings.hints;
+    let hints = crate::data::combined_hints(&app.data.keybindings);
     // Height based on total entries so modal doesn't jump when filtering
     // 2 outer borders + 3 search bar (with its own borders) + list items
     let list_height = modal.all_entries.len().min(hints.len()) as u16;
@@ -735,7 +735,7 @@ fn render_search_modal(f: &mut Frame, app: &App, wizard_area: Rect) {
         .map(|(hint_idx, &entry_idx)| {
             let abs_idx = scroll + hint_idx;
             let entry = &modal.all_entries[entry_idx];
-            let hint = hints.get(hint_idx).map(String::as_str).unwrap_or(" ");
+            let hint = hints.get(hint_idx).copied().unwrap_or(" ");
             let is_cur = abs_idx == modal.list_cursor;
             let entry_style = if is_cur && list_focused {
                 theme::active_bold()   // yellow: currently browsing list

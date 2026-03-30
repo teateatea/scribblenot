@@ -384,6 +384,14 @@ pub fn ensure_hint_permutations(kb: &mut KeyBindings) {
     kb.hint_permutations = generate_hint_permutations(&kb.hints, count_needed);
 }
 
+/// Returns a combined ordered slice of all hints followed by all hint_permutations.
+/// Use this wherever hints are assigned to groups, sections, fields, or modal rows.
+pub fn combined_hints(kb: &KeyBindings) -> Vec<&str> {
+    kb.hints.iter().map(String::as_str)
+        .chain(kb.hint_permutations.iter().map(String::as_str))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -558,6 +566,59 @@ mod tests {
             populated,
             "ensure_hint_permutations should be idempotent when already fresh"
         );
+    }
+
+    // ---- combined_hints tests (Task #23 sub-task 3) ----
+
+    /// First n entries match hints, remaining match hint_permutations.
+    #[test]
+    fn combined_hints_returns_hints_then_permutations() {
+        let mut kb = KeyBindings::default();
+        ensure_hint_permutations(&mut kb);
+        let combined = combined_hints(&kb);
+        let n = kb.hints.len();
+        for (i, h) in kb.hints.iter().enumerate() {
+            assert_eq!(combined[i], h.as_str(), "combined[{}] should match hints[{}]", i, i);
+        }
+        for (i, p) in kb.hint_permutations.iter().enumerate() {
+            assert_eq!(combined[n + i], p.as_str(), "combined[{}] should match hint_permutations[{}]", n + i, i);
+        }
+    }
+
+    /// combined.len() == hints.len() + hint_permutations.len()
+    #[test]
+    fn combined_hints_total_length() {
+        let mut kb = KeyBindings::default();
+        ensure_hint_permutations(&mut kb);
+        let combined = combined_hints(&kb);
+        assert_eq!(
+            combined.len(),
+            kb.hints.len() + kb.hint_permutations.len(),
+            "combined length should equal hints.len() + hint_permutations.len()"
+        );
+    }
+
+    /// When hint_permutations is empty, combined == hints.
+    #[test]
+    fn combined_hints_empty_permutations() {
+        let kb = KeyBindings::default(); // hint_permutations starts empty
+        let combined = combined_hints(&kb);
+        assert_eq!(combined.len(), kb.hints.len(), "combined length should equal hints.len() when permutations are empty");
+        for (i, h) in kb.hints.iter().enumerate() {
+            assert_eq!(combined[i], h.as_str(), "combined[{}] should match hints[{}]", i, i);
+        }
+    }
+
+    /// With explicit [a, b] hints and [aa, ab] permutations, combined == [a, b, aa, ab].
+    #[test]
+    fn combined_hints_order_hints_before_permutations() {
+        let kb = KeyBindings {
+            hints: vec!["a".to_string(), "b".to_string()],
+            hint_permutations: vec!["aa".to_string(), "ab".to_string()],
+            ..KeyBindings::default()
+        };
+        let combined = combined_hints(&kb);
+        assert_eq!(combined, vec!["a", "b", "aa", "ab"]);
     }
 }
 
