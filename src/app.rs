@@ -294,39 +294,34 @@ impl App {
             }).collect();
             let folded_refs: Vec<&str> = folded_hints.iter().map(String::as_str).collect();
 
+            // Universal group-jump: fires at any map_hint_level
+            let n_groups = self.data.groups.len();
+            let group_refs: Vec<&str> = folded_refs.iter().take(n_groups).copied().collect();
+            match crate::data::resolve_hint(&group_refs, &typed) {
+                crate::data::HintResolveResult::Exact(g_idx) => {
+                    let flat_idx = crate::data::group_jump_target(&self.data.groups, g_idx);
+                    self.map_cursor = flat_idx;
+                    self.map_hint_level = MapHintLevel::Sections(g_idx);
+                    self.hint_buffer.clear();
+                    return;
+                }
+                crate::data::HintResolveResult::Partial(_) => {
+                    // Waiting for second char of group hint
+                    return;
+                }
+                crate::data::HintResolveResult::NoMatch => {
+                    // Not a group hint - fall through to per-level logic
+                }
+            }
+
             let hint_level = self.map_hint_level.clone();
             match hint_level {
                 MapHintLevel::Groups => {
-                    let n_groups = self.data.groups.len();
-                    // Only resolve against the first n_groups hints
-                    let group_refs: Vec<&str> = folded_refs.iter().take(n_groups).copied().collect();
-                    match crate::data::resolve_hint(&group_refs, &typed) {
-                        crate::data::HintResolveResult::Exact(g_idx) => {
-                            self.map_hint_level = MapHintLevel::Sections(g_idx);
-                            self.hint_buffer.clear();
-                        }
-                        crate::data::HintResolveResult::Partial(_) => {
-                            // Wait for more input
-                        }
-                        crate::data::HintResolveResult::NoMatch => {
-                            self.hint_buffer.clear();
-                        }
-                    }
+                    // Universal check above handles all group hints.
+                    // If we reach here, typed matched no group hint - clear.
+                    self.hint_buffer.clear();
                 }
                 MapHintLevel::Sections(g_idx) => {
-                    // Check parent group hint first (toggling back to Groups)
-                    let parent_hint = folded_refs.get(g_idx).copied().unwrap_or("");
-                    if typed == parent_hint {
-                        self.map_hint_level = MapHintLevel::Groups;
-                        self.hint_buffer.clear();
-                        return;
-                    }
-                    if parent_hint.starts_with(typed.as_str()) && typed.len() < parent_hint.len() {
-                        // Partial match toward parent hint - hold buffer
-                        return;
-                    }
-
-                    let n_groups = self.data.groups.len();
                     let group_start: usize = self.data.groups.iter().take(g_idx).map(|g| g.sections.len()).sum();
                     let group_len = self.data.groups.get(g_idx).map(|g| g.sections.len()).unwrap_or(0);
                     let section_refs: Vec<&str> = folded_refs
