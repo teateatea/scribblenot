@@ -392,6 +392,38 @@ pub fn combined_hints(kb: &KeyBindings) -> Vec<&str> {
         .collect()
 }
 
+#[derive(Debug, PartialEq)]
+pub enum HintResolveResult {
+    Exact(usize),
+    Partial(Vec<usize>),
+    NoMatch,
+}
+
+/// Returns the indices of all hints that start with `prefix`.
+/// An empty `prefix` matches every hint.
+pub fn filter_hints_by_prefix(hints: &[&str], prefix: &str) -> Vec<usize> {
+    hints
+        .iter()
+        .enumerate()
+        .filter_map(|(i, h)| if h.starts_with(prefix) { Some(i) } else { None })
+        .collect()
+}
+
+/// Resolves the current typed string against the hint list.
+///
+/// - `NoMatch`   - no hint starts with `typed`
+/// - `Exact(i)`  - exactly one hint starts with `typed` AND equals `typed` in full
+/// - `Partial(v)`- one or more hints share the prefix but none is an exact full match,
+///                 or more than one match exists
+pub fn resolve_hint(hints: &[&str], typed: &str) -> HintResolveResult {
+    let matches = filter_hints_by_prefix(hints, typed);
+    match matches.as_slice() {
+        [] => HintResolveResult::NoMatch,
+        [idx] if hints[*idx] == typed => HintResolveResult::Exact(*idx),
+        _ => HintResolveResult::Partial(matches),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -619,6 +651,72 @@ mod tests {
         };
         let combined = combined_hints(&kb);
         assert_eq!(combined, vec!["a", "b", "aa", "ab"]);
+    }
+
+    // ---- filter_hints_by_prefix / resolve_hint tests (Task #22 sub-task 1) ----
+
+    #[test]
+    fn filter_hints_by_prefix_returns_matching_indices() {
+        let hints = ["q", "w", "qq", "qw"];
+        let result = filter_hints_by_prefix(&hints, "q");
+        assert_eq!(result, vec![0usize, 2, 3]);
+    }
+
+    #[test]
+    fn filter_hints_by_prefix_empty_prefix_returns_all() {
+        let hints = ["q", "w", "qq", "qw"];
+        let result = filter_hints_by_prefix(&hints, "");
+        assert_eq!(result, vec![0usize, 1, 2, 3]);
+    }
+
+    #[test]
+    fn filter_hints_by_prefix_no_match_returns_empty() {
+        let hints = ["q", "w", "qq", "qw"];
+        let result = filter_hints_by_prefix(&hints, "z");
+        assert_eq!(result, Vec::<usize>::new());
+    }
+
+    #[test]
+    fn resolve_hint_single_char_exact() {
+        let hints = ["q", "w"];
+        let result = resolve_hint(&hints, "q");
+        assert_eq!(result, HintResolveResult::Exact(0));
+    }
+
+    #[test]
+    fn resolve_hint_partial_match() {
+        let hints = ["qq", "qw", "ww"];
+        let result = resolve_hint(&hints, "q");
+        assert_eq!(result, HintResolveResult::Partial(vec![0, 1]));
+    }
+
+    #[test]
+    fn resolve_hint_exact_multichar() {
+        let hints = ["qq", "qw"];
+        let result = resolve_hint(&hints, "qq");
+        assert_eq!(result, HintResolveResult::Exact(0));
+    }
+
+    #[test]
+    fn resolve_hint_no_match() {
+        let hints = ["qq", "qw"];
+        let result = resolve_hint(&hints, "z");
+        assert_eq!(result, HintResolveResult::NoMatch);
+    }
+
+    #[test]
+    fn resolve_hint_no_match_resets() {
+        let hints = ["qq", "qw"];
+        let result = resolve_hint(&hints, "qz");
+        assert_eq!(result, HintResolveResult::NoMatch);
+    }
+
+    #[test]
+    fn resolve_hint_partial_one_match_longer_than_typed() {
+        // Only one hint remains but it is longer than typed — must be Partial, not Exact
+        let hints = ["q", "w", "zz"];
+        let result = resolve_hint(&hints, "z");
+        assert_eq!(result, HintResolveResult::Partial(vec![2]));
     }
 }
 
