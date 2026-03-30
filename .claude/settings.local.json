@@ -23,8 +23,21 @@
       "Skill(index-project)",
       "Bash(xargs grep:*)",
       "Skill(discuss-idea)",
-      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\(''''hooks'''', {}\\), indent=2\\)\\)\")"
-    ]
+      "Skill(pathfinder-mission-team)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\(''''hooks'''', {}\\), indent=2\\)\\)\")",
+      "Bash(find 'C:/Users/solar/Documents/Claude Projects/scribblenot' -maxdepth 3 -name TASKS.md -o -name *plan* -o -name *task*21*)",
+      "Bash(find 'C:/Users/solar/Documents/Claude Projects/scribblenot' -name TASKS.md -o -name *task* -o -name *23*)",
+      "Bash(find 'C:/Users/solar/Documents/Claude Projects/scribblenot/operations/plans/' -type f -name *.md -o -name *.txt -o -name *.json)",
+      "Bash(find 'C:/Users/solar/Documents/Claude Projects/scribblenot/operations/plans' -type f -name *.md -o -name *.txt -o -name *.json)",
+      "Bash(find 'C:/Users/solar/Documents/Claude Projects/scribblenot' -type f \\\\\\(-name *.md -o -name TASKS* -o -name BRIEF* \\\\\\))",
+      "Bash(find 'C:/Users/solar/Documents/Claude Projects/scribblenot' -type f -name TASKS.md -o -name *22*)",
+      "Bash(grep -r hints 'C:/Users/solar/Documents/Claude Projects/scribblenot/src' --include=*.rs)",
+      "Bash(grep -r \"keybindings.yml\\\\|hints:\" 'C:/Users/solar/Documents/Claude Projects/scribblenot/' --include=*.rs --include=*.md)",
+      "Bash(CARGO=\"$USERPROFILE/.cargo/bin/cargo.exe\" PATH=\"$PATH:$USERPROFILE/.cargo/bin:$USERPROFILE/scoop/apps/mingw/15.2.0-rt_v13-rev1/bin\" \"$CARGO\" -C \"/c/scribble\" test)",
+      "Bash(PATH=\"$PATH:/c/Users/solar/.cargo/bin:/c/Users/solar/scoop/apps/mingw/15.2.0-rt_v13-rev1/bin\" /c/Users/solar/.cargo/bin/cargo.exe -C \"/c/scribble\" test)",
+      "Bash(PATH=\"$PATH:/c/Users/solar/.cargo/bin:/c/Users/solar/scoop/apps/mingw/15.2.0-rt_v13-rev1/bin\" /c/Users/solar/.cargo/bin/cargo.exe --manifest-path \"/c/scribble/Cargo.toml\" test)",
+      "Bash(PATH=\"$PATH:/c/Users/solar/.cargo/bin:/c/Users/solar/scoop/apps/mingw/15.2.0-rt_v13-rev1/bin\" /c/Users/solar/.cargo/bin/cargo.exe test --manifest-path \"/c/scribble/Cargo.toml\")"
+    ],
   },
   "autoAcceptEdits": false
 }
