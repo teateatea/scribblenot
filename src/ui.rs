@@ -114,12 +114,8 @@ fn render_section_map(f: &mut Frame, app: &App, area: Rect) {
             // Wizard mode: show group hint as active for the current section's group
             if g_idx == current_group { theme::HINT } else { theme::MUTED }
         } else {
-            match &app.map_hint_level {
-                MapHintLevel::Groups => theme::HINT,
-                MapHintLevel::Sections(active_g) => {
-                    if *active_g == g_idx { theme::HINT } else { theme::MUTED }
-                }
-            }
+            // Group hints are always available when map is focused (universal group-jump).
+            theme::HINT
         };
 
         let group_name_style = if !map_focused {
