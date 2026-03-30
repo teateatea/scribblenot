@@ -392,6 +392,19 @@ pub fn combined_hints(kb: &KeyBindings) -> Vec<&str> {
         .collect()
 }
 
+/// Returns the flat section index of the first section in `groups[g_idx]`.
+///
+/// - If `g_idx` is in bounds, returns the sum of `sections.len()` for all preceding groups.
+/// - If the group exists but has 0 sections, returns the same start index (which equals the
+///   next group's start, or total section count if it is the last group).
+/// - If `g_idx >= groups.len()`, returns the total section count (past-the-end sentinel).
+pub fn group_jump_target(groups: &[SectionGroup], g_idx: usize) -> usize {
+    if g_idx >= groups.len() {
+        return groups.iter().map(|g| g.sections.len()).sum();
+    }
+    groups.iter().take(g_idx).map(|g| g.sections.len()).sum()
+}
+
 #[derive(Debug, PartialEq)]
 pub enum HintResolveResult {
     Exact(usize),
@@ -717,6 +730,154 @@ mod tests {
         let hints = ["q", "w", "zz"];
         let result = resolve_hint(&hints, "z");
         assert_eq!(result, HintResolveResult::Partial(vec![2]));
+    }
+
+    // ---- group_jump_target tests (Task #21 sub-task 1) ----
+
+    fn make_group(id: &str, section_count: usize) -> SectionGroup {
+        let sections = (0..section_count)
+            .map(|i| SectionConfig {
+                id: format!("{}-s{}", id, i),
+                name: format!("Section {}", i),
+                map_label: format!("s{}", i),
+                section_type: "text".to_string(),
+                data_file: None,
+                date_prefix: None,
+                options: vec![],
+                composite: None,
+                fields: None,
+            })
+            .collect();
+        SectionGroup {
+            id: id.to_string(),
+            num: None,
+            name: id.to_string(),
+            sections,
+        }
+    }
+
+    #[test]
+    fn group_jump_target_first_group() {
+        // 3 groups with [3, 2, 1] sections; g_idx=0 -> 0 (start of first group)
+        let groups = vec![make_group("a", 3), make_group("b", 2), make_group("c", 1)];
+        assert_eq!(group_jump_target(&groups, 0), 0);
+    }
+
+    #[test]
+    fn group_jump_target_second_group() {
+        // 3 groups with [3, 2, 1] sections; g_idx=1 -> 3 (after first group's 3 sections)
+        let groups = vec![make_group("a", 3), make_group("b", 2), make_group("c", 1)];
+        assert_eq!(group_jump_target(&groups, 1), 3);
+    }
+
+    #[test]
+    fn group_jump_target_third_group() {
+        // 3 groups with [3, 2, 1] sections; g_idx=2 -> 5 (after 3+2 sections)
+        let groups = vec![make_group("a", 3), make_group("b", 2), make_group("c", 1)];
+        assert_eq!(group_jump_target(&groups, 2), 5);
+    }
+
+    #[test]
+    fn group_jump_target_out_of_bounds() {
+        // g_idx=3 is past-the-end; should return total section count (3+2+1=6)
+        let groups = vec![make_group("a", 3), make_group("b", 2), make_group("c", 1)];
+        assert_eq!(group_jump_target(&groups, 3), 6);
+    }
+
+    #[test]
+    fn group_jump_target_empty_group() {
+        // groups with [2, 0, 1] sections; g_idx=1 -> 2 (empty group starts where it starts)
+        let groups = vec![make_group("a", 2), make_group("b", 0), make_group("c", 1)];
+        assert_eq!(group_jump_target(&groups, 1), 2);
+    }
+
+    // ---- group_jump_target additional tests using make_groups helper (Task #21 sub-task 1) ----
+
+    fn make_groups(sizes: &[usize]) -> Vec<SectionGroup> {
+        sizes
+            .iter()
+            .enumerate()
+            .map(|(i, &n)| SectionGroup {
+                id: format!("g{i}"),
+                num: None,
+                name: format!("Group {i}"),
+                sections: (0..n)
+                    .map(|j| SectionConfig {
+                        id: format!("s{i}_{j}"),
+                        name: format!("Section {i}/{j}"),
+                        map_label: format!("{i}/{j}"),
+                        section_type: "free_text".to_string(),
+                        data_file: None,
+                        date_prefix: None,
+                        options: vec![],
+                        composite: None,
+                        fields: None,
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn group_jump_target_group0_returns_0() {
+        let groups = make_groups(&[3, 2, 4]);
+        assert_eq!(group_jump_target(&groups, 0), 0);
+    }
+
+    #[test]
+    fn group_jump_target_group1_returns_sum_of_group0() {
+        let groups = make_groups(&[3, 2, 4]);
+        assert_eq!(group_jump_target(&groups, 1), 3);
+    }
+
+    #[test]
+    fn group_jump_target_group2_returns_sum_of_groups_0_and_1() {
+        let groups = make_groups(&[3, 2, 4]);
+        assert_eq!(group_jump_target(&groups, 2), 5);
+    }
+
+    #[test]
+    fn group_jump_target_out_of_bounds_returns_total_count() {
+        let groups = make_groups(&[3, 2, 4]);
+        // total = 9; g_idx = 3 is out of bounds
+        assert_eq!(group_jump_target(&groups, 3), 9);
+    }
+
+    #[test]
+    fn group_jump_target_far_out_of_bounds_returns_total_count() {
+        let groups = make_groups(&[3, 2, 4]);
+        assert_eq!(group_jump_target(&groups, 100), 9);
+    }
+
+    #[test]
+    fn group_jump_target_empty_group_returns_same_as_next_start() {
+        // group 1 has 0 sections; its start == group 0's end == 3
+        let groups = make_groups(&[3, 0, 4]);
+        assert_eq!(group_jump_target(&groups, 1), 3);
+        // group 2's start == 3 + 0 == 3 as well
+        assert_eq!(group_jump_target(&groups, 2), 3);
+    }
+
+    #[test]
+    fn group_jump_target_all_empty_groups() {
+        let groups = make_groups(&[0, 0, 0]);
+        assert_eq!(group_jump_target(&groups, 0), 0);
+        assert_eq!(group_jump_target(&groups, 1), 0);
+        assert_eq!(group_jump_target(&groups, 2), 0);
+        assert_eq!(group_jump_target(&groups, 3), 0); // out of bounds, total = 0
+    }
+
+    #[test]
+    fn group_jump_target_single_group() {
+        let groups = make_groups(&[5]);
+        assert_eq!(group_jump_target(&groups, 0), 0);
+        assert_eq!(group_jump_target(&groups, 1), 5); // out of bounds
+    }
+
+    #[test]
+    fn group_jump_target_empty_slice() {
+        let groups: Vec<SectionGroup> = vec![];
+        assert_eq!(group_jump_target(&groups, 0), 0); // out of bounds, total = 0
     }
 }
 
