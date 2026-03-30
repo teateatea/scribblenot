@@ -78,6 +78,25 @@ pub struct App {
     pub modal: Option<SearchModal>,
 }
 
+pub fn match_binding_str(binding: &str, key: &KeyEvent) -> bool {
+    match binding {
+        "down" => key.code == KeyCode::Down,
+        "up" => key.code == KeyCode::Up,
+        "left" => key.code == KeyCode::Left,
+        "right" => key.code == KeyCode::Right,
+        "enter" => key.code == KeyCode::Enter && key.modifiers == KeyModifiers::NONE,
+        "esc" => key.code == KeyCode::Esc,
+        "space" => key.code == KeyCode::Char(' '),
+        "backspace" => key.code == KeyCode::Backspace,
+        "shift+enter" => key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::SHIFT),
+        s if s.len() == 1 => {
+            let c = s.chars().next().unwrap();
+            key.code == KeyCode::Char(c)
+        }
+        _ => false,
+    }
+}
+
 impl App {
     pub fn new(data: AppData, config: Config, data_dir: PathBuf) -> Self {
         let sections = data.sections.clone();
@@ -154,21 +173,7 @@ impl App {
 
     fn matches_key(&self, key: &KeyEvent, action: &[String]) -> bool {
         for binding in action {
-            let matched = match binding.as_str() {
-                "down" => key.code == KeyCode::Down,
-                "up" => key.code == KeyCode::Up,
-                "left" => key.code == KeyCode::Left,
-                "right" => key.code == KeyCode::Right,
-                "enter" => key.code == KeyCode::Enter,
-                "esc" => key.code == KeyCode::Esc,
-                "space" => key.code == KeyCode::Char(' '),
-                "backspace" => key.code == KeyCode::Backspace,
-                s if s.len() == 1 => {
-                    let c = s.chars().next().unwrap();
-                    key.code == KeyCode::Char(c)
-                }
-                _ => false,
-            };
+            let matched = match_binding_str(binding, key);
             if matched {
                 return true;
             }
@@ -218,6 +223,10 @@ impl App {
 
     fn is_focus_right(&self, key: &KeyEvent) -> bool {
         self.matches_key(key, &self.data.keybindings.focus_right)
+    }
+
+    fn is_super_confirm(&self, key: &KeyEvent) -> bool {
+        self.matches_key(key, &self.data.keybindings.super_confirm)
     }
 
     fn section_at_top_level(&self) -> bool {
@@ -1241,4 +1250,40 @@ fn compute_composite_preview(modal: &crate::modal::SearchModal) -> String {
         result = result.replace(&placeholder, preview_str);
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    #[test]
+    fn matches_key_shift_enter_binding_recognized() {
+        // match_binding_str is the pub free-function extracted from matches_key in the implementation.
+        // This test will fail to compile until that function is added and handles "shift+enter".
+        let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT);
+        assert!(
+            match_binding_str("shift+enter", &key),
+            "match_binding_str(\"shift+enter\", Enter+SHIFT) should return true"
+        );
+    }
+
+    #[test]
+    fn matches_key_shift_enter_does_not_match_plain_enter() {
+        let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        assert!(
+            !match_binding_str("shift+enter", &key),
+            "match_binding_str(\"shift+enter\", plain Enter) should return false"
+        );
+    }
+
+    #[test]
+    fn matches_key_super_confirm_binding_in_keybindings() {
+        let kb = crate::data::KeyBindings::default();
+        // Verify that the default super_confirm binding contains "shift+enter"
+        assert!(
+            kb.super_confirm.iter().any(|b| b == "shift+enter"),
+            "KeyBindings::default().super_confirm should contain \"shift+enter\""
+        );
+    }
 }

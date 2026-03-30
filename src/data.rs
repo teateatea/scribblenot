@@ -158,6 +158,12 @@ pub struct KeyBindings {
     pub focus_right: Vec<String>,
     #[serde(default = "default_hints")]
     pub hints: Vec<String>,
+    #[serde(default = "default_super_confirm")]
+    pub super_confirm: Vec<String>,
+}
+
+fn default_super_confirm() -> Vec<String> {
+    vec!["shift+enter".to_string()]
 }
 
 fn default_focus_left() -> Vec<String> {
@@ -185,6 +191,7 @@ impl Default for KeyBindings {
             focus_left: default_focus_left(),
             focus_right: default_focus_right(),
             hints: default_hints(),
+            super_confirm: default_super_confirm(),
         }
     }
 }
@@ -289,6 +296,33 @@ impl AppData {
         fs::write(&path, content)?;
         self.reload_list(data_file)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keybindings_default_has_super_confirm_shift_enter() {
+        let kb = KeyBindings::default();
+        assert_eq!(
+            kb.super_confirm,
+            vec!["shift+enter".to_string()],
+            "KeyBindings::default() should have super_confirm = [\"shift+enter\"]"
+        );
+    }
+
+    #[test]
+    fn keybindings_super_confirm_serde_default() {
+        // When deserializing a KeyBindings that omits super_confirm, it should default to ["shift+enter"]
+        let yaml = "navigate_down: [down]\nnavigate_up: [up]\nselect: [space]\nconfirm: [enter]\nadd_entry: [a]\nback: [esc]\nswap_panes: ['`']\nhelp: ['?']\nquit: [q]\n";
+        let kb: KeyBindings = serde_yaml::from_str(yaml).expect("should parse keybindings");
+        assert_eq!(
+            kb.super_confirm,
+            vec!["shift+enter".to_string()],
+            "super_confirm should default to [\"shift+enter\"] when absent from YAML"
+        );
     }
 }
 
