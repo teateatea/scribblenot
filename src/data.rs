@@ -160,6 +160,8 @@ pub struct KeyBindings {
     pub hints: Vec<String>,
     #[serde(default = "default_super_confirm")]
     pub super_confirm: Vec<String>,
+    #[serde(default)]
+    pub hint_permutations: Vec<String>,
 }
 
 fn default_super_confirm() -> Vec<String> {
@@ -192,6 +194,7 @@ impl Default for KeyBindings {
             focus_right: default_focus_right(),
             hints: default_hints(),
             super_confirm: default_super_confirm(),
+            hint_permutations: vec![],
         }
     }
 }
@@ -299,6 +302,70 @@ impl AppData {
     }
 }
 
+pub fn generate_hint_permutations(base: &[String], count_needed: usize) -> Vec<String> {
+    let n = base.len();
+    if n == 0 || count_needed == 0 {
+        return vec![];
+    }
+
+    let mut result: Vec<String> = Vec::with_capacity(count_needed);
+
+    // r=1: single characters (band 0 only - each char is its own "pair")
+    // Skip r=1; hints field already covers single chars.
+    // r=2: iterate distance bands 0..n
+    'outer: for dist in 0..n {
+        for i in 0..n {
+            // j = i + dist (wrap is not meaningful for linear adjacency - skip wrapping)
+            if dist == 0 {
+                // Same-index pairs: "qq", "ww", etc.
+                let entry = format!("{}{}", base[i], base[i]);
+                result.push(entry);
+                if result.len() >= count_needed {
+                    break 'outer;
+                }
+            } else {
+                // (i, i+dist) and (i+dist, i) - both directions
+                let j = i + dist;
+                if j < n {
+                    result.push(format!("{}{}", base[i], base[j]));
+                    if result.len() >= count_needed { break 'outer; }
+                    result.push(format!("{}{}", base[j], base[i]));
+                    if result.len() >= count_needed { break 'outer; }
+                }
+            }
+        }
+    }
+
+    if result.len() >= count_needed {
+        return result;
+    }
+
+    // r=3 fallback: extend each r=2 entry with all base chars in adjacency order
+    let r2_complete = result.clone();
+    'r3: for prefix in &r2_complete {
+        for dist in 0..n {
+            for i in 0..n {
+                if dist == 0 {
+                    let entry = format!("{}{}", prefix, base[i]);
+                    result.push(entry);
+                    if result.len() >= count_needed { break 'r3; }
+                } else {
+                    let j = i + dist;
+                    if j < n {
+                        result.push(format!("{}{}", prefix, base[i]));
+                        if result.len() >= count_needed { break 'r3; }
+                        result.push(format!("{}{}", prefix, base[j]));
+                        if result.len() >= count_needed { break 'r3; }
+                    }
+                }
+            }
+        }
+    }
+
+    result.truncate(count_needed);
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,6 +389,99 @@ mod tests {
             kb.super_confirm,
             vec!["shift+enter".to_string()],
             "super_confirm should default to [\"shift+enter\"] when absent from YAML"
+        );
+    }
+
+    // ---- hint_permutations tests (Task #23 sub-task 1) ----
+
+    /// The output must be capped at count_needed.
+    #[test]
+    fn hint_permutations_capped_at_count_needed() {
+        let base: Vec<String> = vec!["q", "w", "f", "p"]
+            .into_iter().map(|s| s.to_string()).collect();
+        let result = generate_hint_permutations(&base, 5);
+        assert_eq!(result.len(), 5, "output should be capped at count_needed=5");
+    }
+
+    /// r=2 permutations from a 4-element base produce 4^2 = 16 combos when count_needed >= 16.
+    #[test]
+    fn hint_permutations_r2_from_4_element_base() {
+        let base: Vec<String> = vec!["q", "w", "f", "p"]
+            .into_iter().map(|s| s.to_string()).collect();
+        // Ask for exactly 16 - the full r=2 space
+        let result = generate_hint_permutations(&base, 16);
+        assert_eq!(result.len(), 16, "4-element base should yield 16 r=2 permutations");
+        // Every entry should be exactly 2 characters (single-char keys concatenated)
+        for entry in result.iter() {
+            let entry: &String = entry;
+            assert_eq!(entry.len(), 2, "each r=2 entry should have length 2, got: {entry}");
+        }
+    }
+
+    /// Adjacent pairs appear before distant pairs in adjacency-priority ordering.
+    /// For base [q, w, f, p] the adjacent pairs are qq, qw, wq, ww (indices 0-1 are neighbours).
+    /// The distant pair qp (indices 0 and 3) must appear later.
+    #[test]
+    fn hint_permutations_adjacency_ordering_adjacent_before_distant() {
+        let base: Vec<String> = vec!["q", "w", "f", "p"]
+            .into_iter().map(|s| s.to_string()).collect();
+        let result = generate_hint_permutations(&base, 16);
+
+        let pos_qq = result.iter().position(|s| s == "qq").expect("qq should be present");
+        let pos_qw = result.iter().position(|s| s == "qw").expect("qw should be present");
+        let pos_wq = result.iter().position(|s| s == "wq").expect("wq should be present");
+        let pos_ww = result.iter().position(|s| s == "ww").expect("ww should be present");
+        let pos_qp = result.iter().position(|s| s == "qp").expect("qp should be present");
+
+        assert!(pos_qq < pos_qp, "qq (adjacent) should appear before qp (distant)");
+        assert!(pos_qw < pos_qp, "qw (adjacent) should appear before qp (distant)");
+        assert!(pos_wq < pos_qp, "wq (adjacent) should appear before qp (distant)");
+        assert!(pos_ww < pos_qp, "ww (adjacent) should appear before qp (distant)");
+    }
+
+    /// When count_needed > base^2 (r=2 space exhausted), r=3 entries must appear to fill the gap.
+    #[test]
+    fn hint_permutations_r3_fallback_when_r2_not_enough() {
+        let base: Vec<String> = vec!["q", "w", "f", "p"]
+            .into_iter().map(|s| s.to_string()).collect();
+        // 4^2=16 r=2 entries; ask for 20 to force r=3 entries
+        let result = generate_hint_permutations(&base, 20);
+        assert_eq!(result.len(), 20, "should produce 20 entries when r=3 fallback is needed");
+        // At least one entry should have length 3 (an r=3 permutation)
+        let has_r3 = result.iter().any(|s: &String| s.len() == 3);
+        assert!(has_r3, "result should contain at least one r=3 entry when count_needed > 4^2");
+    }
+
+    /// KeyBindings must have a hint_permutations field that defaults to empty vec.
+    #[test]
+    fn keybindings_hint_permutations_field_defaults_empty() {
+        let kb = KeyBindings::default();
+        assert!(
+            kb.hint_permutations.is_empty(),
+            "KeyBindings::default() hint_permutations should be empty"
+        );
+    }
+
+    /// hint_permutations deserializes correctly from YAML when absent (defaults to empty).
+    #[test]
+    fn keybindings_hint_permutations_serde_default_empty() {
+        let yaml = "navigate_down: [down]\nnavigate_up: [up]\nselect: [space]\nconfirm: [enter]\nadd_entry: [a]\nback: [esc]\nswap_panes: ['`']\nhelp: ['?']\nquit: [q]\n";
+        let kb: KeyBindings = serde_yaml::from_str(yaml).expect("should parse keybindings");
+        assert!(
+            kb.hint_permutations.is_empty(),
+            "hint_permutations should default to empty vec when absent from YAML"
+        );
+    }
+
+    /// hint_permutations deserializes correctly from YAML when explicitly provided.
+    #[test]
+    fn keybindings_hint_permutations_serde_explicit_value() {
+        let yaml = "navigate_down: [down]\nnavigate_up: [up]\nselect: [space]\nconfirm: [enter]\nadd_entry: [a]\nback: [esc]\nswap_panes: ['`']\nhelp: ['?']\nquit: [q]\nhint_permutations: [qq, qw, wq]\n";
+        let kb: KeyBindings = serde_yaml::from_str(yaml).expect("should parse keybindings");
+        assert_eq!(
+            kb.hint_permutations,
+            vec!["qq".to_string(), "qw".to_string(), "wq".to_string()],
+            "hint_permutations should deserialize the provided YAML values"
         );
     }
 }
