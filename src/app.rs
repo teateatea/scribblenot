@@ -541,6 +541,29 @@ impl App {
             }
         }
 
+        if self.is_super_confirm(&key) {
+            let idx = self.current_idx;
+            // Resolve value: sticky first, then field default
+            let resolved = if let Some(SectionState::Header(s)) = self.section_states.get(idx) {
+                s.field_configs.get(s.field_index).and_then(|cfg| {
+                    self.config.sticky_values.get(&cfg.id).cloned()
+                        .or_else(|| cfg.default.clone())
+                })
+            } else {
+                None
+            };
+            if let Some(value) = resolved {
+                if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                    s.set_current_value(value);
+                    let done = s.advance();
+                    if done {
+                        self.advance_section();
+                    }
+                }
+            }
+            return;
+        }
+
         if self.is_back(&key) || self.is_navigate_up(&key) {
             let idx = self.current_idx;
             let went_back = if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
@@ -1302,5 +1325,69 @@ mod tests {
             kb.super_confirm.iter().any(|b| b == "shift+enter"),
             "KeyBindings::default().super_confirm should contain \"shift+enter\""
         );
+    }
+
+    #[test]
+    fn super_confirm_fills_default_and_advances() {
+        use crate::data::{AppData, HeaderFieldConfig, KeyBindings, SectionConfig, SectionGroup};
+        use crate::config::Config;
+        use std::path::PathBuf;
+
+        let fields = vec![
+            HeaderFieldConfig { id: "f1".to_string(), name: "F1".to_string(), options: vec![], composite: None, default: Some("hello".to_string()) },
+            HeaderFieldConfig { id: "f2".to_string(), name: "F2".to_string(), options: vec![], composite: None, default: None },
+        ];
+        let section = SectionConfig {
+            id: "s1".to_string(), name: "S1".to_string(), map_label: "S1".to_string(),
+            section_type: "header".to_string(), data_file: None, date_prefix: None,
+            options: vec![], composite: None, fields: Some(fields),
+        };
+        let group = SectionGroup { id: "g1".to_string(), num: None, name: "G1".to_string(), sections: vec![section.clone()] };
+        let data = AppData {
+            groups: vec![group], sections: vec![section],
+            list_data: Default::default(), checklist_data: Default::default(),
+            region_data: Default::default(), keybindings: KeyBindings::default(),
+            data_dir: PathBuf::new(),
+        };
+        let mut app = App::new(data, Config::default(), PathBuf::new());
+        let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT);
+        app.handle_header_key(key);
+        if let Some(SectionState::Header(s)) = app.section_states.get(0) {
+            assert_eq!(s.values[0], "hello", "field 0 should be filled with its default");
+            assert_eq!(s.field_index, 1, "field_index should advance to 1");
+        } else {
+            panic!("expected Header state at index 0");
+        }
+    }
+
+    #[test]
+    fn super_confirm_no_op_when_no_default() {
+        use crate::data::{AppData, HeaderFieldConfig, KeyBindings, SectionConfig, SectionGroup};
+        use crate::config::Config;
+        use std::path::PathBuf;
+
+        let fields = vec![
+            HeaderFieldConfig { id: "f1".to_string(), name: "F1".to_string(), options: vec![], composite: None, default: None },
+        ];
+        let section = SectionConfig {
+            id: "s1".to_string(), name: "S1".to_string(), map_label: "S1".to_string(),
+            section_type: "header".to_string(), data_file: None, date_prefix: None,
+            options: vec![], composite: None, fields: Some(fields),
+        };
+        let group = SectionGroup { id: "g1".to_string(), num: None, name: "G1".to_string(), sections: vec![section.clone()] };
+        let data = AppData {
+            groups: vec![group], sections: vec![section],
+            list_data: Default::default(), checklist_data: Default::default(),
+            region_data: Default::default(), keybindings: KeyBindings::default(),
+            data_dir: PathBuf::new(),
+        };
+        let mut app = App::new(data, Config::default(), PathBuf::new());
+        let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT);
+        app.handle_header_key(key);
+        if let Some(SectionState::Header(s)) = app.section_states.get(0) {
+            assert_eq!(s.field_index, 0, "field_index should stay at 0 when no default");
+        } else {
+            panic!("expected Header state at index 0");
+        }
     }
 }
