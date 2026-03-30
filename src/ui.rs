@@ -7,7 +7,7 @@ use crate::theme;
 use std::collections::HashMap;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
     Frame,
@@ -63,6 +63,37 @@ pub fn render(f: &mut Frame, app: &App) {
     }
 }
 
+/// Returns the styled span(s) for a hint label given the current hint_buffer.
+/// `active_color` should be the color that would be used when the hint is active (HINT).
+/// When `hint_buffer` is empty, returns a single span with `active_color` (no change).
+/// When `hint_buffer` is non-empty and hint starts with buffer: prefix in White/Bold + remainder in active_color.
+/// When `hint_buffer` is non-empty and hint does NOT start with buffer: single span in MUTED.
+fn hint_spans(hint: &str, hint_buffer: &str, active_color: Color) -> Vec<Span<'static>> {
+    if hint_buffer.is_empty() {
+        return vec![Span::styled(hint.to_string(), Style::default().fg(active_color))];
+    }
+    let hint_lower = hint.to_lowercase();
+    let buf_lower = hint_buffer.to_lowercase();
+    if hint_lower.starts_with(&buf_lower) {
+        let prefix = hint[..hint_buffer.len()].to_string();
+        let remainder = hint[hint_buffer.len()..].to_string();
+        let prefix_span = Span::styled(
+            prefix,
+            Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+        );
+        if remainder.is_empty() {
+            vec![prefix_span]
+        } else {
+            vec![
+                prefix_span,
+                Span::styled(remainder, Style::default().fg(active_color)),
+            ]
+        }
+    } else {
+        vec![Span::styled(hint.to_string(), Style::default().fg(theme::MUTED))]
+    }
+}
+
 fn render_section_map(f: &mut Frame, app: &App, area: Rect) {
     let hints = crate::data::combined_hints(&app.data.keybindings);
     let capitalized = app.config.hint_labels_capitalized;
@@ -97,13 +128,23 @@ fn render_section_map(f: &mut Frame, app: &App, area: Rect) {
             theme::bold()
         };
 
-        items.push(ListItem::new(Line::from(vec![
-            Span::styled(
+        let group_hint_spans: Vec<Span> = if group_hint_color == theme::HINT && !app.hint_buffer.is_empty() {
+            let mut spans = hint_spans(&group_hint_display, &app.hint_buffer, theme::HINT);
+            // Append trailing space as part of last span's text
+            if let Some(last) = spans.last_mut() {
+                let s = last.content.to_string() + " ";
+                *last = Span::styled(s, last.style);
+            }
+            spans
+        } else {
+            vec![Span::styled(
                 format!("{} ", group_hint_display),
                 Style::default().fg(group_hint_color),
-            ),
-            Span::styled(group.name.clone(), group_name_style),
-        ])));
+            )]
+        };
+        let mut group_line_spans = group_hint_spans;
+        group_line_spans.push(Span::styled(group.name.clone(), group_name_style));
+        items.push(ListItem::new(Line::from(group_line_spans)));
 
         // Section hints: hints in order, skipping the group's own hint index
         let section_hints: Vec<&str> = hints.iter().enumerate()
@@ -155,11 +196,23 @@ fn render_section_map(f: &mut Frame, app: &App, area: Rect) {
                 cursor_item_idx = Some(items.len());
             }
 
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled(cursor_char.to_string(), entry_style),
-                Span::styled(format!("{} ", section_hint_display), Style::default().fg(section_hint_color)),
-                Span::styled(section.map_label.clone(), entry_style),
-            ])));
+            let section_hint_spans: Vec<Span> = if section_hint_color == theme::HINT && !app.hint_buffer.is_empty() {
+                let mut spans = hint_spans(&section_hint_display, &app.hint_buffer, theme::HINT);
+                if let Some(last) = spans.last_mut() {
+                    let s = last.content.to_string() + " ";
+                    *last = Span::styled(s, last.style);
+                }
+                spans
+            } else {
+                vec![Span::styled(
+                    format!("{} ", section_hint_display),
+                    Style::default().fg(section_hint_color),
+                )]
+            };
+            let mut section_line_spans = vec![Span::styled(cursor_char.to_string(), entry_style)];
+            section_line_spans.extend(section_hint_spans);
+            section_line_spans.push(Span::styled(section.map_label.clone(), entry_style));
+            items.push(ListItem::new(Line::from(section_line_spans)));
 
             flat_idx += 1;
         }
@@ -219,7 +272,7 @@ fn render_wizard_widget(f: &mut Frame, app: &App, area: Rect) {
     match app.section_states.get(idx) {
         Some(SectionState::Header(s)) => {
             let modal_for_header = if !map_preview { app.modal.as_ref() } else { None };
-            render_header_widget(f, area, s, map_preview, &field_hints, hints_active, &app.config.sticky_values, modal_for_header)
+            render_header_widget(f, area, s, map_preview, &field_hints, hints_active, &app.hint_buffer, &app.config.sticky_values, modal_for_header)
         }
         Some(SectionState::FreeText(s)) => render_free_text_widget(f, area, s, section_cfg, map_preview),
         Some(SectionState::ListSelect(s)) => render_list_select_widget(f, area, s, section_cfg, map_preview),
@@ -236,6 +289,7 @@ fn render_header_widget(
     map_preview: bool,
     field_hints: &[String],
     hints_active: bool,
+    hint_buffer: &str,
     sticky_values: &HashMap<String, String>,
     active_modal: Option<&SearchModal>,
 ) {
@@ -269,10 +323,18 @@ fn render_header_widget(
 
         let hint_str = field_hints.get(i).map(String::as_str).unwrap_or("");
         let field_title = if !hint_str.is_empty() {
-            Line::from(vec![
-                Span::styled(format!(" {} ", hint_str), Style::default().fg(hint_color)),
-                Span::raw(format!("{} ", cfg.name)),
-            ])
+            let hint_title_spans: Vec<Span> = if hints_active && !hint_buffer.is_empty() {
+                // Leading space
+                let mut spans = vec![Span::raw(" ")];
+                spans.extend(hint_spans(hint_str, hint_buffer, theme::HINT));
+                spans.push(Span::raw(" "));
+                spans
+            } else {
+                vec![Span::styled(format!(" {} ", hint_str), Style::default().fg(hint_color))]
+            };
+            let mut title_spans = hint_title_spans;
+            title_spans.push(Span::raw(format!("{} ", cfg.name)));
+            Line::from(title_spans)
         } else {
             Line::from(Span::raw(format!(" {} ", cfg.name)))
         };
