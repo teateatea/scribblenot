@@ -4,7 +4,7 @@
 
 _Tasks for active development. Feature backlog lives in TODOS.md._
 
-- [ ] **#44** Add /add-tasks as a forwarding alias to /add-task without duplicating the skill
+- [x] **#44** Add /add-tasks as a forwarding alias to /add-task without duplicating the skill
   [D:15 C:60] Create a minimal /add-tasks skill entry that immediately delegates to /add-task so both trigger words work; the alias contains no logic of its own, avoiding a maintenance burden when /add-task changes.
   Joseph: The /add-task skill should also trigger on /add-tasks. It's too easy for me to add that s when I'm thining about adding several, and it might as well work correctly. Don't just copy the /add-task skill though, I don't want to have to maintain identical skills.
   Context: not specified
@@ -12,11 +12,6 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 - [ ] **#21** Add persistent group-jump hotkeys in map column (e.g. Q=Intake, W=Subjective, F=Treatment)
   [D:62 C:55] When focus is on the map column, a fixed set of keys should always jump to the first section of each group regardless of current cursor position (e.g. F while on Post-Tx jumps to Tx Mods). These group-reserved keys must be excluded from the section-hint pool so no section hint is ever assigned a character that conflicts with a group jump key.
   Joseph: I'd like the hints for group headings to always be available when in the map column, regardless of what section the cursor is on. So Q INTAKE, W SUBJECTIVE, F TREATMENT, etc, the Q W F etc will always let me jump directly to that group. If I'm not currently in that group, put the cursor at the first section (if I'm over Post-Tx, and I hit F for TREATMENT group, it'll jump me to Tx Mods. Make sure the distribution correctly accounts for this, the section hints won't be able to ever use those group hint characters.
-  Context: not specified
-
-- [ ] **#2** Add Shift+Enter super-confirm keybinding to auto-complete remaining fields
-  [D:70 C:55] Implement a Shift+Enter keybinding that, when pressed in any field or wizard modal, automatically confirms all remaining parts using already-confirmed values first, then sticky/default values -- skipping user interaction for fields that already have a valid answer.
-  Joseph: Add Shift+Enter, for a "super confirm". Add an option for it in keybindings please. Super-confirm can be used on a field to automatically enter whatever is in the text box: Any entries that already got confirmed (green), then Sticky values and default values (grey). This should work in any field, but the example for Date would be a) Select Day: 24 to update the day, then Shift+Enter to auto-confirm the already correct Month and Year, or even b) if the Day is already a correct sticky, a Shift+Enter from the wizard directly skips all the modals and puts the sticky 2026-03-24.
   Context: not specified
 
 - [ ] **#23** Auto-generate multi-character hint permutations from base hint characters for overflow assignment
@@ -33,65 +28,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 
 ## Code Quality
 
-- [ ] **#1** Remove dead code warning for unused `current_value` on `HeaderState`
+- [x] **#1** Remove dead code warning for unused `current_value` on `HeaderState`
   [D:10 C:55] Delete or use the `pub fn current_value()` method in `src/sections/header.rs` that triggers a dead_code warning on every `cargo build`/`cargo run`.
   Joseph: about that dead code clean up, I don't like that it pops up when I cargo run.
-  Context: not specified
-
----
-
-## Pathfinder Improvements
-
-- [ ] **#34** Support staged multi-premission briefings and --auto chain execution
-  [D:65 C:55] Two linked features: (1) namespace all premission artifacts (MISSION-PERMISSIONS.json, PROJECT-FOUNDATION.md, MISSION-LOG, etc.) with mission numbers so multiple premissions can be staged concurrently without collisions -- requires analysis of exactly which files conflict before implementation; (2) add a --auto mode to pathfinder-mission-team that, after completing a mission, auto-discovers the next staged premission briefing and continues until all queued missions are exhausted.
-  Joseph: Assuming /compacting doesn't actually interfere with /pathfinder-mission-team (we'll find out 2-3 missions after #32 is completed), it's actually possible we could have an incredibly long series of tasks assigned without issue. With this in mind, I'd like to be able to do two things: I'd like to be able to stage multiple /pathfinder-premission's without causing conflicts. This probably requires mission-numbered PERMISSIONS.json (is that true?), PROJECT-FOUNDATION, etc. Please confirm where the conflicts would be before this task gets to /pathfinder-mission-team. And second, I'd like something like "/pathfinder-mission-team --auto", where the mission team can pick up one of the premission "briefings" (collection of tasks, permissions, etc), complete it, and then move onto the NEXT mission automatically, repeating until all missions have been addressed.
-  Context: not specified
-
-  - [ ] **#34-2** Staged multi-premission briefings and --auto chain (pre-mission clarified)
-    [D:65 C:60] Namespace premission artifacts by mission number for concurrent staging without conflicts; --auto chains missions by lowest number first; planning phase must enumerate conflicting files before implementation; #17 (pathfinder/ dir) must complete first.
-    Joseph: Pre-mission clarifications captured: (1) planning phase should enumerate exactly which files conflict before implementation; (2) --auto discovers next mission by lowest mission number; (3) #17 (pathfinder/ directory) must be done first -- #34 namespacing assumes files already live in pathfinder/.
-    Context: Removed from M6 during premission - requires /discuss-idea first before planning or implementation; too involved for autonomous mission without deeper design discussion.
-
-
-
-
-
-
-- [ ] **#70** Audit why diff windows still open during M7 despite two completed suppress-diff tasks
-  [D:35 C:62] Tasks #15 and #48 were both marked complete and claimed to suppress diff windows during pathfinder missions, but Mission 7 still opens diffs. This task asks for an audit of what was actually implemented and why it is not working, with findings reported in the M7 mission log.
-  Joseph-Raw: We have a handful of completed tasks in our CLOSED_TASKS.md, suggesting that diffs should not be opening anymore during pathfinder missions. M7 has just started, and it definitely still opens diffs. Please audit and report findings in mission log.
-  Context: not specified
-
-- [ ] **#71** Add cumulative review-round counter to Reviewer and Prefect entries in sub-task log
-  [D:45 C:58] Each sub-task log entry should track which review round a Reviewer or Prefect approval came from (e.g., 'Prefect-1 [R3]'), making it clear whether approval was first-pass or after multiple retries. The task also requests investigation into whether Prefect reports are still being removed, and if so, stopping that behavior.
-  Joseph-Raw: In pathfinder missions, I think Reviewers and Prefects should have a cumulative count number, per sub-task. There's a big difference between Prefect-1 approving, and Prefect-1 approving on the third round of reviews. This also means we can stop removing Prefect reports, which I believe is still happening. Please review in detail?
-  Context: not specified
-
-- [ ] **#72** Investigate planner/reviewer subagent as source of errant diff windows
-  [D:30 C:35] Follow-on hypothesis to #70 -- user suspects the Planner or Reviewer subagent spawned during pathfinder missions is the process opening diff windows; confirm the hypothesis and implement a targeted fix in the offending subagent.
-  Joseph-Raw: It seems to be the planner or reviewer opening up the errant diffs?
-  Context: not specified
-  - [ ] **#72-2** Reviewer opens diffs intermittently -- behavior not consistent across all tasks
-    [D:25 C:28] Refines #72 -- the Reviewer subagent is the likely culprit for opening diffs, but the behavior is task-conditional, suggesting a specific code path or trigger in the Reviewer logic rather than a blanket misconfiguration.
-    Joseph-Raw: Yeah, the reviewer opening diffs when it's not supposed to be, but it seems like it might not be for all tasks? Very strange.
-    Context: not specified
-
-- [ ] **#73** Enforce strict mission-permissions-only hook policy with pre-emptive denial and robust task abandonment
-  [D:75 C:52] Replace fallback-to-system-permissions behavior with a hard deny for any unlisted command during a mission; requires two complementary changes: (1) significantly more thorough missions/default permissions coverage, and (2) a dependency-aware task ordering system that can safely abandon blocked tasks without leaving dangling dependencies.
-  Joseph-Raw: Casualties keep appearing on pathfinder missions. Consider making our hooks stricter: If the command doesn't appear on the mission permissions, the agent is pre-emptively denied entirely. No hand back to the system permissions, while a mission is running. Two things will have to change to accomodate this: We'll need a much more thorough missions permissions file (and/or a more thorough default permissions file), and we'll need the dependencies and task order system to be robust enough to confidently abandon tasks without leaving behind dependencies.
-  Context: not specified
-
-- [ ] **#74** Preserve per-mission tracker; split logging into MISSION-N-LOG (human-readable) and MISSION-N-TRACKER (machine-readable, kept per mission)
-  [D:55 C:72] Currently MISSION-LOG-active is wiped at mission end, potentially losing data written there but not surfaced in the human-readable log. Fix by: (1) renaming the human-readable log to MISSION-N-LOG for format consistency, and (2) renaming MISSION-LOG-active to MISSION-N-TRACKER -- keeping it per-mission, machine-readable, accuracy/efficiency-first, never deleted.
-  Joseph-Raw: I think the MISSION-LOG-active should not get wiped at the end of every mission. I think sometimes, things are being added to that log, and not the human readable MISSION-LOG-N. And I think we might be losing valuable data for figuring out what happened and how to prevent casualties. I propose we use two files going forwards: MISSION-N-LOG (slight rename to standardize format, this is the human readable log), and MISSION-N-TRACKER (this is what we currently call the MISSION-LOG-active, but now we keep it for each mission; it just needs to be machine readable, and otherwise can prioritize accuracy and efficiency).
-  Context: not specified
-
-- [ ] **#75** Standardize all mission file naming to MISSION-N-*-COMPLETE/SUCCESS pattern
-  [D:45 C:78] Replace leading SUCCESS-*.md with trailing suffix: default to MISSION-N-*-COMPLETE-*.md, use MISSION-N-*-SUCCESS-*.md only on zero-casualty missions. Apply COMPLETE/SUCCESS suffix to all mission-specific files (log, tracker, etc), keeping all MISSION-N-* files adjacent when sorted.
-  Joseph-Raw: As an addendum to the above, let's do MISSION-N-LOG-COMPLETE-*.md instead of the leading SUCCESS-*.md (this will keep all of the MISSION-N-*.md files together when sorted. And actually, let's apply -COMPLETE- as the default, and -SUCCESS- on 0 casualty missions. We can actually put COMPLETE/SUCCESS on *all* mission specific files (so the tracker, etc too).
-  Context: not specified
-
-- [ ] **#76** Explore moving mission files out of .claude/ to resolve permission/security concerns
-  [D:70 C:35] Having pathfinder write TASKS.md, CLOSED-TASKS.md, plans, etc. inside .claude/ triggers "Claude changing Claude settings" security concerns. Needs /discuss-idea pass first -- user is unsure what the right alternative location is. Outcome of discussion should produce a concrete proposal before planning/implementation.
-  Joseph-Raw: I think we might need to put as many mission files as possible NOT in projectroot/.claude. It seems like that causes a system security concern for "Claude changing Claude settings", but we're just trying to create or edit TASKS, CLOSED-TASKS, plans, etc. I think this may be a /discuss-idea candidate first, I'm not sure what I do want to have instead.
   Context: not specified
