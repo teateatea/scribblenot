@@ -250,7 +250,7 @@ impl AppData {
         }
 
         let kb_path = data_dir.join("keybindings.yml");
-        let keybindings = if kb_path.exists() {
+        let mut keybindings = if kb_path.exists() {
             let kb_content = fs::read_to_string(&kb_path)?;
             match serde_yaml::from_str(&kb_content) {
                 Ok(kb) => kb,
@@ -262,6 +262,8 @@ impl AppData {
         } else {
             KeyBindings::default()
         };
+
+        ensure_hint_permutations(&mut keybindings);
 
         Ok(Self {
             groups,
@@ -364,6 +366,22 @@ pub fn generate_hint_permutations(base: &[String], count_needed: usize) -> Vec<S
 
     result.truncate(count_needed);
     result
+}
+
+/// Ensures `kb.hint_permutations` is populated and up-to-date.
+///
+/// count_needed is `hints.len()^2` (the full r=2 space). Regeneration is triggered when
+/// `hint_permutations` is empty or its length does not match count_needed (staleness).
+pub fn ensure_hint_permutations(kb: &mut KeyBindings) {
+    let n = kb.hints.len();
+    if n == 0 {
+        return;
+    }
+    let count_needed = n * n;
+    if kb.hint_permutations.len() == count_needed {
+        return; // already fresh
+    }
+    kb.hint_permutations = generate_hint_permutations(&kb.hints, count_needed);
 }
 
 #[cfg(test)]
@@ -482,6 +500,63 @@ mod tests {
             kb.hint_permutations,
             vec!["qq".to_string(), "qw".to_string(), "wq".to_string()],
             "hint_permutations should deserialize the provided YAML values"
+        );
+    }
+
+    // ---- ensure_hint_permutations tests (Task #23 sub-task 2) ----
+
+    /// Regeneration is triggered when hint_permutations is empty.
+    #[test]
+    fn ensure_hint_permutations_populates_when_empty() {
+        let mut kb = KeyBindings::default(); // hint_permutations = []
+        assert!(kb.hint_permutations.is_empty(), "precondition: starts empty");
+        ensure_hint_permutations(&mut kb);
+        let expected_count = kb.hints.len() * kb.hints.len();
+        assert_eq!(
+            kb.hint_permutations.len(),
+            expected_count,
+            "hint_permutations should be populated after ensure call"
+        );
+    }
+
+    /// Regeneration is triggered when hints list changes (staleness by hints.len() change).
+    #[test]
+    fn ensure_hint_permutations_regenerates_when_hints_change() {
+        let mut kb = KeyBindings::default();
+        ensure_hint_permutations(&mut kb);
+        let original_len = kb.hint_permutations.len();
+
+        // Simulate hints list change: add an extra hint
+        kb.hints.push("z".to_string());
+        // hint_permutations.len() is now stale (doesn't equal new hints.len()^2)
+        ensure_hint_permutations(&mut kb);
+
+        let new_expected = kb.hints.len() * kb.hints.len();
+        assert_ne!(
+            kb.hint_permutations.len(),
+            original_len,
+            "hint_permutations should be regenerated after hints list change"
+        );
+        assert_eq!(
+            kb.hint_permutations.len(),
+            new_expected,
+            "regenerated hint_permutations should match new count_needed"
+        );
+    }
+
+    /// No regeneration when hint_permutations is already fresh (idempotent).
+    #[test]
+    fn ensure_hint_permutations_no_regen_when_fresh() {
+        let mut kb = KeyBindings::default();
+        ensure_hint_permutations(&mut kb);
+        let populated = kb.hint_permutations.clone();
+
+        // Call again - should not change anything
+        ensure_hint_permutations(&mut kb);
+        assert_eq!(
+            kb.hint_permutations,
+            populated,
+            "ensure_hint_permutations should be idempotent when already fresh"
         );
     }
 }
