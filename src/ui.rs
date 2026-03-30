@@ -146,11 +146,9 @@ fn render_section_map(f: &mut Frame, app: &App, area: Rect) {
         group_line_spans.push(Span::styled(group.name.clone(), group_name_style));
         items.push(ListItem::new(Line::from(group_line_spans)));
 
-        // Section hints: hints in order, skipping the group's own hint index
-        let section_hints: Vec<&str> = hints.iter().enumerate()
-            .filter(|(i, _)| *i != g_idx)
-            .map(|(_, h)| *h)
-            .collect();
+        // Section hints: all start at n_groups offset (no per-group exclusion needed)
+        let n_groups = app.data.groups.len();
+        let group_start: usize = app.data.groups.iter().take(g_idx).map(|g| g.sections.len()).sum();
 
         for (si, section) in group.sections.iter().enumerate() {
             let is_current = flat_idx == app.current_idx;
@@ -158,7 +156,7 @@ fn render_section_map(f: &mut Frame, app: &App, area: Rect) {
             let _is_completed = app.section_is_completed(flat_idx);
             let is_skipped = app.section_is_skipped(flat_idx);
 
-            let section_hint_raw = section_hints.get(si).copied().unwrap_or(" ");
+            let section_hint_raw = hints.get(n_groups + group_start + si).copied().unwrap_or(" ");
             let section_hint_display = if capitalized { section_hint_raw.to_uppercase() } else { section_hint_raw.to_string() };
 
             let section_hint_color = if app.modal.is_some() {

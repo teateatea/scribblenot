@@ -326,15 +326,15 @@ impl App {
                         return;
                     }
 
-                    // Section hints: all hints except position g_idx
-                    let section_hints: Vec<&str> = folded_refs.iter().enumerate()
-                        .filter(|(i, _)| *i != g_idx)
-                        .map(|(_, h)| *h)
-                        .collect();
+                    let n_groups = self.data.groups.len();
                     let group_start: usize = self.data.groups.iter().take(g_idx).map(|g| g.sections.len()).sum();
                     let group_len = self.data.groups.get(g_idx).map(|g| g.sections.len()).unwrap_or(0);
-                    // Slice to only section-count hints
-                    let section_refs: Vec<&str> = section_hints.iter().take(group_len).copied().collect();
+                    let section_refs: Vec<&str> = folded_refs
+                        .iter()
+                        .skip(n_groups + group_start)
+                        .take(group_len)
+                        .copied()
+                        .collect();
                     match crate::data::resolve_hint(&section_refs, &typed) {
                         crate::data::HintResolveResult::Exact(s_idx) => {
                             let flat_idx = group_start + s_idx;
@@ -344,9 +344,7 @@ impl App {
                             self.map_hint_level = MapHintLevel::Groups;
                             self.hint_buffer.clear();
                         }
-                        crate::data::HintResolveResult::Partial(_) => {
-                            // Wait for more input
-                        }
+                        crate::data::HintResolveResult::Partial(_) => {}
                         crate::data::HintResolveResult::NoMatch => {
                             self.hint_buffer.clear();
                         }
@@ -371,17 +369,13 @@ impl App {
 
     pub fn section_hint_key_idx(&self, flat_idx: usize) -> Option<usize> {
         let hints = crate::data::combined_hints(&self.data.keybindings);
-        let mut fi = 0usize;
-        for (g_idx, group) in self.data.groups.iter().enumerate() {
-            for s_idx in 0..group.sections.len() {
-                if fi == flat_idx {
-                    let nth = (0..hints.len()).filter(|&i| i != g_idx).nth(s_idx);
-                    return nth;
-                }
-                fi += 1;
-            }
+        let n_groups = self.data.groups.len();
+        let hint_idx = n_groups + flat_idx;
+        if hint_idx < hints.len() {
+            Some(hint_idx)
+        } else {
+            None
         }
-        None
     }
 
     fn update_note_scroll(&mut self) {
