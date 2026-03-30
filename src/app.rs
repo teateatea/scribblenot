@@ -76,6 +76,7 @@ pub struct App {
     pub map_hint_level: MapHintLevel,
     pub note_scroll: u16,
     pub modal: Option<SearchModal>,
+    pub hint_buffer: String,
 }
 
 pub fn match_binding_str(binding: &str, key: &KeyEvent) -> bool {
@@ -119,6 +120,7 @@ impl App {
             map_hint_level: MapHintLevel::Groups,
             note_scroll: 0,
             modal: None,
+            hint_buffer: String::new(),
         }
     }
 
@@ -241,6 +243,7 @@ impl App {
 
     fn handle_map_key(&mut self, key: KeyEvent) {
         if self.is_navigate_down(&key) {
+            self.hint_buffer.clear();
             if self.map_cursor + 1 < self.sections.len() {
                 self.map_cursor += 1;
                 let g = self.group_idx_for_section(self.map_cursor);
@@ -250,6 +253,7 @@ impl App {
             return;
         }
         if self.is_navigate_up(&key) {
+            self.hint_buffer.clear();
             if self.map_cursor > 0 {
                 self.map_cursor -= 1;
                 let g = self.group_idx_for_section(self.map_cursor);
@@ -259,12 +263,14 @@ impl App {
             return;
         }
         if self.is_confirm(&key) {
+            self.hint_buffer.clear();
             self.current_idx = self.map_cursor;
             self.focus = Focus::Wizard;
             self.map_hint_level = MapHintLevel::Groups;
             return;
         }
         if self.is_back(&key) {
+            self.hint_buffer.clear();
             self.focus = Focus::Wizard;
             self.map_hint_level = MapHintLevel::Groups;
             return;
@@ -272,53 +278,77 @@ impl App {
 
         // Hint key navigation
         if let KeyCode::Char(c) = key.code {
-            let hints = crate::data::combined_hints(&self.data.keybindings);
             let case_sensitive = self.config.hint_labels_case_sensitive;
-            let key_str: String = if case_sensitive {
+            let ch_str: String = if case_sensitive {
                 c.to_string()
             } else {
                 c.to_ascii_lowercase().to_string()
             };
+            self.hint_buffer.push_str(&ch_str);
+            let typed = self.hint_buffer.clone();
+
+            let hints = crate::data::combined_hints(&self.data.keybindings);
+            // Build a case-folded hint list matching the typed string's case
+            let folded_hints: Vec<String> = hints.iter().map(|h| {
+                if case_sensitive { h.to_string() } else { h.to_ascii_lowercase().to_string() }
+            }).collect();
+            let folded_refs: Vec<&str> = folded_hints.iter().map(String::as_str).collect();
 
             let hint_level = self.map_hint_level.clone();
             match hint_level {
                 MapHintLevel::Groups => {
-                    for (g_idx, _group) in self.data.groups.iter().enumerate() {
-                        if let Some(h) = hints.get(g_idx) {
-                            let h_str = if case_sensitive { h.to_string() } else { h.to_ascii_lowercase().to_string() };
-                            if key_str == h_str {
-                                self.map_hint_level = MapHintLevel::Sections(g_idx);
-                                return;
-                            }
+                    let n_groups = self.data.groups.len();
+                    // Only resolve against the first n_groups hints
+                    let group_refs: Vec<&str> = folded_refs.iter().take(n_groups).copied().collect();
+                    match crate::data::resolve_hint(&group_refs, &typed) {
+                        crate::data::HintResolveResult::Exact(g_idx) => {
+                            self.map_hint_level = MapHintLevel::Sections(g_idx);
+                            self.hint_buffer.clear();
+                        }
+                        crate::data::HintResolveResult::Partial(_) => {
+                            // Wait for more input
+                        }
+                        crate::data::HintResolveResult::NoMatch => {
+                            self.hint_buffer.clear();
                         }
                     }
                 }
                 MapHintLevel::Sections(g_idx) => {
-                    // Parent group hint → back to groups
-                    if let Some(h) = hints.get(g_idx) {
-                        let h_str = if case_sensitive { h.to_string() } else { h.to_ascii_lowercase().to_string() };
-                        if key_str == h_str {
-                            self.map_hint_level = MapHintLevel::Groups;
-                            return;
-                        }
+                    // Check parent group hint first (toggling back to Groups)
+                    let parent_hint = folded_refs.get(g_idx).copied().unwrap_or("");
+                    if typed == parent_hint {
+                        self.map_hint_level = MapHintLevel::Groups;
+                        self.hint_buffer.clear();
+                        return;
                     }
-                    // Section hints: hints in order, skipping g_idx
-                    let section_hints: Vec<String> = hints.iter().enumerate()
+                    if parent_hint.starts_with(typed.as_str()) && typed.len() < parent_hint.len() {
+                        // Partial match toward parent hint - hold buffer
+                        return;
+                    }
+
+                    // Section hints: all hints except position g_idx
+                    let section_hints: Vec<&str> = folded_refs.iter().enumerate()
                         .filter(|(i, _)| *i != g_idx)
-                        .map(|(_, h)| if case_sensitive { h.to_string() } else { h.to_ascii_lowercase().to_string() })
+                        .map(|(_, h)| *h)
                         .collect();
                     let group_start: usize = self.data.groups.iter().take(g_idx).map(|g| g.sections.len()).sum();
                     let group_len = self.data.groups.get(g_idx).map(|g| g.sections.len()).unwrap_or(0);
-                    for s_idx in 0..group_len {
-                        if let Some(sh) = section_hints.get(s_idx) {
-                            if key_str == *sh {
-                                let flat_idx = group_start + s_idx;
-                                self.current_idx = flat_idx;
-                                self.map_cursor = flat_idx;
-                                self.focus = Focus::Wizard;
-                                self.map_hint_level = MapHintLevel::Groups;
-                                return;
-                            }
+                    // Slice to only section-count hints
+                    let section_refs: Vec<&str> = section_hints.iter().take(group_len).copied().collect();
+                    match crate::data::resolve_hint(&section_refs, &typed) {
+                        crate::data::HintResolveResult::Exact(s_idx) => {
+                            let flat_idx = group_start + s_idx;
+                            self.current_idx = flat_idx;
+                            self.map_cursor = flat_idx;
+                            self.focus = Focus::Wizard;
+                            self.map_hint_level = MapHintLevel::Groups;
+                            self.hint_buffer.clear();
+                        }
+                        crate::data::HintResolveResult::Partial(_) => {
+                            // Wait for more input
+                        }
+                        crate::data::HintResolveResult::NoMatch => {
+                            self.hint_buffer.clear();
                         }
                     }
                 }
@@ -409,6 +439,7 @@ impl App {
             if self.focus == Focus::Wizard && !self.pane_swapped {
                 // Map is to the left of wizard in default layout
                 let g_idx = self.group_idx_for_section(self.current_idx);
+                self.hint_buffer.clear();
                 self.focus = Focus::Map;
                 self.map_cursor = self.current_idx;
                 self.map_hint_level = MapHintLevel::Sections(g_idx);
@@ -416,6 +447,7 @@ impl App {
                 return;
             } else if self.focus == Focus::Map && self.pane_swapped {
                 // Map is to the right; h/← from map returns to wizard
+                self.hint_buffer.clear();
                 self.current_idx = self.map_cursor;
                 self.focus = Focus::Wizard;
                 self.map_hint_level = MapHintLevel::Groups;
@@ -427,6 +459,7 @@ impl App {
             if self.focus == Focus::Wizard && self.pane_swapped {
                 // Map is to the right of wizard in swapped layout
                 let g_idx = self.group_idx_for_section(self.current_idx);
+                self.hint_buffer.clear();
                 self.focus = Focus::Map;
                 self.map_cursor = self.current_idx;
                 self.map_hint_level = MapHintLevel::Sections(g_idx);
@@ -434,6 +467,7 @@ impl App {
                 return;
             } else if self.focus == Focus::Map && !self.pane_swapped {
                 // Map is to the left; i/→ from map returns to wizard
+                self.hint_buffer.clear();
                 self.current_idx = self.map_cursor;
                 self.focus = Focus::Wizard;
                 self.map_hint_level = MapHintLevel::Groups;
@@ -492,52 +526,78 @@ impl App {
         if let KeyCode::Char(c) = key.code {
             let hints = crate::data::combined_hints(&self.data.keybindings);
             let case_sensitive = self.config.hint_labels_case_sensitive;
-            let c_str = if case_sensitive { c.to_string() } else { c.to_ascii_lowercase().to_string() };
+            let ch_str: String = if case_sensitive { c.to_string() } else { c.to_ascii_lowercase().to_string() };
+            self.hint_buffer.push_str(&ch_str);
+            let typed = self.hint_buffer.clone();
+
+            let folded_hints: Vec<String> = hints.iter().map(|h| {
+                if case_sensitive { h.to_string() } else { h.to_ascii_lowercase().to_string() }
+            }).collect();
+            let folded_refs: Vec<&str> = folded_hints.iter().map(String::as_str).collect();
+
             let g_idx = self.group_idx_for_section(self.current_idx);
 
-            // Group hint → go to map at Groups level (broader navigation)
-            if let Some(gh) = hints.get(g_idx) {
-                let gh_str = if case_sensitive { gh.to_string() } else { gh.to_ascii_lowercase().to_string() };
-                if c_str == gh_str {
+            // Group hint
+            let group_hint = folded_refs.get(g_idx).copied().unwrap_or("");
+            match crate::data::resolve_hint(&[group_hint], &typed) {
+                crate::data::HintResolveResult::Exact(_) => {
                     self.focus = Focus::Map;
                     self.map_cursor = self.current_idx;
                     self.map_hint_level = MapHintLevel::Groups;
+                    self.hint_buffer.clear();
                     return;
                 }
+                crate::data::HintResolveResult::Partial(_) => return, // hold buffer
+                crate::data::HintResolveResult::NoMatch => {}
             }
 
+            // Section hint
             if let Some(shi) = self.section_hint_key_idx(self.current_idx) {
-                if let Some(sh) = hints.get(shi) {
-                    let sh_str = if case_sensitive { sh.to_string() } else { sh.to_ascii_lowercase().to_string() };
-                    if c_str == sh_str {
+                let section_hint = folded_refs.get(shi).copied().unwrap_or("");
+                match crate::data::resolve_hint(&[section_hint], &typed) {
+                    crate::data::HintResolveResult::Exact(_) => {
                         self.focus = Focus::Map;
                         self.map_cursor = self.current_idx;
                         self.map_hint_level = MapHintLevel::Sections(g_idx);
+                        self.hint_buffer.clear();
                         return;
                     }
+                    crate::data::HintResolveResult::Partial(_) => return, // hold buffer
+                    crate::data::HintResolveResult::NoMatch => {}
                 }
-                // Field hints exclude BOTH section hint and group hint to avoid double-use
-                let field_hint_indices: Vec<usize> = (0..hints.len()).filter(|&i| i != shi && i != g_idx).collect();
+
+                // Field hints: exclude section hint index and group hint index
+                let field_hint_indices: Vec<usize> = (0..hints.len())
+                    .filter(|&i| i != shi && i != g_idx)
+                    .collect();
                 let idx = self.current_idx;
                 let n_fields = match self.section_states.get(idx) {
                     Some(SectionState::Header(s)) => s.field_configs.len(),
                     _ => 0,
                 };
-                for f_idx in 0..n_fields {
-                    if let Some(&hint_idx) = field_hint_indices.get(f_idx) {
-                        if let Some(fh) = hints.get(hint_idx) {
-                            let fh_str = if case_sensitive { fh.to_string() } else { fh.to_ascii_lowercase().to_string() };
-                            if c_str == fh_str {
-                                if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
-                                    s.field_index = f_idx;
-                                    s.completed = false;
-                                }
-                                self.open_header_modal();
-                                return;
-                            }
+                // Build the candidate list for field hints and resolve
+                let field_refs: Vec<&str> = field_hint_indices.iter()
+                    .take(n_fields)
+                    .filter_map(|&hi| folded_refs.get(hi).copied())
+                    .collect();
+                match crate::data::resolve_hint(&field_refs, &typed) {
+                    crate::data::HintResolveResult::Exact(f_idx) => {
+                        if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                            s.field_index = f_idx;
+                            s.completed = false;
                         }
+                        self.hint_buffer.clear();
+                        self.open_header_modal();
+                        return;
+                    }
+                    crate::data::HintResolveResult::Partial(_) => return, // hold buffer
+                    crate::data::HintResolveResult::NoMatch => {
+                        self.hint_buffer.clear();
                     }
                 }
+            } else {
+                // No section hint index found - clear buffer on no match
+                self.hint_buffer.clear();
             }
         }
 
@@ -1144,32 +1204,49 @@ impl App {
         if let KeyCode::Char(c) = key.code {
             let hints = crate::data::combined_hints(&self.data.keybindings);
             let case_sensitive = self.config.hint_labels_case_sensitive;
-            let c_str = if case_sensitive { c.to_string() } else { c.to_ascii_lowercase().to_string() };
+            let ch_str: String = if case_sensitive { c.to_string() } else { c.to_ascii_lowercase().to_string() };
+            self.hint_buffer.push_str(&ch_str);
+            let typed = self.hint_buffer.clone();
+
+            let folded_hints: Vec<String> = hints.iter().map(|h| {
+                if case_sensitive { h.to_string() } else { h.to_ascii_lowercase().to_string() }
+            }).collect();
+            let folded_refs: Vec<&str> = folded_hints.iter().map(String::as_str).collect();
+
             let g_idx = self.group_idx_for_section(self.current_idx);
 
-            // Group hint → map at Groups level (broader navigation)
-            if let Some(gh) = hints.get(g_idx) {
-                let gh_str = if case_sensitive { gh.to_string() } else { gh.to_ascii_lowercase().to_string() };
-                if c_str == gh_str {
+            // Check group hint
+            let group_hint = folded_refs.get(g_idx).copied().unwrap_or("");
+            match crate::data::resolve_hint(&[group_hint], &typed) {
+                crate::data::HintResolveResult::Exact(_) => {
                     self.focus = Focus::Map;
                     self.map_cursor = self.current_idx;
                     self.map_hint_level = MapHintLevel::Groups;
+                    self.hint_buffer.clear();
                     return true;
                 }
+                crate::data::HintResolveResult::Partial(_) => return false, // hold buffer
+                crate::data::HintResolveResult::NoMatch => {}
             }
 
-            // Section hint → map at Sections level for this group
+            // Check section hint
             if let Some(shi) = self.section_hint_key_idx(self.current_idx) {
-                if let Some(sh) = hints.get(shi) {
-                    let sh_str = if case_sensitive { sh.to_string() } else { sh.to_ascii_lowercase().to_string() };
-                    if c_str == sh_str {
+                let section_hint = folded_refs.get(shi).copied().unwrap_or("");
+                match crate::data::resolve_hint(&[section_hint], &typed) {
+                    crate::data::HintResolveResult::Exact(_) => {
                         self.focus = Focus::Map;
                         self.map_cursor = self.current_idx;
                         self.map_hint_level = MapHintLevel::Sections(g_idx);
+                        self.hint_buffer.clear();
                         return true;
                     }
+                    crate::data::HintResolveResult::Partial(_) => return false, // hold buffer
+                    crate::data::HintResolveResult::NoMatch => {}
                 }
             }
+
+            // No hint matched
+            self.hint_buffer.clear();
         }
         false
     }
