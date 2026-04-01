@@ -42,7 +42,7 @@ pub fn render_note(sections: &[SectionConfig], states: &[SectionState]) -> Strin
 
     // Header is always first - find it
     let header_text = sections.iter().zip(states.iter()).find_map(|(cfg, state)| {
-        if cfg.section_type == "header" {
+        if cfg.section_type == "multi_field" {
             if let SectionState::Header(hs) = state {
                 if hs.completed {
                     return Some(format_header(hs));
@@ -60,7 +60,7 @@ pub fn render_note(sections: &[SectionConfig], states: &[SectionState]) -> Strin
     let intake_sections: Vec<(&SectionConfig, &SectionState)> = sections
         .iter()
         .zip(states.iter())
-        .filter(|(cfg, _)| cfg.section_type != "header" && is_intake_section(cfg))
+        .filter(|(cfg, _)| cfg.section_type != "multi_field" && is_intake_section(cfg))
         .collect();
 
     let mut intake_parts: Vec<String> = Vec::new();

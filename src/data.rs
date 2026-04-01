@@ -114,10 +114,6 @@ struct ListFile {
     entries: Vec<ListEntry>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ChecklistFile {
-    items: Vec<String>,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TechniqueConfig {
@@ -582,7 +578,7 @@ pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
                     id: sid, name: sname, map_label, section_type,
                     data_file, date_prefix, children: field_ids, ..
                 } = &pool[sec_idx] {
-                    let fields = if section_type.as_deref() == Some("header") {
+                    let fields = if section_type.as_deref() == Some("multi_field") {
                         let mut hfields: Vec<HeaderFieldConfig> = Vec::new();
                         for fid in field_ids {
                             let Some(&fidx) = id_map.get(fid.as_str()) else { continue };

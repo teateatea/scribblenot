@@ -26,13 +26,15 @@ blocks:
     num: 5
     children: [post_treatment, remedial_section, tx_plan, infection_control_section]
 
+  # ------
   # Sections
+  ## INTAKE
   - type: section
     id: header
     name: "Header"
     map_label: "Header"
-    section_type: header
-    children: [date, start_time, duration, appointment_type]
+    section_type: multi_field
+    children: [date, start_time, appointment_duration, appointment_type]
   - type: section
     id: adl
     name: "Activities of Daily Living"
@@ -63,11 +65,13 @@ blocks:
     name: "Specialists & Treatment"
     map_label: "Specialists"
     section_type: free_text
+  ## SUBJECTIVE
   - type: section
     id: subjective_section
     name: "Subjective"
     map_label: "Subjective"
     section_type: free_text
+  ## TREATMENT
   - type: section
     id: tx_mods
     name: "Treatment Modifications & Preferences"
@@ -80,6 +84,7 @@ blocks:
     map_label: "Regions"
     section_type: block_select
     data_file: "tx_regions.yml"
+  ## OBJECTIVE
   - type: section
     id: objective_section
     name: "Objective / Observations"
@@ -87,6 +92,7 @@ blocks:
     section_type: list_select
     data_file: "objective_findings.yml"
     date_prefix: true
+  ## POST-TX
   - type: section
     id: post_treatment
     name: "Post-Treatment"
@@ -110,8 +116,10 @@ blocks:
     map_label: "Infection Ctrl"
     section_type: checklist
     data_file: "infection_control.yml"
-
+    
+  # ------
   # Header fields
+  ## INTAKE
   - type: field
     id: date
     name: "Date"
@@ -177,7 +185,7 @@ blocks:
               label: "00"
               output: "00"
   - type: field
-    id: duration
+    id: appointment_duration
     name: "Duration (min)"
     options: ["30","45","60","75","90"]
     default: "60"

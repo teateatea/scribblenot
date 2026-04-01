@@ -175,7 +175,7 @@ blocks:
     id: sec_meta
     name: "Head Injuries"
     map_label: "Head"
-    section_type: "header"
+    section_type: "multi_field"
 "#;
         let file: FlatFile = serde_yaml::from_str(yaml).expect("deserialization failed");
         match &file.blocks[0] {
@@ -183,7 +183,7 @@ blocks:
                 assert_eq!(id, "sec_meta");
                 assert_eq!(name.as_deref(), Some("Head Injuries"));
                 assert_eq!(map_label.as_deref(), Some("Head"));
-                assert_eq!(section_type.as_deref(), Some("header"));
+                assert_eq!(section_type.as_deref(), Some("multi_field"));
             }
             _ => panic!("expected Section variant"),
         }

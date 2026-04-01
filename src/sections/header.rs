@@ -22,10 +22,6 @@ impl HeaderState {
         }
     }
 
-    pub fn current_value(&self) -> &str {
-        self.values.get(self.field_index).map(String::as_str).unwrap_or("")
-    }
-
     pub fn set_current_value(&mut self, value: String) {
         if let Some(v) = self.values.get_mut(self.field_index) {
             *v = value;

@@ -128,7 +128,7 @@ impl App {
         sections
             .iter()
             .map(|cfg| match cfg.section_type.as_str() {
-                "header" => {
+                "multi_field" => {
                     let fields = cfg.fields.clone().unwrap_or_default();
                     SectionState::Header(HeaderState::new(fields))
                 }
@@ -1405,7 +1405,7 @@ mod tests {
         ];
         let section = SectionConfig {
             id: "s1".to_string(), name: "S1".to_string(), map_label: "S1".to_string(),
-            section_type: "header".to_string(), data_file: None, date_prefix: None,
+            section_type: "multi_field".to_string(), data_file: None, date_prefix: None,
             options: vec![], composite: None, fields: Some(fields),
         };
         let group = SectionGroup { id: "g1".to_string(), num: None, name: "G1".to_string(), sections: vec![section.clone()] };
@@ -1437,7 +1437,7 @@ mod tests {
         ];
         let section = SectionConfig {
             id: "s1".to_string(), name: "S1".to_string(), map_label: "S1".to_string(),
-            section_type: "header".to_string(), data_file: None, date_prefix: None,
+            section_type: "multi_field".to_string(), data_file: None, date_prefix: None,
             options: vec![], composite: None, fields: Some(fields),
         };
         let group = SectionGroup { id: "g1".to_string(), num: None, name: "G1".to_string(), sections: vec![section.clone()] };
