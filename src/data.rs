@@ -1,8 +1,11 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
+use crate::flat_file::FlatFile;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -101,11 +104,6 @@ pub struct SectionConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct SectionsFile {
-    groups: Vec<SectionGroup>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListEntry {
     pub label: String,
     pub output: String,
@@ -199,6 +197,7 @@ impl Default for KeyBindings {
     }
 }
 
+#[derive(Debug)]
 pub struct AppData {
     pub groups: Vec<SectionGroup>,
     pub sections: Vec<SectionConfig>,
@@ -211,15 +210,10 @@ pub struct AppData {
 
 impl AppData {
     pub fn load(data_dir: PathBuf) -> Result<Self> {
-        let sections_path = data_dir.join("sections.yml");
-        let sections_content = fs::read_to_string(&sections_path)?;
-        let sections_file: SectionsFile = serde_yaml::from_str(&sections_content)?;
-
-        let groups = sections_file.groups.clone();
-        let sections: Vec<SectionConfig> = groups
-            .iter()
-            .flat_map(|g| g.sections.iter().cloned())
-            .collect();
+        let base = load_data_dir(&data_dir)
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let groups = base.groups;
+        let sections = base.sections;
 
         let mut list_data: HashMap<String, Vec<ListEntry>> = HashMap::new();
         let mut checklist_data: HashMap<String, Vec<String>> = HashMap::new();
@@ -435,6 +429,136 @@ pub fn resolve_hint(hints: &[&str], typed: &str) -> HintResolveResult {
         [idx] if hints[*idx] == typed => HintResolveResult::Exact(*idx),
         _ => HintResolveResult::Partial(matches),
     }
+}
+
+fn block_type_tag(b: &crate::flat_file::FlatBlock) -> &'static str {
+    use crate::flat_file::FlatBlock::*;
+    match b {
+        Box {..} => "box",
+        Group {..} => "group",
+        Section {..} => "section",
+        Field {..} => "field",
+        OptionsList {..} => "options-list",
+    }
+}
+
+fn block_id(b: &crate::flat_file::FlatBlock) -> &str {
+    use crate::flat_file::FlatBlock::*;
+    match b {
+        Box { id, .. } | Group { id, .. } | Section { id, .. }
+            | Field { id, .. } | OptionsList { id, .. } => id.as_str(),
+    }
+}
+
+fn block_children(b: &crate::flat_file::FlatBlock) -> &[String] {
+    use crate::flat_file::FlatBlock::*;
+    match b {
+        Box { children, .. } | Group { children, .. } | Section { children, .. }
+            | Field { children, .. } | OptionsList { children, .. } => children.as_slice(),
+    }
+}
+
+pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
+    // Collect all *.yml files, skipping keybindings.yml
+    let entries = fs::read_dir(path)
+        .map_err(|e| format!("failed to read directory {:?}: {}", path, e))?;
+
+    let mut pool: Vec<crate::flat_file::FlatBlock> = Vec::new();
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("directory entry error: {}", e))?;
+        let file_path = entry.path();
+        let file_name = file_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        if !file_name.ends_with(".yml") {
+            continue;
+        }
+        if file_name == "keybindings.yml" {
+            continue;
+        }
+        let content = fs::read_to_string(&file_path)
+            .map_err(|e| format!("failed to read {:?}: {}", file_path, e))?;
+        let flat_file: FlatFile = serde_yaml::from_str(&content)
+            .map_err(|e| format!("parse error in {:?}: {}", file_path, e))?;
+        pool.extend(flat_file.blocks);
+    }
+
+    // Duplicate check: (type_tag, id) must be unique
+    let mut seen: HashSet<(String, String)> = HashSet::new();
+    for block in &pool {
+        let key = (block_type_tag(block).to_string(), block_id(block).to_string());
+        if !seen.insert(key) {
+            return Err(format!(
+                "duplicate block: type={} id={}",
+                block_type_tag(block),
+                block_id(block)
+            ));
+        }
+    }
+
+    // Build id -> index lookup (any type) for reference resolution
+    let mut id_map: HashMap<String, usize> = HashMap::new();
+    for (i, block) in pool.iter().enumerate() {
+        id_map.insert(block_id(block).to_string(), i);
+    }
+
+    // Missing-ref check: every child ID must exist in the pool
+    for block in &pool {
+        for child_id in block_children(block) {
+            if !id_map.contains_key(child_id.as_str()) {
+                return Err(format!(
+                    "block {:?} references unknown child id {:?}",
+                    block_id(block),
+                    child_id
+                ));
+            }
+        }
+    }
+
+    // Cycle detection: standard DFS with visited/in-stack sets
+    let n = pool.len();
+    let mut visited: HashSet<usize> = HashSet::new();
+    let mut in_stack: HashSet<usize> = HashSet::new();
+
+    fn dfs(
+        node: usize,
+        pool: &[crate::flat_file::FlatBlock],
+        id_map: &HashMap<String, usize>,
+        visited: &mut HashSet<usize>,
+        in_stack: &mut HashSet<usize>,
+    ) -> Result<(), String> {
+        if in_stack.contains(&node) {
+            return Err(format!("cycle detected at block id={}", block_id(&pool[node])));
+        }
+        if visited.contains(&node) {
+            return Ok(());
+        }
+        visited.insert(node);
+        in_stack.insert(node);
+        for child_id in block_children(&pool[node]) {
+            if let Some(&child_idx) = id_map.get(child_id.as_str()) {
+                dfs(child_idx, pool, id_map, visited, in_stack)?;
+            }
+        }
+        in_stack.remove(&node);
+        Ok(())
+    }
+
+    for i in 0..n {
+        dfs(i, &pool, &id_map, &mut visited, &mut in_stack)?;
+    }
+
+    Ok(AppData {
+        groups: vec![],
+        sections: vec![],
+        list_data: HashMap::new(),
+        checklist_data: HashMap::new(),
+        region_data: HashMap::new(),
+        keybindings: KeyBindings::default(),
+        data_dir: path.to_path_buf(),
+    })
 }
 
 #[cfg(test)]
@@ -879,6 +1003,198 @@ mod tests {
         let groups: Vec<SectionGroup> = vec![];
         assert_eq!(group_jump_target(&groups, 0), 0); // out of bounds, total = 0
     }
+
+    // ---- load_data_dir tests (Task #45 sub-task 2) ----
+    //
+    // These tests verify the new flat-file loader that replaces the old
+    // SectionsFile nested-struct path.  The function under test is:
+    //
+    //   pub fn load_data_dir(path: &std::path::Path) -> Result<AppData, String>
+    //
+    // It scans `path` for all *.yml files, deserialises each as a
+    // Vec<FlatBlock> (via FlatFile), merges them into a single pool, resolves
+    // parent->children references, detects cycles and duplicate IDs, and
+    // returns AppData.  The function does NOT yet exist - these tests are
+    // written first so that they fail until the implementation is added.
+
+    use std::path::{Path, PathBuf};
+
+    /// Create a unique temp subdirectory under the system temp folder.
+    /// Returns the path; the caller is responsible for cleanup (best-effort).
+    fn make_test_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join("scribblenot_tests")
+            .join(name);
+        std::fs::create_dir_all(&dir).expect("create test dir");
+        dir
+    }
+
+    /// Remove the test directory after the test (best-effort, never panics).
+    fn cleanup_test_dir(dir: &Path) {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Write content into `dir/name`.
+    fn write_yml(dir: &Path, name: &str, content: &str) {
+        std::fs::write(dir.join(name), content).expect("write yml");
+    }
+
+    #[test]
+    fn load_data_dir_returns_app_data_for_valid_directory() {
+        // A directory with a single valid flat-block yml should produce AppData.
+        let dir = make_test_dir("valid_single");
+        write_yml(
+            &dir,
+            "forms.yml",
+            "blocks:\n  - type: box\n    id: root_box\n  - type: section\n    id: sec_a\n  - type: field\n    id: fld_a\n",
+        );
+        let result = load_data_dir(&dir);
+        cleanup_test_dir(&dir);
+        assert!(
+            result.is_ok(),
+            "expected Ok(AppData) for valid directory, got: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn load_data_dir_merges_blocks_from_multiple_yml_files() {
+        // Blocks across two files must both appear in the merged pool.
+        let dir = make_test_dir("multi_file");
+        write_yml(&dir, "file_a.yml", "blocks:\n  - type: box\n    id: box_a\n");
+        write_yml(&dir, "file_b.yml", "blocks:\n  - type: section\n    id: sec_b\n");
+        let result = load_data_dir(&dir);
+        cleanup_test_dir(&dir);
+        assert!(result.is_ok(), "merge of two valid files should succeed");
+    }
+
+    #[test]
+    fn load_data_dir_errors_on_duplicate_id_and_type() {
+        // Two blocks with the same id AND the same type must produce an error.
+        let dir = make_test_dir("dupe_same_file");
+        write_yml(
+            &dir,
+            "dupe.yml",
+            "blocks:\n  - type: section\n    id: duplicated_id\n  - type: section\n    id: duplicated_id\n",
+        );
+        let result = load_data_dir(&dir);
+        cleanup_test_dir(&dir);
+        assert!(
+            result.is_err(),
+            "expected an error for duplicate id+type combination"
+        );
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("duplicated_id"),
+            "error message should mention the duplicate id; got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn load_data_dir_errors_on_duplicate_id_and_type_across_files() {
+        // Cross-file duplicates must also be caught.
+        let dir = make_test_dir("dupe_cross_file");
+        write_yml(&dir, "alpha.yml", "blocks:\n  - type: field\n    id: shared_id\n");
+        write_yml(&dir, "beta.yml", "blocks:\n  - type: field\n    id: shared_id\n");
+        let result = load_data_dir(&dir);
+        cleanup_test_dir(&dir);
+        assert!(
+            result.is_err(),
+            "cross-file duplicate id+type should produce an error"
+        );
+    }
+
+    #[test]
+    fn load_data_dir_allows_same_id_different_type() {
+        // Same id but different types is NOT a duplicate.
+        let dir = make_test_dir("same_id_diff_type");
+        write_yml(
+            &dir,
+            "ok.yml",
+            "blocks:\n  - type: field\n    id: shared_name\n  - type: section\n    id: shared_name\n",
+        );
+        let result = load_data_dir(&dir);
+        cleanup_test_dir(&dir);
+        assert!(
+            result.is_ok(),
+            "same id with different types should be allowed; got: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn load_data_dir_errors_on_missing_child_id_reference() {
+        // A children list that references an ID not in the pool must error.
+        let dir = make_test_dir("missing_child");
+        write_yml(
+            &dir,
+            "missing_ref.yml",
+            "blocks:\n  - type: box\n    id: parent_box\n    children:\n      - nonexistent_child_id\n",
+        );
+        let result = load_data_dir(&dir);
+        cleanup_test_dir(&dir);
+        assert!(
+            result.is_err(),
+            "expected an error when a children reference points to a missing id"
+        );
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("nonexistent_child_id"),
+            "error message should mention the missing id; got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn load_data_dir_errors_on_direct_cycle() {
+        // A -> B -> A is a cycle and must produce an error.
+        let dir = make_test_dir("direct_cycle");
+        write_yml(
+            &dir,
+            "cycle.yml",
+            "blocks:\n  - type: box\n    id: node_a\n    children:\n      - node_b\n  - type: box\n    id: node_b\n    children:\n      - node_a\n",
+        );
+        let result = load_data_dir(&dir);
+        cleanup_test_dir(&dir);
+        assert!(
+            result.is_err(),
+            "expected an error for a direct cycle between node_a and node_b"
+        );
+    }
+
+    #[test]
+    fn load_data_dir_errors_on_indirect_cycle() {
+        // A -> B -> C -> A must also produce an error.
+        let dir = make_test_dir("indirect_cycle");
+        write_yml(
+            &dir,
+            "long_cycle.yml",
+            "blocks:\n  - type: box\n    id: cx_a\n    children:\n      - cx_b\n  - type: box\n    id: cx_b\n    children:\n      - cx_c\n  - type: box\n    id: cx_c\n    children:\n      - cx_a\n",
+        );
+        let result = load_data_dir(&dir);
+        cleanup_test_dir(&dir);
+        assert!(
+            result.is_err(),
+            "expected an error for an indirect 3-node cycle"
+        );
+    }
+
+    #[test]
+    fn load_data_dir_accepts_acyclic_tree() {
+        // A -> B -> C with no back-edges should succeed.
+        let dir = make_test_dir("acyclic_tree");
+        write_yml(
+            &dir,
+            "tree.yml",
+            "blocks:\n  - type: box\n    id: tree_root\n    children:\n      - tree_child\n  - type: section\n    id: tree_child\n    children:\n      - tree_leaf\n  - type: field\n    id: tree_leaf\n",
+        );
+        let result = load_data_dir(&dir);
+        cleanup_test_dir(&dir);
+        assert!(
+            result.is_ok(),
+            "acyclic tree should be accepted; got: {:?}",
+            result.err()
+        );
+    }
 }
 
 pub fn find_data_dir() -> PathBuf {
@@ -886,7 +1202,7 @@ pub fn find_data_dir() -> PathBuf {
     let cwd_data = std::env::current_dir()
         .unwrap_or_default()
         .join("data");
-    if cwd_data.join("sections.yml").exists() {
+    if cwd_data.exists() && cwd_data.is_dir() {
         return cwd_data;
     }
 
@@ -894,7 +1210,7 @@ pub fn find_data_dir() -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             let exe_data = parent.join("data");
-            if exe_data.join("sections.yml").exists() {
+            if exe_data.exists() && exe_data.is_dir() {
                 return exe_data;
             }
         }
