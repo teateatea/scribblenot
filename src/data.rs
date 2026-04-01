@@ -1195,6 +1195,44 @@ mod tests {
             result.err()
         );
     }
+
+    /// Hybrid inline+ID-reference: a parent block whose children list mixes IDs defined
+    /// in the same file (co-located, "inline" in spirit) with IDs defined in a separate
+    /// file (cross-file ID reference).  All three must resolve correctly.
+    ///
+    /// File layout:
+    ///   hybrid_parent.yml - defines `hybrid_root` (box) with children [local_child, remote_child]
+    ///                       and `local_child` (section) - co-located with its parent
+    ///   hybrid_remote.yml - defines `remote_child` (field) - referenced by ID from the other file
+    ///
+    /// Expected: Ok(AppData) - the loader merges both files, resolves all three IDs, and
+    /// confirms the reference graph is acyclic.
+    #[test]
+    fn load_data_dir_hybrid_inline_and_cross_file_id_reference_resolves_correctly() {
+        let dir = make_test_dir("hybrid_inline_crossfile");
+
+        // Parent file: root block + one child defined in the same file
+        write_yml(
+            &dir,
+            "hybrid_parent.yml",
+            "blocks:\n  - type: box\n    id: hybrid_root\n    children:\n      - local_child\n      - remote_child\n  - type: section\n    id: local_child\n",
+        );
+
+        // Remote file: the other child, defined separately
+        write_yml(
+            &dir,
+            "hybrid_remote.yml",
+            "blocks:\n  - type: field\n    id: remote_child\n",
+        );
+
+        let result = load_data_dir(&dir);
+        cleanup_test_dir(&dir);
+        assert!(
+            result.is_ok(),
+            "hybrid inline+cross-file ID reference should resolve correctly; got: {:?}",
+            result.err()
+        );
+    }
 }
 
 pub fn find_data_dir() -> PathBuf {
