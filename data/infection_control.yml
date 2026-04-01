@@ -1,6 +1,3 @@
-items:
-  - "Disinfected patient contact points before and after appointment (door knob, coat hooks, patient chair)."
-  - "Disinfected equipment before and after appointment (massage table, face cradle, RMT rolling stool, oil bottle)."
-  - "Clean Linens used (fitted sheet, flat sheet, face cradle cover, blanket)."
-  - "RMT washed hands before and after treatment."
-  - "Mask worn by RMT."
+blocks:
+  - type: options-list
+    id: infection_control_options

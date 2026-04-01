@@ -475,7 +475,7 @@ pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
         if !file_name.ends_with(".yml") {
             continue;
         }
-        if file_name == "keybindings.yml" {
+        if file_name == "keybindings.yml" || file_name == "config.yml" {
             continue;
         }
         let content = fs::read_to_string(&file_path)
@@ -913,6 +913,43 @@ mod tests {
         // groups with [2, 0, 1] sections; g_idx=1 -> 2 (empty group starts where it starts)
         let groups = vec![make_group("a", 2), make_group("b", 0), make_group("c", 1)];
         assert_eq!(group_jump_target(&groups, 1), 2);
+    }
+
+    // ---- sections.yml migration test (Task #45 sub-task 4) ----
+    //
+    // This test verifies that the real data/sections.yml (and all other *.yml
+    // files in the data directory) can be parsed by load_data_dir as flat-format
+    // blocks.  It FAILS until the migration is complete because sections.yml is
+    // still in the old nested `groups:` format, which is not a valid FlatFile.
+    //
+    // When sections.yml has been fully migrated the test will pass.
+
+    /// The real data directory must load without errors after migration.
+    ///
+    /// Failure mode before migration: serde_yaml returns a parse error because
+    /// sections.yml starts with `groups:` instead of `blocks:`.
+    #[test]
+    fn real_data_dir_loads_as_flat_format() {
+        // Locate the project's data/ directory relative to CARGO_MANIFEST_DIR
+        // so the test is not affected by the working directory at test-run time.
+        let manifest_dir = std::path::PathBuf::from(
+            std::env::var("CARGO_MANIFEST_DIR")
+                .expect("CARGO_MANIFEST_DIR must be set when running cargo test"),
+        );
+        let data_dir = manifest_dir.join("data");
+
+        assert!(
+            data_dir.exists(),
+            "data directory not found at {:?}",
+            data_dir
+        );
+
+        let result = load_data_dir(&data_dir);
+        assert!(
+            result.is_ok(),
+            "load_data_dir on the real data directory failed (migration not yet complete?): {}",
+            result.unwrap_err()
+        );
     }
 
     // ---- group_jump_target additional tests using make_groups helper (Task #21 sub-task 1) ----
