@@ -1,3 +1,14 @@
 blocks:
   - type: options-list
     id: infection_control_options
+    entries:
+      - label: "Disinfected patient contact points before and after appointment (door knob, coat hooks, patient chair)."
+        output: "Disinfected patient contact points before and after appointment (door knob, coat hooks, patient chair)."
+      - label: "Disinfected equipment before and after appointment (massage table, face cradle, RMT rolling stool, oil bottle)."
+        output: "Disinfected equipment before and after appointment (massage table, face cradle, RMT rolling stool, oil bottle)."
+      - label: "Clean Linens used (fitted sheet, flat sheet, face cradle cover, blanket)."
+        output: "Clean Linens used (fitted sheet, flat sheet, face cradle cover, blanket)."
+      - label: "RMT washed hands before and after treatment."
+        output: "RMT washed hands before and after treatment."
+      - label: "Mask worn by RMT."
+        output: "Mask worn by RMT."
