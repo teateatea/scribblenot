@@ -226,12 +226,31 @@ impl AppData {
                     let content = fs::read_to_string(&path)?;
                     match section.section_type.as_str() {
                         "list_select" => {
-                            let file: ListFile = serde_yaml::from_str(&content)?;
-                            list_data.insert(data_file.clone(), file.entries);
+                            let flat: crate::flat_file::FlatFile = serde_yaml::from_str(&content)?;
+                            let mut entries: Vec<ListEntry> = Vec::new();
+                            for block in flat.blocks {
+                                if let crate::flat_file::FlatBlock::OptionsList { entries: opts, .. } = block {
+                                    for opt in opts {
+                                        entries.push(ListEntry {
+                                            label: opt.label().to_string(),
+                                            output: opt.output().to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                            list_data.insert(data_file.clone(), entries);
                         }
                         "checklist" => {
-                            let file: ChecklistFile = serde_yaml::from_str(&content)?;
-                            checklist_data.insert(data_file.clone(), file.items);
+                            let flat: crate::flat_file::FlatFile = serde_yaml::from_str(&content)?;
+                            let mut items: Vec<String> = Vec::new();
+                            for block in flat.blocks {
+                                if let crate::flat_file::FlatBlock::OptionsList { entries: opts, .. } = block {
+                                    for opt in opts {
+                                        items.push(opt.label().to_string());
+                                    }
+                                }
+                            }
+                            checklist_data.insert(data_file.clone(), items);
                         }
                         "block_select" => {
                             let file: RegionsFile = serde_yaml::from_str(&content)?;
@@ -475,7 +494,7 @@ pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
         if !file_name.ends_with(".yml") {
             continue;
         }
-        if file_name == "keybindings.yml" || file_name == "config.yml" {
+        if file_name == "keybindings.yml" || file_name == "config.yml" || file_name == "tx_regions.yml" {
             continue;
         }
         let content = fs::read_to_string(&file_path)
@@ -550,9 +569,67 @@ pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
         dfs(i, &pool, &id_map, &mut visited, &mut in_stack)?;
     }
 
+    // Reconstruction pass: walk Group blocks to build runtime SectionGroup/SectionConfig.
+    let mut groups: Vec<SectionGroup> = Vec::new();
+    let mut all_sections: Vec<SectionConfig> = Vec::new();
+
+    for block in &pool {
+        if let crate::flat_file::FlatBlock::Group { id, name, num, children, .. } = block {
+            let mut group_sections: Vec<SectionConfig> = Vec::new();
+            for child_id in children {
+                let Some(&sec_idx) = id_map.get(child_id.as_str()) else { continue };
+                if let crate::flat_file::FlatBlock::Section {
+                    id: sid, name: sname, map_label, section_type,
+                    data_file, date_prefix, children: field_ids, ..
+                } = &pool[sec_idx] {
+                    let fields = if section_type.as_deref() == Some("header") {
+                        let mut hfields: Vec<HeaderFieldConfig> = Vec::new();
+                        for fid in field_ids {
+                            let Some(&fidx) = id_map.get(fid.as_str()) else { continue };
+                            if let crate::flat_file::FlatBlock::Field {
+                                id: field_id, name: field_name,
+                                options, composite, default, ..
+                            } = &pool[fidx] {
+                                hfields.push(HeaderFieldConfig {
+                                    id: field_id.clone(),
+                                    name: field_name.clone().unwrap_or_default(),
+                                    options: options.clone(),
+                                    composite: composite.clone(),
+                                    default: default.clone(),
+                                });
+                            }
+                        }
+                        Some(hfields)
+                    } else {
+                        None
+                    };
+                    let sc = SectionConfig {
+                        id: sid.clone(),
+                        name: sname.clone().unwrap_or_default(),
+                        map_label: map_label.clone().unwrap_or_default(),
+                        section_type: section_type.clone().unwrap_or_default(),
+                        data_file: data_file.clone(),
+                        date_prefix: *date_prefix,
+                        options: vec![],
+                        composite: None,
+                        fields,
+                    };
+                    group_sections.push(sc.clone());
+                    all_sections.push(sc);
+                }
+            }
+            groups.push(SectionGroup {
+                id: id.clone(),
+                name: name.clone().unwrap_or_default(),
+                num: *num,
+                sections: group_sections,
+            });
+        }
+    }
+
     Ok(AppData {
-        groups: vec![],
-        sections: vec![],
+        groups,
+        sections: all_sections,
         list_data: HashMap::new(),
         checklist_data: HashMap::new(),
         region_data: HashMap::new(),
@@ -1230,6 +1307,72 @@ mod tests {
             result.is_ok(),
             "acyclic tree should be accepted; got: {:?}",
             result.err()
+        );
+    }
+
+    // ---- reconstruction pass tests (Task #45 sub-task 3) ----
+    //
+    // These tests verify that load_data_dir performs the reconstruction pass:
+    // after validation it must walk Group blocks to build Vec<SectionGroup>,
+    // resolve children IDs to Section blocks -> SectionConfig values, and
+    // resolve each Section's children to Field blocks.
+    //
+    // Both tests FAIL until the reconstruction pass is implemented because
+    // load_data_dir currently returns AppData { groups: vec![], sections: vec![] }.
+
+    /// After loading the real data directory, AppData.groups must be non-empty.
+    ///
+    /// Failure mode before implementation: load_data_dir returns groups: vec![]
+    /// even though the data files contain Group blocks.
+    #[test]
+    fn real_data_dir_has_non_empty_groups() {
+        let manifest_dir = std::path::PathBuf::from(
+            std::env::var("CARGO_MANIFEST_DIR")
+                .expect("CARGO_MANIFEST_DIR must be set when running cargo test"),
+        );
+        let data_dir = manifest_dir.join("data");
+
+        assert!(data_dir.exists(), "data directory not found at {:?}", data_dir);
+
+        let result = load_data_dir(&data_dir);
+        assert!(
+            result.is_ok(),
+            "load_data_dir on the real data directory failed: {}",
+            result.unwrap_err()
+        );
+        let app_data = result.unwrap();
+        assert!(
+            app_data.groups.len() > 0,
+            "expected groups.len() > 0 after reconstruction pass, got {}",
+            app_data.groups.len()
+        );
+    }
+
+    /// After loading the real data directory, AppData.sections must be non-empty.
+    ///
+    /// Failure mode before implementation: load_data_dir returns sections: vec![]
+    /// even though the data files contain Section blocks.
+    #[test]
+    fn real_data_dir_has_non_empty_sections() {
+        let manifest_dir = std::path::PathBuf::from(
+            std::env::var("CARGO_MANIFEST_DIR")
+                .expect("CARGO_MANIFEST_DIR must be set when running cargo test"),
+        );
+        let data_dir = manifest_dir.join("data");
+
+        assert!(data_dir.exists(), "data directory not found at {:?}", data_dir);
+
+        let result = load_data_dir(&data_dir);
+        assert!(
+            result.is_ok(),
+            "load_data_dir on the real data directory failed: {}",
+            result.unwrap_err()
+        );
+        let app_data = result.unwrap();
+        assert!(
+            app_data.sections.len() > 0,
+            "expected sections.len() > 0 after reconstruction pass, got {}",
+            app_data.sections.len()
         );
     }
 

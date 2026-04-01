@@ -1,7 +1,7 @@
 // flat_file.rs — flat YAML data structures for scribblenot form definitions.
 
 use serde::{Deserialize, Serialize};
-use crate::data::PartOption;
+use crate::data::{CompositeConfig, PartOption};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
@@ -22,7 +22,14 @@ pub enum FlatBlock {
         #[serde(default)] data_file: Option<String>,
         #[serde(default)] date_prefix: Option<bool>,
     },
-    Field { id: String, #[serde(default)] children: Vec<String> },
+    Field {
+        id: String,
+        #[serde(default)] children: Vec<String>,
+        #[serde(default)] name: Option<String>,
+        #[serde(default)] options: Vec<String>,
+        #[serde(default)] composite: Option<CompositeConfig>,
+        #[serde(default)] default: Option<String>,
+    },
     OptionsList {
         id: String,
         #[serde(default)] children: Vec<String>,
@@ -76,7 +83,7 @@ mod tests {
 
     #[test]
     fn flat_block_field_variant_has_id() {
-        let block = FlatBlock::Field { id: "fld1".to_string(), children: vec![] };
+        let block = FlatBlock::Field { id: "fld1".to_string(), children: vec![], name: None, options: vec![], composite: None, default: None };
         match &block {
             FlatBlock::Field { id, .. } => assert_eq!(id, "fld1"),
             _ => panic!("expected Field variant"),
@@ -128,7 +135,7 @@ blocks:
     #[test]
     fn flat_block_id_is_string() {
         // Verify at compile time that id is a String (not &str or numeric).
-        let block = FlatBlock::Field { id: String::from("field_id"), children: vec![] };
+        let block = FlatBlock::Field { id: String::from("field_id"), children: vec![], name: None, options: vec![], composite: None, default: None };
         let _id: String = match block {
             FlatBlock::Field { id, .. } => id,
             _ => unreachable!(),
