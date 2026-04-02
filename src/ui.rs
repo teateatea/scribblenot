@@ -593,14 +593,14 @@ fn render_block_select_widget(
             f.render_widget(region_block, inner);
 
             let height = region_inner.height as usize;
-            let n = region.techniques.len();
+            let n = region.entries.len();
             let scroll = if n <= height {
                 0
             } else {
                 (state.technique_cursor + 1).saturating_sub(height).min(n - height)
             };
             let items: Vec<ListItem> = region
-                .techniques
+                .entries
                 .iter()
                 .enumerate()
                 .skip(scroll)

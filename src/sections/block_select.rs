@@ -4,7 +4,7 @@ use crate::data::{BlockSelectEntry, PartOption};
 pub struct RegionState {
     pub label: String,
     pub header: String,
-    pub techniques: Vec<PartOption>,
+    pub entries: Vec<PartOption>,
     pub technique_selected: Vec<bool>,
 }
 
@@ -14,7 +14,7 @@ impl RegionState {
         Self {
             label: cfg.label.clone(),
             header: cfg.header.clone(),
-            techniques: cfg.entries.clone(),
+            entries: cfg.entries.clone(),
             technique_selected,
         }
     }
@@ -84,8 +84,8 @@ impl BlockSelectState {
             BlockSelectFocus::Techniques(region_idx) => {
                 let region_idx = *region_idx;
                 if let Some(region) = self.regions.get(region_idx) {
-                    if !region.techniques.is_empty()
-                        && self.technique_cursor < region.techniques.len() - 1
+                    if !region.entries.is_empty()
+                        && self.technique_cursor < region.entries.len() - 1
                     {
                         self.technique_cursor += 1;
                     }
@@ -121,5 +121,59 @@ impl BlockSelectState {
             BlockSelectFocus::Techniques(i) => Some(i),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests_st2_region_state_entries_field {
+    use super::*;
+    use crate::data::{BlockSelectEntry, PartOption};
+
+    fn make_entry(label: &str, opts: Vec<&str>) -> BlockSelectEntry {
+        BlockSelectEntry {
+            id: label.to_lowercase().replace(' ', "_"),
+            label: label.to_string(),
+            header: format!("{} header", label),
+            entries: opts.iter().map(|s| PartOption::Simple(s.to_string())).collect(),
+        }
+    }
+
+    // ST2-TEST-1: RegionState must expose an `entries` field of type Vec<PartOption>
+    // This test accesses .entries directly; if the field is still named `techniques` it fails to compile.
+    #[test]
+    fn region_state_has_entries_field() {
+        let entry = make_entry("Body", vec!["Option A", "Option B"]);
+        let state = RegionState::from_config(&entry);
+        // Access the `entries` field — must compile only when field is named `entries`
+        assert_eq!(state.entries.len(), 2);
+        assert_eq!(state.entries[0].label(), "Option A");
+        assert_eq!(state.entries[1].label(), "Option B");
+    }
+
+    // ST2-TEST-2: `techniques` field must NOT exist on RegionState.
+    // Since Rust is structural, this test accesses `entries` to prove rename happened.
+    // navigate_down also references region.entries internally — call it to exercise that path.
+    #[test]
+    fn block_select_state_navigate_down_uses_entries() {
+        let entries = vec![
+            make_entry("Arm", vec!["Alpha", "Beta", "Gamma"]),
+            make_entry("Leg", vec!["Delta"]),
+        ];
+        let mut state = BlockSelectState::new(entries);
+        state.enter_region();
+        // navigate_down internally accesses region.entries (post-rename) — must compile
+        state.navigate_down();
+        assert_eq!(state.technique_cursor, 1);
+    }
+
+    // ST2-TEST-3: BlockSelectState::new accepts Vec<BlockSelectEntry> (already required by ST1,
+    // but verify the round-trip populates region.entries correctly end-to-end).
+    #[test]
+    fn block_select_state_new_populates_region_entries() {
+        let entry = make_entry("Torso", vec!["X", "Y"]);
+        let state = BlockSelectState::new(vec![entry]);
+        assert_eq!(state.regions.len(), 1);
+        // .entries must exist and be populated
+        assert_eq!(state.regions[0].entries.len(), 2);
     }
 }

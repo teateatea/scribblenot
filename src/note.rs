@@ -346,7 +346,7 @@ fn render_block_select(state: &SectionState) -> String {
                 .iter()
                 .enumerate()
                 .filter(|(_, &sel)| sel)
-                .filter_map(|(i, _)| region_state.techniques.get(i))
+                .filter_map(|(i, _)| region_state.entries.get(i))
                 .map(|t| t.output().to_string())
                 .collect();
             if !selected.is_empty() {
