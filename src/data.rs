@@ -115,24 +115,18 @@ struct ListFile {
 }
 
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TechniqueConfig {
-    pub id: String,
-    pub label: String,
-    pub output: String,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RegionConfig {
+pub struct BlockSelectEntry {
     pub id: String,
     pub label: String,
     pub header: String,
-    pub techniques: Vec<TechniqueConfig>,
+    pub entries: Vec<PartOption>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct RegionsFile {
-    regions: Vec<RegionConfig>,
+struct BlockSelectFile {
+    entries: Vec<BlockSelectEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,6 +150,12 @@ pub struct KeyBindings {
     pub super_confirm: Vec<String>,
     #[serde(default)]
     pub hint_permutations: Vec<String>,
+    #[serde(default = "default_copy_note")]
+    pub copy_note: Vec<String>,
+}
+
+fn default_copy_note() -> Vec<String> {
+    vec!["c".to_string()]
 }
 
 fn default_super_confirm() -> Vec<String> {
@@ -189,6 +189,7 @@ impl Default for KeyBindings {
             hints: default_hints(),
             super_confirm: default_super_confirm(),
             hint_permutations: vec![],
+            copy_note: default_copy_note(),
         }
     }
 }
@@ -199,7 +200,7 @@ pub struct AppData {
     pub sections: Vec<SectionConfig>,
     pub list_data: HashMap<String, Vec<ListEntry>>,
     pub checklist_data: HashMap<String, Vec<String>>,
-    pub region_data: HashMap<String, Vec<RegionConfig>>,
+    pub block_select_data: HashMap<String, Vec<BlockSelectEntry>>,
     pub keybindings: KeyBindings,
     pub data_dir: PathBuf,
 }
@@ -213,7 +214,7 @@ impl AppData {
 
         let mut list_data: HashMap<String, Vec<ListEntry>> = HashMap::new();
         let mut checklist_data: HashMap<String, Vec<String>> = HashMap::new();
-        let mut region_data: HashMap<String, Vec<RegionConfig>> = HashMap::new();
+        let mut block_select_data: HashMap<String, Vec<BlockSelectEntry>> = HashMap::new();
 
         for section in &sections {
             if let Some(ref data_file) = section.data_file {
@@ -249,8 +250,8 @@ impl AppData {
                             checklist_data.insert(data_file.clone(), items);
                         }
                         "block_select" => {
-                            let file: RegionsFile = serde_yaml::from_str(&content)?;
-                            region_data.insert(data_file.clone(), file.regions);
+                            let file: BlockSelectFile = serde_yaml::from_str(&content)?;
+                            block_select_data.insert(data_file.clone(), file.entries);
                         }
                         _ => {}
                     }
@@ -279,7 +280,7 @@ impl AppData {
             sections,
             list_data,
             checklist_data,
-            region_data,
+            block_select_data,
             keybindings,
             data_dir,
         })
@@ -399,6 +400,53 @@ pub fn combined_hints(kb: &KeyBindings) -> Vec<&str> {
     kb.hints.iter().map(String::as_str)
         .chain(kb.hint_permutations.iter().map(String::as_str))
         .collect()
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    // Verify BlockSelectEntry is defined and has an `entries` field of Vec<PartOption>.
+    // This test will FAIL until TechniqueConfig is renamed to PartOption-based BlockSelectEntry.
+    #[test]
+    fn block_select_entry_exists_with_entries_field() {
+        let _entry: BlockSelectEntry = BlockSelectEntry {
+            id: "test-id".to_string(),
+            label: "Test".to_string(),
+            header: "Header".to_string(),
+            entries: vec![],
+        };
+    }
+
+    // Verify BlockSelectFile is defined and has an `entries` field of Vec<BlockSelectEntry>.
+    // This test will FAIL until RegionsFile is renamed to BlockSelectFile.
+    #[test]
+    fn block_select_file_exists_with_entries_field() {
+        let _file: BlockSelectFile = BlockSelectFile {
+            entries: vec![],
+        };
+    }
+
+    // Verify TechniqueConfig no longer exists as a public type.
+    // This test will FAIL to compile if TechniqueConfig still exists,
+    // because the compile-time type check approach confirms absence by expecting
+    // BlockSelectEntry (the replacement) to be the canonical name.
+    // Since we cannot directly assert a type does NOT exist in a passing test,
+    // we assert AppData uses `block_select_data` (not `region_data`).
+    #[test]
+    fn app_data_has_block_select_data_not_region_data() {
+        // Construct a minimal AppData manually to verify field names.
+        // This will fail to compile while `region_data` exists and `block_select_data` does not.
+        let _map: HashMap<String, Vec<BlockSelectEntry>> = HashMap::new();
+        // The following line will only compile after `block_select_data` replaces `region_data`.
+        let _check = std::mem::size_of::<AppData>();
+        // Access the field name via a closure that borrows it -- compile-time proof.
+        fn check_field(ad: &AppData) -> &HashMap<String, Vec<BlockSelectEntry>> {
+            &ad.block_select_data
+        }
+        let _ = check_field;
+    }
 }
 
 /// Returns the flat section index of the first section in `groups[g_idx]`.
@@ -628,7 +676,7 @@ pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
         sections: all_sections,
         list_data: HashMap::new(),
         checklist_data: HashMap::new(),
-        region_data: HashMap::new(),
+        block_select_data: HashMap::new(),
         keybindings: KeyBindings::default(),
         data_dir: path.to_path_buf(),
     })

@@ -70,6 +70,7 @@ pub struct App {
     pub status: Option<StatusMsg>,
     pub quit: bool,
     pub note_completed: bool,
+    pub copy_requested: bool,
     pub data_dir: PathBuf,
     pub focus: Focus,
     pub map_cursor: usize,
@@ -114,6 +115,7 @@ impl App {
             status: None,
             quit: false,
             note_completed: false,
+            copy_requested: false,
             data_dir,
             focus: Focus::Wizard,
             map_cursor: 0,
@@ -146,7 +148,7 @@ impl App {
                     let regions = cfg
                         .data_file
                         .as_ref()
-                        .and_then(|f| data.region_data.get(f))
+                        .and_then(|f| data.block_select_data.get(f))
                         .cloned()
                         .unwrap_or_default();
                     SectionState::BlockSelect(BlockSelectState::new(regions))
@@ -217,6 +219,10 @@ impl App {
 
     fn is_quit(&self, key: &KeyEvent) -> bool {
         self.matches_key(key, &self.data.keybindings.quit)
+    }
+
+    fn is_copy_note(&self, key: &KeyEvent) -> bool {
+        self.matches_key(key, &self.data.keybindings.copy_note)
     }
 
     fn is_focus_left(&self, key: &KeyEvent) -> bool {
@@ -375,13 +381,20 @@ impl App {
 
     fn update_note_scroll(&mut self) {
         let section_id = self.sections.get(self.map_cursor).map(|s| s.id.clone()).unwrap_or_default();
-        self.note_scroll = crate::note::section_start_line(&self.sections, &self.section_states, &section_id);
+        self.note_scroll = crate::note::section_start_line(&self.sections, &self.section_states, &self.config.sticky_values, &self.data.groups, &section_id);
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
         // Ctrl+C always quits
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
             self.quit = true;
+            return;
+        }
+
+        if self.is_copy_note(&key) {
+            self.modal = None;
+            self.show_help = false;
+            self.copy_requested = true;
             return;
         }
 
@@ -592,16 +605,19 @@ impl App {
 
         if self.is_super_confirm(&key) {
             let idx = self.current_idx;
-            // Resolve value: sticky first, then field default
             let resolved = if let Some(SectionState::Header(s)) = self.section_states.get(idx) {
-                s.field_configs.get(s.field_index).and_then(|cfg| {
-                    self.config.sticky_values.get(&cfg.id).cloned()
-                        .or_else(|| cfg.default.clone())
+                s.field_configs.get(s.field_index).map(|cfg| {
+                    let confirmed = s.values.get(s.field_index).map(|v| v.as_str()).unwrap_or("");
+                    crate::sections::multi_field::resolve_multifield_value(
+                        confirmed,
+                        cfg,
+                        &self.config.sticky_values,
+                    )
                 })
             } else {
                 None
             };
-            if let Some(value) = resolved {
+            if let Some(crate::sections::multi_field::ResolvedMultiFieldValue::Complete(value)) = resolved {
                 if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                     s.set_current_value(value);
                     let done = s.advance();
@@ -1412,7 +1428,7 @@ mod tests {
         let data = AppData {
             groups: vec![group], sections: vec![section],
             list_data: Default::default(), checklist_data: Default::default(),
-            region_data: Default::default(), keybindings: KeyBindings::default(),
+            block_select_data: Default::default(), keybindings: KeyBindings::default(),
             data_dir: PathBuf::new(),
         };
         let mut app = App::new(data, Config::default(), PathBuf::new());
@@ -1444,7 +1460,7 @@ mod tests {
         let data = AppData {
             groups: vec![group], sections: vec![section],
             list_data: Default::default(), checklist_data: Default::default(),
-            region_data: Default::default(), keybindings: KeyBindings::default(),
+            block_select_data: Default::default(), keybindings: KeyBindings::default(),
             data_dir: PathBuf::new(),
         };
         let mut app = App::new(data, Config::default(), PathBuf::new());

@@ -1,55 +1,115 @@
 use crate::app::SectionState;
-use crate::data::SectionConfig;
+use crate::data::{SectionConfig, SectionGroup};
+use crate::sections::multi_field::resolve_multifield_value;
 use chrono::Local;
+use std::collections::HashMap;
 
-pub fn section_start_line(sections: &[SectionConfig], states: &[SectionState], section_id: &str) -> u16 {
-    let note = render_note(sections, states);
-    let search = heading_search_text(section_id);
-    if search.is_empty() {
-        return 0;
+pub enum NoteRenderMode {
+    Preview,
+    Export,
+}
+
+/// Returns the rendered heading text to search for when scrolling to a given
+/// section id or group id. Both section ids and group ids share this map so
+/// section_start_line can use the same lookup for primary and fallback anchors.
+fn heading_anchor(id: &str) -> &'static str {
+    match id {
+        // Section anchors
+        "adl"                      => "ACTIVITIES OF DAILY LIVING",
+        "exercise"                 => "EXERCISE HABITS",
+        "sleep_diet"               => "SLEEP & DIET",
+        "social"                   => "SOCIAL & STRESS",
+        "history"                  => "HISTORY & PREVIOUS DIAGNOSES",
+        "specialists"              => "SPECIALISTS & TREATMENT",
+        "subjective_section"       => "## SUBJECTIVE",
+        "tx_mods"                  => "TREATMENT MODIFICATIONS",
+        "tx_regions"               => "TREATMENT / PLAN",
+        "objective_section"        => "## OBJECTIVE / OBSERVATIONS",
+        "post_treatment"           => "## POST-TREATMENT",
+        "remedial_section"         => "REMEDIAL EXERCISES",
+        "tx_plan"                  => "TREATMENT PLAN",
+        "infection_control_section" => "INFECTION CONTROL",
+        // Group anchors
+        "subjective"               => "## SUBJECTIVE",
+        "treatment"                => "## TREATMENT / PLAN",
+        "objective"                => "## OBJECTIVE / OBSERVATIONS",
+        "post_tx"                  => "## POST-TREATMENT",
+        // intake, header, and anything else: no anchor in the rendered note
+        _                          => "",
     }
-    for (i, line) in note.lines().enumerate() {
-        if line.contains(search) {
-            return i as u16;
+}
+
+pub fn section_start_line(
+    sections: &[SectionConfig],
+    states: &[SectionState],
+    sticky_values: &HashMap<String, String>,
+    groups: &[SectionGroup],
+    section_id: &str,
+) -> u16 {
+    let note = render_note(sections, states, sticky_values, NoteRenderMode::Preview);
+
+    // Try the section's own anchor first.
+    let anchor = heading_anchor(section_id);
+    if !anchor.is_empty() {
+        for (i, line) in note.lines().enumerate() {
+            if line.contains(anchor) {
+                return i as u16;
+            }
         }
     }
-    0
-}
 
-fn heading_search_text(id: &str) -> &'static str {
-    match id {
-        "adl" => "ACTIVITIES OF DAILY LIVING",
-        "exercise" => "EXERCISE HABITS",
-        "sleep_diet" => "SLEEP & DIET",
-        "social" => "SOCIAL & STRESS",
-        "history" => "HISTORY & PREVIOUS DIAGNOSES",
-        "specialists" => "SPECIALISTS & TREATMENT",
-        "subjective" => "## SUBJECTIVE",
-        "tx_mods" => "TREATMENT MODIFICATIONS",
-        "tx_regions" => "TREATMENT / PLAN",
-        "objective" => "## OBJECTIVE",
-        "post_treatment" => "## POST-TREATMENT",
-        "remedial" => "REMEDIAL EXERCISES",
-        "tx_plan" => "TREATMENT PLAN",
-        "infection_control" => "INFECTION CONTROL",
-        _ => "",
-    }
-}
+    // Section heading not found (or section has no anchor). Try the parent group.
+    let group_id = groups
+        .iter()
+        .find(|g| g.sections.iter().any(|s| s.id == section_id))
+        .map(|g| g.id.as_str());
 
-pub fn render_note(sections: &[SectionConfig], states: &[SectionState]) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    let today = Local::now().format("%Y-%m-%d").to_string();
-
-    // Header is always first - find it
-    let header_text = sections.iter().zip(states.iter()).find_map(|(cfg, state)| {
-        if cfg.section_type == "multi_field" {
-            if let SectionState::Header(hs) = state {
-                if hs.completed {
-                    return Some(format_header(hs));
+    if let Some(gid) = group_id {
+        let group_anchor = heading_anchor(gid);
+        if !group_anchor.is_empty() {
+            for (i, line) in note.lines().enumerate() {
+                if line.contains(group_anchor) {
+                    return i as u16;
                 }
             }
         }
-        None
+    }
+
+    0
+}
+
+pub fn render_note(
+    sections: &[SectionConfig],
+    states: &[SectionState],
+    sticky_values: &HashMap<String, String>,
+    mode: NoteRenderMode,
+) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    let today = Local::now().format("%Y-%m-%d").to_string();
+
+    // Header: always first - find the multi_field section
+    let header_text = sections.iter().zip(states.iter()).find_map(|(cfg, state)| {
+        if cfg.section_type == "multi_field" {
+            if let SectionState::Header(hs) = state {
+                match &mode {
+                    NoteRenderMode::Preview => {
+                        let has_any = hs.field_configs.iter().zip(hs.values.iter()).any(|(fcfg, confirmed)| {
+                            !resolve_multifield_value(confirmed, fcfg, sticky_values).is_empty_variant()
+                        });
+                        if has_any {
+                            Some(format_header_preview(hs, sticky_values))
+                        } else {
+                            None
+                        }
+                    }
+                    NoteRenderMode::Export => format_header_export(hs, sticky_values),
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     });
 
     if let Some(h) = header_text {
@@ -86,7 +146,7 @@ pub fn render_note(sections: &[SectionConfig], states: &[SectionState]) -> Strin
     let mut subj_parts: Vec<String> = Vec::new();
     subj_parts.push("\n\n## SUBJECTIVE".to_string());
     for (cfg, state) in sections.iter().zip(states.iter()) {
-        if cfg.id == "subjective" {
+        if cfg.id == "subjective_section" {
             let rendered = render_section_content(cfg, state, &today);
             if !rendered.trim().is_empty() {
                 subj_parts.push(format!("\n{}", rendered));
@@ -132,7 +192,7 @@ pub fn render_note(sections: &[SectionConfig], states: &[SectionState]) -> Strin
     let mut obj_parts: Vec<String> = Vec::new();
     obj_parts.push("\n\n## OBJECTIVE / OBSERVATIONS".to_string());
     for (cfg, state) in sections.iter().zip(states.iter()) {
-        if cfg.id == "objective" {
+        if cfg.id == "objective_section" {
             let rendered = render_section_content(cfg, state, &today);
             if !rendered.trim().is_empty() {
                 obj_parts.push(format!("\n\n{}", rendered));
@@ -158,7 +218,7 @@ pub fn render_note(sections: &[SectionConfig], states: &[SectionState]) -> Strin
     }
 
     for (cfg, state) in sections.iter().zip(states.iter()) {
-        if cfg.id == "remedial" {
+        if cfg.id == "remedial_section" {
             let rendered = render_section_content(cfg, state, &today);
             if !rendered.trim().is_empty() {
                 post_parts.push(format!("\n\n\n#### REMEDIAL EXERCISES & SELF-CARE\n{}", rendered));
@@ -182,7 +242,7 @@ pub fn render_note(sections: &[SectionConfig], states: &[SectionState]) -> Strin
 
     // INFECTION CONTROL
     for (cfg, state) in sections.iter().zip(states.iter()) {
-        if cfg.id == "infection_control" {
+        if cfg.id == "infection_control_section" {
             let rendered = render_section_content(cfg, state, &today);
             if !rendered.trim().is_empty() {
                 parts.push(format!("\n\n\n#### STANDARD INFECTION CONTROL PRECAUTIONS\n{}", rendered));
@@ -287,7 +347,7 @@ fn render_block_select(state: &SectionState) -> String {
                 .enumerate()
                 .filter(|(_, &sel)| sel)
                 .filter_map(|(i, _)| region_state.techniques.get(i))
-                .map(|t| t.output.clone())
+                .map(|t| t.output().to_string())
                 .collect();
             if !selected.is_empty() {
                 let mut region_text = region_state.header.clone();
@@ -304,12 +364,77 @@ fn render_block_select(state: &SectionState) -> String {
     }
 }
 
-fn format_header(hs: &crate::sections::header::HeaderState) -> String {
-    let date_str = format_header_date(hs.get_value("date"));
-    let time_str = format_header_time(hs.get_value("start_time"));
-    let dur_str = hs.get_value("duration");
-    let appt_str = hs.get_value("appointment_type");
+/// Format the header for live note preview. Unresolved fields show "--".
+fn format_header_preview(
+    hs: &crate::sections::header::HeaderState,
+    sticky_values: &HashMap<String, String>,
+) -> String {
+    let field_preview = |id: &str| -> String {
+        hs.field_configs
+            .iter()
+            .zip(hs.values.iter())
+            .find(|(cfg, _)| cfg.id == id)
+            .map(|(cfg, confirmed)| {
+                resolve_multifield_value(confirmed, cfg, sticky_values)
+                    .preview_str()
+                    .to_string()
+            })
+            .unwrap_or_else(|| "--".to_string())
+    };
+
+    let date_raw = field_preview("date");
+    let date_str = if date_raw == "--" { "--".to_string() } else { format_header_date(&date_raw) };
+    let time_raw = field_preview("start_time");
+    let time_str = if time_raw == "--" { "--".to_string() } else { format_header_time(&time_raw) };
+    let dur_str = field_preview("appointment_duration");
+    let appt_str = field_preview("appointment_type");
     format!("{} at {} ({} min)\n{}", date_str, time_str, dur_str, appt_str)
+}
+
+/// Format the header for clipboard export. Omits any unresolved fields cleanly.
+/// Returns None when no fields resolve, so the header block is omitted entirely.
+fn format_header_export(
+    hs: &crate::sections::header::HeaderState,
+    sticky_values: &HashMap<String, String>,
+) -> Option<String> {
+    let field_export = |id: &str| -> Option<String> {
+        hs.field_configs
+            .iter()
+            .zip(hs.values.iter())
+            .find(|(cfg, _)| cfg.id == id)
+            .and_then(|(cfg, confirmed)| {
+                resolve_multifield_value(confirmed, cfg, sticky_values)
+                    .export_value()
+                    .map(|s| s.to_string())
+            })
+    };
+
+    let date_val = field_export("date").map(|d| format_header_date(&d));
+    let time_val = field_export("start_time").map(|t| format_header_time(&t));
+    let dur_val = field_export("appointment_duration");
+    let appt_val = field_export("appointment_type");
+
+    // Line 1: join only the pieces that exist
+    let mut line1_parts: Vec<String> = Vec::new();
+    if let Some(d) = date_val {
+        line1_parts.push(d);
+    }
+    if let Some(t) = time_val {
+        line1_parts.push(format!("at {}", t));
+    }
+    if let Some(dur) = dur_val {
+        line1_parts.push(format!("({} min)", dur));
+    }
+
+    let line1 = if line1_parts.is_empty() { None } else { Some(line1_parts.join(" ")) };
+    let line2 = appt_val;
+
+    match (line1, line2) {
+        (None, None) => None,
+        (Some(l1), None) => Some(l1),
+        (None, Some(l2)) => Some(l2),
+        (Some(l1), Some(l2)) => Some(format!("{}\n{}", l1, l2)),
+    }
 }
 
 fn format_header_date(date: &str) -> String {
@@ -329,5 +454,228 @@ fn format_header_time(time: &str) -> String {
         t.format("%-I:%M%P").to_string()
     } else {
         time.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sections::header::HeaderState;
+    use crate::data::HeaderFieldConfig;
+
+    fn make_header_state(field_ids: &[&str], values: &[&str]) -> HeaderState {
+        let configs: Vec<HeaderFieldConfig> = field_ids
+            .iter()
+            .map(|id| HeaderFieldConfig {
+                id: id.to_string(),
+                name: id.to_string(),
+                options: vec![],
+                composite: None,
+                default: None,
+            })
+            .collect();
+        let mut hs = HeaderState::new(configs);
+        for (i, val) in values.iter().enumerate() {
+            if let Some(v) = hs.values.get_mut(i) {
+                *v = val.to_string();
+            }
+        }
+        hs
+    }
+
+    #[test]
+    fn export_omits_unresolved_fields() {
+        // appointment_duration confirmed, date/time/type empty
+        use crate::data::{CompositeConfig, CompositePart, PartOption};
+        let dur_cfg = HeaderFieldConfig {
+            id: "appointment_duration".to_string(),
+            name: "Duration".to_string(),
+            options: vec![],
+            composite: None,
+            default: None,
+        };
+        let date_cfg = HeaderFieldConfig {
+            id: "date".to_string(),
+            name: "Date".to_string(),
+            options: vec![],
+            default: None,
+            composite: Some(CompositeConfig {
+                format: "{year}-{month}-{day}".to_string(),
+                parts: vec![
+                    CompositePart { id: "year".to_string(), label: "Year".to_string(), preview: None, options: vec![PartOption::Simple("2026".to_string())], data_file: None, sticky: true, default: None },
+                    CompositePart { id: "month".to_string(), label: "Month".to_string(), preview: None, options: vec![PartOption::Simple("04".to_string())], data_file: None, sticky: true, default: None },
+                    CompositePart { id: "day".to_string(), label: "Day".to_string(), preview: None, options: vec![PartOption::Simple("02".to_string())], data_file: None, sticky: true, default: None },
+                ],
+            }),
+        };
+        let configs = vec![date_cfg, dur_cfg];
+        let mut hs = HeaderState::new(configs);
+        hs.values[1] = "60".to_string(); // only duration confirmed
+        let sticky = HashMap::new();
+
+        let result = format_header_export(&hs, &sticky);
+        // Only duration present: should be "(60 min)"
+        assert_eq!(result, Some("(60 min)".to_string()));
+    }
+
+    #[test]
+    fn export_full_header() {
+        let date_cfg = HeaderFieldConfig {
+            id: "date".to_string(),
+            name: "Date".to_string(),
+            options: vec![],
+            default: None,
+            composite: None,
+        };
+        let time_cfg = HeaderFieldConfig {
+            id: "start_time".to_string(),
+            name: "Start Time".to_string(),
+            options: vec![],
+            default: None,
+            composite: None,
+        };
+        let dur_cfg = HeaderFieldConfig {
+            id: "appointment_duration".to_string(),
+            name: "Duration".to_string(),
+            options: vec![],
+            composite: None,
+            default: None,
+        };
+        let appt_cfg = HeaderFieldConfig {
+            id: "appointment_type".to_string(),
+            name: "Appointment Type".to_string(),
+            options: vec![],
+            composite: None,
+            default: None,
+        };
+        let configs = vec![date_cfg, time_cfg, dur_cfg, appt_cfg];
+        let mut hs = HeaderState::new(configs);
+        hs.values[0] = "2026-04-02".to_string();
+        hs.values[1] = "13:00".to_string();
+        hs.values[2] = "60".to_string();
+        hs.values[3] = "Treatment focused massage".to_string();
+        let sticky = HashMap::new();
+
+        let result = format_header_export(&hs, &sticky);
+        assert_eq!(result, Some("Thu Apr 2, 2026 at 1:00pm (60 min)\nTreatment focused massage".to_string()));
+    }
+
+    #[test]
+    fn export_returns_none_when_nothing_resolved() {
+        let hs = make_header_state(&["date", "start_time"], &["", ""]);
+        let sticky = HashMap::new();
+        let result = format_header_export(&hs, &sticky);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn preview_shows_placeholder_for_unresolved() {
+        let hs = make_header_state(
+            &["date", "start_time", "appointment_duration", "appointment_type"],
+            &["2026-04-02", "", "", ""],
+        );
+        let sticky = HashMap::new();
+        let result = format_header_preview(&hs, &sticky);
+        // date resolved, rest "--"
+        assert!(result.contains("Thu Apr 2, 2026"));
+        assert!(result.contains("--"));
+    }
+
+    // --- section_start_line fallback tests ---
+
+    fn make_section(id: &str, section_type: &str) -> SectionConfig {
+        SectionConfig {
+            id: id.to_string(),
+            name: id.to_string(),
+            map_label: id.to_string(),
+            section_type: section_type.to_string(),
+            data_file: None,
+            date_prefix: None,
+            options: vec![],
+            composite: None,
+            fields: None,
+        }
+    }
+
+    fn make_group(id: &str, sections: Vec<SectionConfig>) -> SectionGroup {
+        SectionGroup {
+            id: id.to_string(),
+            num: None,
+            name: id.to_string(),
+            sections,
+        }
+    }
+
+    #[test]
+    fn empty_tx_plan_falls_back_to_post_treatment_heading() {
+        use crate::sections::free_text::FreeTextState;
+        let sec = make_section("tx_plan", "free_text");
+        let groups = vec![make_group("post_tx", vec![sec.clone()])];
+        let sections = vec![sec];
+        let states = vec![SectionState::FreeText(FreeTextState::new())]; // empty
+        let sticky = HashMap::new();
+        let line = section_start_line(&sections, &states, &sticky, &groups, "tx_plan");
+        // ## POST-TREATMENT is always rendered; must not return 0
+        assert!(line > 0, "expected fallback to ## POST-TREATMENT, got 0");
+        // Verify it actually landed on that heading
+        let note = render_note(&sections, &states, &sticky, NoteRenderMode::Preview);
+        let target: Vec<(usize, &str)> = note.lines().enumerate()
+            .filter(|(_, l)| l.contains("## POST-TREATMENT"))
+            .collect();
+        assert!(!target.is_empty(), "## POST-TREATMENT not found in rendered note");
+        assert_eq!(line, target[0].0 as u16);
+    }
+
+    #[test]
+    fn non_empty_tx_plan_returns_own_heading_line() {
+        use crate::sections::free_text::FreeTextState;
+        let sec = make_section("tx_plan", "free_text");
+        let groups = vec![make_group("post_tx", vec![sec.clone()])];
+        let sections = vec![sec];
+        let mut s = FreeTextState::new();
+        s.entries.push("some content".to_string());
+        let states = vec![SectionState::FreeText(s)];
+        let sticky = HashMap::new();
+        let line = section_start_line(&sections, &states, &sticky, &groups, "tx_plan");
+        let note = render_note(&sections, &states, &sticky, NoteRenderMode::Preview);
+        let target: Vec<(usize, &str)> = note.lines().enumerate()
+            .filter(|(_, l)| l.contains("TREATMENT PLAN"))
+            .collect();
+        assert!(!target.is_empty(), "TREATMENT PLAN heading not found in rendered note");
+        assert_eq!(line, target[0].0 as u16);
+    }
+
+    #[test]
+    fn skipped_intake_section_returns_zero() {
+        use crate::sections::free_text::FreeTextState;
+        let sec = make_section("adl", "free_text");
+        let groups = vec![make_group("intake", vec![sec.clone()])];
+        let sections = vec![sec];
+        let mut s = FreeTextState::new();
+        s.skipped = true; // skipped, no content -> heading not rendered
+        let states = vec![SectionState::FreeText(s)];
+        let sticky = HashMap::new();
+        let line = section_start_line(&sections, &states, &sticky, &groups, "adl");
+        // intake group has no ## heading -> fallback is 0
+        assert_eq!(line, 0);
+    }
+
+    #[test]
+    fn empty_infection_control_falls_back_to_post_treatment_heading() {
+        use crate::sections::checklist::ChecklistState;
+        let sec = make_section("infection_control_section", "checklist");
+        let groups = vec![make_group("post_tx", vec![sec.clone()])];
+        let sections = vec![sec];
+        // checklist with no items -> renders nothing for the section
+        let states = vec![SectionState::Checklist(ChecklistState::new(vec![]))];
+        let sticky = HashMap::new();
+        let line = section_start_line(&sections, &states, &sticky, &groups, "infection_control_section");
+        assert!(line > 0, "expected fallback to ## POST-TREATMENT, got 0");
+        let note = render_note(&sections, &states, &sticky, NoteRenderMode::Preview);
+        let target: Vec<(usize, &str)> = note.lines().enumerate()
+            .filter(|(_, l)| l.contains("## POST-TREATMENT"))
+            .collect();
+        assert!(!target.is_empty());
+        assert_eq!(line, target[0].0 as u16);
     }
 }

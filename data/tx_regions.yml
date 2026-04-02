@@ -1,8 +1,8 @@
-regions:
+entries:
   - id: back_all_prone
     label: "UPPER, MIDDLE & LOWER BACK (Prone)"
     header: "#### UPPER, MIDDLE & LOWER BACK (Prone)"
-    techniques:
+    entries:
       - id: swedish
         label: "General Swedish Techniques"
         output: "- General Swedish Techniques"
@@ -22,7 +22,7 @@ regions:
   - id: back_upper_mid_prone
     label: "UPPER & MIDDLE BACK (Prone)"
     header: "#### UPPER & MIDDLE BACK (Prone)"
-    techniques:
+    entries:
       - id: swedish
         label: "General Swedish Techniques"
         output: "- General Swedish Techniques"
@@ -36,7 +36,7 @@ regions:
   - id: back_lower_prone
     label: "LOWER BACK (Prone)"
     header: "#### LOWER BACK (Prone)"
-    techniques:
+    entries:
       - id: swedish
         label: "General Swedish Techniques"
         output: "- General Swedish Techniques"
@@ -53,7 +53,7 @@ regions:
   - id: glutes_prone
     label: "GLUTEAL MUSCLES / BUTTOCKS (Prone)"
     header: "#### GLUTEAL MUSCLES / BUTTOCKS (Prone)"
-    techniques:
+    entries:
       - id: broad_comp
         label: "Broad Compressions"
         output: "- Broad Compressions"
@@ -73,7 +73,7 @@ regions:
   - id: post_legs_prone
     label: "POSTERIOR LEGS & FEET (Prone)"
     header: "#### POSTERIOR LEGS & FEET (Prone)"
-    techniques:
+    entries:
       - id: broad_comp
         label: "Broad Compressions"
         output: "- Broad Compressions"
@@ -90,7 +90,7 @@ regions:
   - id: post_upper_legs_prone
     label: "POSTERIOR UPPER LEGS / HAMSTRINGS (Prone)"
     header: "#### POSTERIOR UPPER LEGS (Prone)"
-    techniques:
+    entries:
       - id: broad_comp
         label: "Broad Compressions"
         output: "- Broad Compressions"
@@ -101,7 +101,7 @@ regions:
   - id: lower_legs_prone
     label: "LOWER LEGS & FEET (Prone)"
     header: "#### LOWER LEGS & FEET (Prone)"
-    techniques:
+    entries:
       - id: broad_comp
         label: "Broad Compressions"
         output: "- Broad Compressions"
@@ -118,7 +118,7 @@ regions:
   - id: ant_legs_hips_supine
     label: "ANTERIOR LEGS & HIPS (Supine)"
     header: "#### ANTERIOR LEGS & HIPS (Supine)"
-    techniques:
+    entries:
       - id: broad_comp
         label: "Broad Compressions"
         output: "- Broad Compressions"
@@ -135,7 +135,7 @@ regions:
   - id: ant_hips_upper_legs_supine
     label: "ANTERIOR HIPS & UPPER LEGS / TFL & QUADS (Supine)"
     header: "#### ANTERIOR HIPS & UPPER LEGS (Supine)"
-    techniques:
+    entries:
       - id: broad_comp
         label: "Broad Compressions"
         output: "- Broad Compressions"
@@ -155,7 +155,7 @@ regions:
   - id: lower_legs_supine
     label: "LOWER LEGS & FEET (Supine)"
     header: "#### LOWER LEGS & FEET (Supine)"
-    techniques:
+    entries:
       - id: broad_comp
         label: "Broad Compressions"
         output: "- Broad Compressions"
@@ -172,7 +172,7 @@ regions:
   - id: abdomen_intercostals_supine
     label: "ABDOMEN - INTERCOSTALS (Supine)"
     header: "#### ABDOMEN - INTERCOSTALS (Supine)"
-    techniques:
+    entries:
       - id: myofascial
         label: "Myofascial Techniques"
         output: "- Myofascial Techniques"
@@ -186,7 +186,7 @@ regions:
   - id: abdomen_psoas_supine
     label: "ABDOMEN - PSOAS (Supine)"
     header: "#### ABDOMEN - PSOAS (Supine)"
-    techniques:
+    entries:
       - id: myofascial
         label: "Myofascial Techniques"
         output: "- Myofascial Techniques"
@@ -200,7 +200,7 @@ regions:
   - id: adductors_sidelying
     label: "ADDUCTORS (Sidelying)"
     header: "#### ADDUCTORS (Sidelying)"
-    techniques:
+    entries:
       - id: broad_comp
         label: "Broad Compressions"
         output: "- Broad Compressions"
@@ -217,7 +217,7 @@ regions:
   - id: pecs_supine
     label: "UPPER CHEST WALL / PECS (Supine)"
     header: "#### UPPER CHEST WALL (Supine)"
-    techniques:
+    entries:
       - id: myofascial_pec
         label: "Myofascial Techniques (Pectoralis Major)"
         output: "- Myofascial Techniques (Pectoralis Major)"
@@ -234,7 +234,7 @@ regions:
   - id: arms_supine
     label: "ARMS (Supine)"
     header: "#### ARMS (Supine)"
-    techniques:
+    entries:
       - id: swedish
         label: "General Swedish Techniques"
         output: "- General Swedish Techniques"
@@ -254,7 +254,7 @@ regions:
   - id: hns_supine
     label: "HEAD, NECK, & SHOULDERS (Supine)"
     header: "#### HEAD, NECK, & SHOULDERS (Supine)"
-    techniques:
+    entries:
       - id: swedish
         label: "General Swedish Techniques"
         output: "- General Swedish Techniques"

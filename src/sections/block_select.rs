@@ -1,20 +1,20 @@
-use crate::data::{RegionConfig, TechniqueConfig};
+use crate::data::{BlockSelectEntry, PartOption};
 
 #[derive(Debug, Clone)]
 pub struct RegionState {
     pub label: String,
     pub header: String,
-    pub techniques: Vec<TechniqueConfig>,
+    pub techniques: Vec<PartOption>,
     pub technique_selected: Vec<bool>,
 }
 
 impl RegionState {
-    pub fn from_config(cfg: &RegionConfig) -> Self {
-        let technique_selected = vec![false; cfg.techniques.len()];
+    pub fn from_config(cfg: &BlockSelectEntry) -> Self {
+        let technique_selected = vec![false; cfg.entries.len()];
         Self {
             label: cfg.label.clone(),
             header: cfg.header.clone(),
-            techniques: cfg.techniques.clone(),
+            techniques: cfg.entries.clone(),
             technique_selected,
         }
     }
@@ -47,7 +47,7 @@ pub struct BlockSelectState {
 }
 
 impl BlockSelectState {
-    pub fn new(regions: Vec<RegionConfig>) -> Self {
+    pub fn new(regions: Vec<BlockSelectEntry>) -> Self {
         let region_states = regions.iter().map(RegionState::from_config).collect();
         Self {
             regions: region_states,

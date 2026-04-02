@@ -1,7 +1,7 @@
 use crate::app::{App, Focus, MapHintLevel, SectionState};
 use crate::data::HeaderFieldConfig;
 use crate::modal::{ModalFocus, SearchModal};
-use crate::note::render_note;
+use crate::note::{render_note, NoteRenderMode};
 use crate::sections::list_select::ListSelectMode;
 use crate::theme;
 use std::collections::HashMap;
@@ -620,7 +620,7 @@ fn render_block_select_widget(
                         Style::default()
                     };
                     ListItem::new(Span::styled(
-                        format!("{} {} {}", prefix, check, tech.label),
+                        format!("{} {} {}", prefix, check, tech.label()),
                         style,
                     ))
                 })
@@ -906,7 +906,7 @@ fn resolve_part_default(part: &crate::data::CompositePart) -> Option<String> {
 }
 
 fn render_note_pane(f: &mut Frame, app: &App, area: Rect) {
-    let note_text = render_note(&app.sections, &app.section_states);
+    let note_text = render_note(&app.sections, &app.section_states, &app.config.sticky_values, NoteRenderMode::Preview);
 
     let block = Block::default()
         .borders(Borders::ALL)
@@ -922,12 +922,14 @@ fn render_note_pane(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
+    let quit_key = app.data.keybindings.quit.first().map(|s| s.as_str()).unwrap_or("q");
+    let copy_key = app.data.keybindings.copy_note.first().map(|s| s.as_str()).unwrap_or("c");
     let (text, style) = if let Some(ref status) = app.status {
         let s = if status.is_error { theme::error() } else { theme::selected() };
         (status.text.clone(), s)
     } else if app.note_completed {
         (
-            "Note complete! Note copied to clipboard. [q] quit".to_string(),
+            format!("Note complete! [{}] copy  [{}] quit", copy_key, quit_key),
             theme::selected(),
         )
     } else {
@@ -935,10 +937,12 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         let name = section.map(|s| s.name.as_str()).unwrap_or("");
         (
             format!(
-                " {}/{}  {}   [?] help  [q] quit  [`] swap  [h/i] map",
+                " {}/{}  {}   [?] help  [{}] quit  [{}] copy  [`] swap  [h/i] map",
                 app.current_idx + 1,
                 app.sections.len(),
-                name
+                name,
+                quit_key,
+                copy_key
             ),
             theme::dim(),
         )
@@ -973,6 +977,7 @@ fn render_help_overlay(f: &mut Frame, app: &App, area: Rect) {
         Line::from(format!("Swap Panes       {}", fmt(&kb.swap_panes))),
         Line::from(format!("Help             {}", fmt(&kb.help))),
         Line::from(format!("Quit             {}", fmt(&kb.quit))),
+        Line::from(format!("Copy Note        {}", fmt(&kb.copy_note))),
         Line::from(""),
         Line::from(Span::styled("SECTION BEHAVIOR", theme::bold())),
         Line::from(""),
