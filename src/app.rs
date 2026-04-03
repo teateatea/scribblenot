@@ -241,7 +241,7 @@ impl App {
         match self.section_states.get(self.current_idx) {
             Some(SectionState::FreeText(s)) => !s.is_editing(),
             Some(SectionState::ListSelect(s)) => matches!(s.mode, ListSelectMode::Browsing),
-            Some(SectionState::BlockSelect(s)) => !s.in_techniques(),
+            Some(SectionState::BlockSelect(s)) => !s.in_items(),
             Some(SectionState::Checklist(_)) => true,
             _ => false,
         }
@@ -1049,15 +1049,15 @@ impl App {
 
     fn handle_block_select_key(&mut self, key: KeyEvent) {
         let idx = self.current_idx;
-        let in_techniques = match &self.section_states[idx] {
-            SectionState::BlockSelect(s) => s.in_techniques(),
+        let in_items = match &self.section_states[idx] {
+            SectionState::BlockSelect(s) => s.in_items(),
             _ => false,
         };
 
-        if in_techniques {
+        if in_items {
             if self.is_back(&key) {
                 if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
-                    s.exit_techniques();
+                    s.exit_items();
                 }
                 return;
             }
@@ -1075,17 +1075,17 @@ impl App {
             }
             if self.is_select(&key) {
                 if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
-                    s.toggle_technique();
+                    s.toggle_item();
                 }
                 return;
             }
             if self.is_confirm(&key) {
                 if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
-                    s.exit_techniques();
+                    s.exit_items();
                 }
             }
         } else {
-            // Region list
+            // Group list
             if self.try_navigate_to_map_via_hint(&key) {
                 return;
             }
@@ -1102,10 +1102,10 @@ impl App {
                 return;
             }
             if self.is_confirm(&key) || self.is_select(&key) {
-                // Enter region to select techniques
+                // Enter group to select items
                 if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
-                    if !s.regions.is_empty() {
-                        s.enter_region();
+                    if !s.groups.is_empty() {
+                        s.enter_group();
                     }
                 }
                 return;
@@ -1113,7 +1113,7 @@ impl App {
             if self.is_add_entry(&key) {
                 // Confirm all and advance
                 let has_any = match &self.section_states[idx] {
-                    SectionState::BlockSelect(s) => s.regions.iter().any(|r| r.has_selection()),
+                    SectionState::BlockSelect(s) => s.groups.iter().any(|r| r.has_selection()),
                     _ => false,
                 };
                 if has_any {
@@ -1132,7 +1132,7 @@ impl App {
             if self.is_back(&key) {
                 // Confirm and advance if any selections
                 let has_any = match &self.section_states[idx] {
-                    SectionState::BlockSelect(s) => s.regions.iter().any(|r| r.has_selection()),
+                    SectionState::BlockSelect(s) => s.groups.iter().any(|r| r.has_selection()),
                     _ => false,
                 };
                 if has_any {

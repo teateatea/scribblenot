@@ -340,9 +340,9 @@ fn render_section_content(cfg: &SectionConfig, state: &SectionState, today: &str
 fn render_block_select(state: &SectionState) -> String {
     if let SectionState::BlockSelect(s) = state {
         let mut parts: Vec<String> = Vec::new();
-        for region_state in &s.regions {
+        for region_state in &s.groups {
             let selected: Vec<String> = region_state
-                .technique_selected
+                .item_selected
                 .iter()
                 .enumerate()
                 .filter(|(_, &sel)| sel)

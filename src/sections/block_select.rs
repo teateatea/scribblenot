@@ -1,30 +1,30 @@
 use crate::data::{BlockSelectEntry, PartOption};
 
 #[derive(Debug, Clone)]
-pub struct RegionState {
+pub struct BlockSelectGroup {
     pub label: String,
     pub header: String,
     pub entries: Vec<PartOption>,
-    pub technique_selected: Vec<bool>,
+    pub item_selected: Vec<bool>,
 }
 
-impl RegionState {
+impl BlockSelectGroup {
     pub fn from_config(cfg: &BlockSelectEntry) -> Self {
-        let technique_selected = cfg.entries.iter().map(|e| e.default_selected()).collect();
+        let item_selected = cfg.entries.iter().map(|e| e.default_selected()).collect();
         Self {
             label: cfg.label.clone(),
             header: cfg.header.clone(),
             entries: cfg.entries.clone(),
-            technique_selected,
+            item_selected,
         }
     }
 
     pub fn has_selection(&self) -> bool {
-        self.technique_selected.iter().any(|&s| s)
+        self.item_selected.iter().any(|&s| s)
     }
 
-    pub fn toggle_technique(&mut self, idx: usize) {
-        if let Some(val) = self.technique_selected.get_mut(idx) {
+    pub fn toggle_item(&mut self, idx: usize) {
+        if let Some(val) = self.item_selected.get_mut(idx) {
             *val = !*val;
         }
     }
@@ -32,15 +32,15 @@ impl RegionState {
 
 #[derive(Debug, Clone)]
 pub enum BlockSelectFocus {
-    Regions,
-    Techniques(usize),
+    Groups,
+    Items(usize),
 }
 
 #[derive(Debug, Clone)]
 pub struct BlockSelectState {
-    pub regions: Vec<RegionState>,
-    pub region_cursor: usize,
-    pub technique_cursor: usize,
+    pub groups: Vec<BlockSelectGroup>,
+    pub group_cursor: usize,
+    pub item_cursor: usize,
     pub focus: BlockSelectFocus,
     pub skipped: bool,
     pub completed: bool,
@@ -48,12 +48,12 @@ pub struct BlockSelectState {
 
 impl BlockSelectState {
     pub fn new(regions: Vec<BlockSelectEntry>) -> Self {
-        let region_states = regions.iter().map(RegionState::from_config).collect();
+        let region_states = regions.iter().map(BlockSelectGroup::from_config).collect();
         Self {
-            regions: region_states,
-            region_cursor: 0,
-            technique_cursor: 0,
-            focus: BlockSelectFocus::Regions,
+            groups: region_states,
+            group_cursor: 0,
+            item_cursor: 0,
+            focus: BlockSelectFocus::Groups,
             skipped: false,
             completed: false,
         }
@@ -61,14 +61,14 @@ impl BlockSelectState {
 
     pub fn navigate_up(&mut self) {
         match &self.focus {
-            BlockSelectFocus::Regions => {
-                if self.region_cursor > 0 {
-                    self.region_cursor -= 1;
+            BlockSelectFocus::Groups => {
+                if self.group_cursor > 0 {
+                    self.group_cursor -= 1;
                 }
             }
-            BlockSelectFocus::Techniques(_) => {
-                if self.technique_cursor > 0 {
-                    self.technique_cursor -= 1;
+            BlockSelectFocus::Items(_) => {
+                if self.item_cursor > 0 {
+                    self.item_cursor -= 1;
                 }
             }
         }
@@ -76,49 +76,49 @@ impl BlockSelectState {
 
     pub fn navigate_down(&mut self) {
         match &self.focus {
-            BlockSelectFocus::Regions => {
-                if !self.regions.is_empty() && self.region_cursor < self.regions.len() - 1 {
-                    self.region_cursor += 1;
+            BlockSelectFocus::Groups => {
+                if !self.groups.is_empty() && self.group_cursor < self.groups.len() - 1 {
+                    self.group_cursor += 1;
                 }
             }
-            BlockSelectFocus::Techniques(region_idx) => {
+            BlockSelectFocus::Items(region_idx) => {
                 let region_idx = *region_idx;
-                if let Some(region) = self.regions.get(region_idx) {
+                if let Some(region) = self.groups.get(region_idx) {
                     if !region.entries.is_empty()
-                        && self.technique_cursor < region.entries.len() - 1
+                        && self.item_cursor < region.entries.len() - 1
                     {
-                        self.technique_cursor += 1;
+                        self.item_cursor += 1;
                     }
                 }
             }
         }
     }
 
-    pub fn enter_region(&mut self) {
-        let idx = self.region_cursor;
-        self.focus = BlockSelectFocus::Techniques(idx);
-        self.technique_cursor = 0;
+    pub fn enter_group(&mut self) {
+        let idx = self.group_cursor;
+        self.focus = BlockSelectFocus::Items(idx);
+        self.item_cursor = 0;
     }
 
-    pub fn exit_techniques(&mut self) {
-        self.focus = BlockSelectFocus::Regions;
+    pub fn exit_items(&mut self) {
+        self.focus = BlockSelectFocus::Groups;
     }
 
-    pub fn toggle_technique(&mut self) {
-        if let BlockSelectFocus::Techniques(region_idx) = self.focus {
-            if let Some(region) = self.regions.get_mut(region_idx) {
-                region.toggle_technique(self.technique_cursor);
+    pub fn toggle_item(&mut self) {
+        if let BlockSelectFocus::Items(region_idx) = self.focus {
+            if let Some(region) = self.groups.get_mut(region_idx) {
+                region.toggle_item(self.item_cursor);
             }
         }
     }
 
-    pub fn in_techniques(&self) -> bool {
-        matches!(self.focus, BlockSelectFocus::Techniques(_))
+    pub fn in_items(&self) -> bool {
+        matches!(self.focus, BlockSelectFocus::Items(_))
     }
 
-    pub fn current_region_idx(&self) -> Option<usize> {
+    pub fn current_group_idx(&self) -> Option<usize> {
         match self.focus {
-            BlockSelectFocus::Techniques(i) => Some(i),
+            BlockSelectFocus::Items(i) => Some(i),
             _ => None,
         }
     }
@@ -159,8 +159,8 @@ mod tests_st3_default_selected {
         assert!(opt.default_selected(), "Simple variant should always return true from default_selected()");
     }
 
-    // ST3-TEST-2: RegionState::from_config where all entries have default=true (or omitted)
-    // should initialize technique_selected to all true.
+    // ST3-TEST-2: BlockSelectGroup::from_config where all entries have default=true (or omitted)
+    // should initialize item_selected to all true.
     #[test]
     fn region_state_all_default_true_starts_all_selected() {
         let entry = BlockSelectEntry {
@@ -173,14 +173,14 @@ mod tests_st3_default_selected {
                 make_full_entry("opt3", "Option 3", true),
             ],
         };
-        let state = RegionState::from_config(&entry);
-        assert_eq!(state.technique_selected.len(), 3);
-        assert!(state.technique_selected[0], "entry 0 with default=true should start selected");
-        assert!(state.technique_selected[1], "entry 1 with default=true should start selected");
-        assert!(state.technique_selected[2], "entry 2 with default=true should start selected");
+        let state = BlockSelectGroup::from_config(&entry);
+        assert_eq!(state.item_selected.len(), 3);
+        assert!(state.item_selected[0], "entry 0 with default=true should start selected");
+        assert!(state.item_selected[1], "entry 1 with default=true should start selected");
+        assert!(state.item_selected[2], "entry 2 with default=true should start selected");
     }
 
-    // ST3-TEST-3: RegionState::from_config where one entry has default=false
+    // ST3-TEST-3: BlockSelectGroup::from_config where one entry has default=false
     // should initialize that entry's slot as false, others as true.
     #[test]
     fn region_state_one_default_false_starts_unselected() {
@@ -194,11 +194,11 @@ mod tests_st3_default_selected {
                 make_full_entry("opt3", "Option 3", true),
             ],
         };
-        let state = RegionState::from_config(&entry);
-        assert_eq!(state.technique_selected.len(), 3);
-        assert!(state.technique_selected[0], "entry 0 with default=true should start selected");
-        assert!(!state.technique_selected[1], "entry 1 with default=false should start unselected");
-        assert!(state.technique_selected[2], "entry 2 with default=true should start selected");
+        let state = BlockSelectGroup::from_config(&entry);
+        assert_eq!(state.item_selected.len(), 3);
+        assert!(state.item_selected[0], "entry 0 with default=true should start selected");
+        assert!(!state.item_selected[1], "entry 1 with default=false should start unselected");
+        assert!(state.item_selected[2], "entry 2 with default=true should start selected");
     }
 
     // ST3-TEST-4: BlockSelectState::new propagates default selection through from_config.
@@ -217,8 +217,119 @@ mod tests_st3_default_selected {
             },
         ];
         let state = BlockSelectState::new(regions);
-        assert!(state.regions[0].technique_selected[0], "A (default=true) should start selected");
-        assert!(!state.regions[0].technique_selected[1], "B (default=false) should start unselected");
+        assert!(state.groups[0].item_selected[0], "A (default=true) should start selected");
+        assert!(!state.groups[0].item_selected[1], "B (default=false) should start unselected");
+    }
+}
+
+#[cfg(test)]
+mod tests_t46_st1_rename {
+    use super::*;
+    use crate::data::{BlockSelectEntry, PartOption};
+
+    fn make_entry(label: &str, opts: Vec<&str>) -> BlockSelectEntry {
+        BlockSelectEntry {
+            id: label.to_lowercase().replace(' ', "_"),
+            label: label.to_string(),
+            header: format!("{} header", label),
+            entries: opts.iter().map(|s| PartOption::Simple(s.to_string())).collect(),
+        }
+    }
+
+    // T46-ST1-TEST-1: BlockSelectGroup must exist as the renamed struct (was RegionState).
+    #[test]
+    fn block_select_group_struct_exists() {
+        let entry = make_entry("Arm", vec!["Alpha", "Beta"]);
+        let group: BlockSelectGroup = BlockSelectGroup::from_config(&entry);
+        assert_eq!(group.label, "Arm");
+    }
+
+    // T46-ST1-TEST-2: BlockSelectGroup must have an `item_selected` field (was technique_selected).
+    #[test]
+    fn block_select_group_has_item_selected_field() {
+        let entry = make_entry("Leg", vec!["X", "Y", "Z"]);
+        let group = BlockSelectGroup::from_config(&entry);
+        assert_eq!(group.item_selected.len(), 3);
+    }
+
+    // T46-ST1-TEST-3: BlockSelectGroup must have a `toggle_item` method (was toggle_technique).
+    #[test]
+    fn block_select_group_toggle_item() {
+        let entry = make_entry("Torso", vec!["P", "Q"]);
+        let mut group = BlockSelectGroup::from_config(&entry);
+        let before = group.item_selected[0];
+        group.toggle_item(0);
+        assert_ne!(group.item_selected[0], before);
+    }
+
+    // T46-ST1-TEST-4: BlockSelectFocus::Groups variant must exist (was BlockSelectFocus::Regions).
+    #[test]
+    fn block_select_focus_groups_variant() {
+        let focus = BlockSelectFocus::Groups;
+        assert!(matches!(focus, BlockSelectFocus::Groups));
+    }
+
+    // T46-ST1-TEST-5: BlockSelectFocus::Items variant must exist (was BlockSelectFocus::Techniques).
+    #[test]
+    fn block_select_focus_items_variant() {
+        let focus = BlockSelectFocus::Items(0);
+        assert!(matches!(focus, BlockSelectFocus::Items(0)));
+    }
+
+    // T46-ST1-TEST-6: BlockSelectState must have a `groups` field (was regions).
+    #[test]
+    fn block_select_state_has_groups_field() {
+        let state = BlockSelectState::new(vec![make_entry("Head", vec!["A"])]);
+        assert_eq!(state.groups.len(), 1);
+    }
+
+    // T46-ST1-TEST-7: BlockSelectState must have a `group_cursor` field (was region_cursor).
+    #[test]
+    fn block_select_state_has_group_cursor_field() {
+        let state = BlockSelectState::new(vec![make_entry("Neck", vec!["B"])]);
+        assert_eq!(state.group_cursor, 0);
+    }
+
+    // T46-ST1-TEST-8: BlockSelectState must have an `item_cursor` field (was technique_cursor).
+    #[test]
+    fn block_select_state_has_item_cursor_field() {
+        let state = BlockSelectState::new(vec![make_entry("Shoulder", vec!["C"])]);
+        assert_eq!(state.item_cursor, 0);
+    }
+
+    // T46-ST1-TEST-9: BlockSelectState must have an `enter_group` method (was enter_region).
+    #[test]
+    fn block_select_state_enter_group() {
+        let mut state = BlockSelectState::new(vec![make_entry("Knee", vec!["D", "E"])]);
+        state.enter_group();
+        assert!(matches!(state.focus, BlockSelectFocus::Items(_)));
+    }
+
+    // T46-ST1-TEST-10: BlockSelectState must have an `exit_items` method (was exit_techniques).
+    #[test]
+    fn block_select_state_exit_items() {
+        let mut state = BlockSelectState::new(vec![make_entry("Elbow", vec!["F"])]);
+        state.enter_group();
+        state.exit_items();
+        assert!(matches!(state.focus, BlockSelectFocus::Groups));
+    }
+
+    // T46-ST1-TEST-11: BlockSelectState must have an `in_items` method (was in_techniques).
+    #[test]
+    fn block_select_state_in_items() {
+        let mut state = BlockSelectState::new(vec![make_entry("Wrist", vec!["G"])]);
+        assert!(!state.in_items());
+        state.enter_group();
+        assert!(state.in_items());
+    }
+
+    // T46-ST1-TEST-12: BlockSelectState must have a `current_group_idx` method (was current_region_idx).
+    #[test]
+    fn block_select_state_current_group_idx() {
+        let mut state = BlockSelectState::new(vec![make_entry("Ankle", vec!["H"])]);
+        assert!(state.current_group_idx().is_none());
+        state.enter_group();
+        assert_eq!(state.current_group_idx(), Some(0));
     }
 }
 
@@ -236,21 +347,21 @@ mod tests_st2_region_state_entries_field {
         }
     }
 
-    // ST2-TEST-1: RegionState must expose an `entries` field of type Vec<PartOption>
+    // ST2-TEST-1: BlockSelectGroup must expose an `entries` field of type Vec<PartOption>
     // This test accesses .entries directly; if the field is still named `techniques` it fails to compile.
     #[test]
     fn region_state_has_entries_field() {
         let entry = make_entry("Body", vec!["Option A", "Option B"]);
-        let state = RegionState::from_config(&entry);
-        // Access the `entries` field — must compile only when field is named `entries`
+        let state = BlockSelectGroup::from_config(&entry);
+        // Access the `entries` field - must compile only when field is named `entries`
         assert_eq!(state.entries.len(), 2);
         assert_eq!(state.entries[0].label(), "Option A");
         assert_eq!(state.entries[1].label(), "Option B");
     }
 
-    // ST2-TEST-2: `techniques` field must NOT exist on RegionState.
+    // ST2-TEST-2: `techniques` field must NOT exist on BlockSelectGroup.
     // Since Rust is structural, this test accesses `entries` to prove rename happened.
-    // navigate_down also references region.entries internally — call it to exercise that path.
+    // navigate_down also references region.entries internally - call it to exercise that path.
     #[test]
     fn block_select_state_navigate_down_uses_entries() {
         let entries = vec![
@@ -258,10 +369,10 @@ mod tests_st2_region_state_entries_field {
             make_entry("Leg", vec!["Delta"]),
         ];
         let mut state = BlockSelectState::new(entries);
-        state.enter_region();
-        // navigate_down internally accesses region.entries (post-rename) — must compile
+        state.enter_group();
+        // navigate_down internally accesses region.entries (post-rename) - must compile
         state.navigate_down();
-        assert_eq!(state.technique_cursor, 1);
+        assert_eq!(state.item_cursor, 1);
     }
 
     // ST2-TEST-3: BlockSelectState::new accepts Vec<BlockSelectEntry> (already required by ST1,
@@ -270,8 +381,8 @@ mod tests_st2_region_state_entries_field {
     fn block_select_state_new_populates_region_entries() {
         let entry = make_entry("Torso", vec!["X", "Y"]);
         let state = BlockSelectState::new(vec![entry]);
-        assert_eq!(state.regions.len(), 1);
+        assert_eq!(state.groups.len(), 1);
         // .entries must exist and be populated
-        assert_eq!(state.regions[0].entries.len(), 2);
+        assert_eq!(state.groups[0].entries.len(), 2);
     }
 }

@@ -581,10 +581,10 @@ fn render_block_select_widget(
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    if state.in_techniques() {
-        let region_idx = state.current_region_idx().unwrap_or(0);
-        if let Some(region) = state.regions.get(region_idx) {
-            let title = format!(" {} - Techniques ", region.label);
+    if state.in_items() {
+        let region_idx = state.current_group_idx().unwrap_or(0);
+        if let Some(region) = state.groups.get(region_idx) {
+            let title = format!(" {} - Items ", region.label);
             let region_block = Block::default()
                 .borders(Borders::ALL)
                 .title(title)
@@ -597,7 +597,7 @@ fn render_block_select_widget(
             let scroll = if n <= height {
                 0
             } else {
-                (state.technique_cursor + 1).saturating_sub(height).min(n - height)
+                (state.item_cursor + 1).saturating_sub(height).min(n - height)
             };
             let items: Vec<ListItem> = region
                 .entries
@@ -606,8 +606,8 @@ fn render_block_select_widget(
                 .skip(scroll)
                 .take(height)
                 .map(|(i, tech)| {
-                    let is_sel = region.technique_selected.get(i).copied().unwrap_or(false);
-                    let is_cur = i == state.technique_cursor;
+                    let is_sel = region.item_selected.get(i).copied().unwrap_or(false);
+                    let is_cur = i == state.item_cursor;
                     let check = if is_sel { "[x]" } else { "[ ]" };
                     let prefix = if is_cur { ">" } else { " " };
                     let style = if is_cur {
@@ -631,20 +631,20 @@ fn render_block_select_widget(
         }
     } else {
         let height = inner.height as usize;
-        let n = state.regions.len();
+        let n = state.groups.len();
         let scroll = if n <= height {
             0
         } else {
-            (state.region_cursor + 1).saturating_sub(height).min(n - height)
+            (state.group_cursor + 1).saturating_sub(height).min(n - height)
         };
         let items: Vec<ListItem> = state
-            .regions
+            .groups
             .iter()
             .enumerate()
             .skip(scroll)
             .take(height)
             .map(|(i, region)| {
-                let is_cur = i == state.region_cursor;
+                let is_cur = i == state.group_cursor;
                 let has_sel = region.has_selection();
                 let check = if has_sel { "[x]" } else { "[ ]" };
                 let prefix = if is_cur { ">" } else { " " };
