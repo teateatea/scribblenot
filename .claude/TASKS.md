@@ -19,7 +19,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Claude: Four region-specific names in `src/data.rs` should be replaced with neutral equivalents: `RegionsFile` -> `BlockSelectFile`, `RegionConfig` -> `BlockSelectEntry`, `TechniqueConfig` -> removed entirely (its id/label/output shape is identical to `PartOption::Full`, so `BlockSelectEntry.entries` can reuse `Vec<PartOption>`), and both YAML keys `regions:` and `techniques:` -> `entries:`. All call sites in data.rs, app.rs, and the sections/ modules that reference RegionConfig/TechniqueConfig need updating, plus data/tx_regions.yml. No behaviour changes — pure rename/consolidation. Removes the implicit assumption that block_select is only ever used for body regions and massage techniques.
   Context: Discussion about block_select modularity and future data file consistency
 
-- [ ] **#47** Add per-technique default selection state to block_select
+- [ ] **#47** Add per-technique default selection state to block_select *(implemented)*
   [D:20 C:92]
   Claude: Add `default: bool` (serde default = true) to `TechniqueConfig` in `src/data.rs`. Update `RegionState::from_config` in `src/sections/block_select.rs` to initialize `technique_selected` from each technique's `default` field rather than hardcoding `false`. In tx_regions.yml, any technique with `default: false` will start unselected; all others (field omitted or `default: true`) start selected. Lets authors mark rarely-used techniques as off by default on a per-region basis without affecting others.
   Context: User noted they nearly always use the first three techniques in LOWER BACK (Prone) and only Fascial is typically off
@@ -41,6 +41,21 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph-Raw: So, Tx Mods should probably actually be a multi_field. Can you split the list up into fields: Pressure, Challenge, Mood, Communication, and Modifications? Try to categorize them correctly, I'll adjust any that are confusing.
   Context: tx_mods restructuring discussion
 
+- [ ] **#51** Move hard-coded section metadata into sections.yml to enable config-driven section definitions
+  [D:65 C:72]
+  Claude: Currently, section-specific logic is scattered across source code: heading_search_text(), is_intake_section(), intake_heading(), and cfg.id == "..." comparisons in note.rs. This task centralises all that metadata into sections.yml with fields like heading_search_text, is_intake, heading_label, and render behavior flags. The goal is that adding a new section requires only a yml change, not source edits in multiple places. This is a meaningful refactor touching note.rs and likely the section config loading path, but it is well-scoped and the intent is clear. Requires identifying all scattered hardcoded section checks, designing the yml schema to cover them, updating the loader/structs to expose the new fields, and replacing all scattered code references. No new user-facing behaviour -- purely a configuration-driven architecture improvement.
+  Context: Code audit of hard-coded one-off functions
+
+- [ ] **#52** Extract hard-coded boilerplate strings from note.rs into editable YML data files
+  [D:62 C:72]
+  Claude: Two hard-coded string literals in note.rs need to be moved to YML: (1) the treatment note boilerplate ("Regions and locations are bilateral...") and (2) the informed consent statement. Both are currently baked into functions in note.rs. The goal is to make these user-editable without requiring a source recompile. The strings should live in a YML file (likely alongside existing data YML files). Loader code will need to read these strings at runtime. No logic changes -- just lifting static strings out of Rust source into data files.
+  Context: Code audit of hard-coded one-off functions
+
+- [ ] **#53** Dispatch section type strings via extensible registry instead of hard-coded match arms (recommend /discuss-idea first)
+  [D:75 C:45]
+  Claude: Currently app.rs init_states() and data.rs load() both hard-code five section type string literals ("multi_field", "free_text", "list_select", "block_select", "checklist") in match arms. Unlike purely cosmetic or metadata tasks, these strings are load-bearing: they determine which rendering/state logic runs. Making them YML-extensible is a non-trivial architectural decision -- it requires deciding what "registerable section type" means (static enum, trait object, plugin map, etc.) before any plan can be written. A /discuss-idea session is explicitly recommended to resolve the design question first. High d_score because it touches the core dispatch spine of the app; moderate c_score because the problem is well-described but the solution space is deliberately left open.
+  Context: Code audit of hard-coded one-off functions
+
 ---
 
 ## Code Quality
@@ -49,3 +64,8 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   [D:10 C:55] Delete or use the `pub fn current_value()` method in `src/sections/header.rs` that triggers a dead_code warning on every `cargo build`/`cargo run`.
   Joseph: about that dead code clean up, I don't like that it pops up when I cargo run.
   Context: not specified
+
+- [ ] **#54** Extract hard-coded layout strings from config.rs into a YML-backed enum
+  [D:25 C:55]
+  Claude: Two string literals ("default" and "swapped") are embedded directly in config.rs inside is_swapped() and set_swapped(). These should be replaced with an enum (or at minimum a YML-defined set of variants) so that adding new layout modes in the future does not require source changes. Low priority, small scope -- purely a future-proofing/maintainability concern with no current functional deficiency.
+  Context: Code audit of hard-coded one-off functions

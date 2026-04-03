@@ -10,7 +10,7 @@ pub struct RegionState {
 
 impl RegionState {
     pub fn from_config(cfg: &BlockSelectEntry) -> Self {
-        let technique_selected = vec![false; cfg.entries.len()];
+        let technique_selected = cfg.entries.iter().map(|e| e.default_selected()).collect();
         Self {
             label: cfg.label.clone(),
             header: cfg.header.clone(),
@@ -121,6 +121,104 @@ impl BlockSelectState {
             BlockSelectFocus::Techniques(i) => Some(i),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests_st3_default_selected {
+    use super::*;
+    use crate::data::{BlockSelectEntry, PartOption};
+
+    fn make_full_entry(id: &str, label: &str, default: bool) -> PartOption {
+        PartOption::Full {
+            id: id.to_string(),
+            label: label.to_string(),
+            output: label.to_lowercase(),
+            default,
+        }
+    }
+
+    // ST3-TEST-1: PartOption must expose a default_selected() -> bool method.
+    // For Full variants, it returns the `default` field value.
+    // For Simple and Labeled variants, it returns true (no default field = always selected).
+    #[test]
+    fn part_option_default_selected_full_true() {
+        let opt = make_full_entry("a", "Alpha", true);
+        assert!(opt.default_selected(), "Full with default=true should return true from default_selected()");
+    }
+
+    #[test]
+    fn part_option_default_selected_full_false() {
+        let opt = make_full_entry("b", "Beta", false);
+        assert!(!opt.default_selected(), "Full with default=false should return false from default_selected()");
+    }
+
+    #[test]
+    fn part_option_default_selected_simple() {
+        let opt = PartOption::Simple("gamma".to_string());
+        assert!(opt.default_selected(), "Simple variant should always return true from default_selected()");
+    }
+
+    // ST3-TEST-2: RegionState::from_config where all entries have default=true (or omitted)
+    // should initialize technique_selected to all true.
+    #[test]
+    fn region_state_all_default_true_starts_all_selected() {
+        let entry = BlockSelectEntry {
+            id: "region_a".to_string(),
+            label: "Region A".to_string(),
+            header: "Region A Header".to_string(),
+            entries: vec![
+                make_full_entry("opt1", "Option 1", true),
+                make_full_entry("opt2", "Option 2", true),
+                make_full_entry("opt3", "Option 3", true),
+            ],
+        };
+        let state = RegionState::from_config(&entry);
+        assert_eq!(state.technique_selected.len(), 3);
+        assert!(state.technique_selected[0], "entry 0 with default=true should start selected");
+        assert!(state.technique_selected[1], "entry 1 with default=true should start selected");
+        assert!(state.technique_selected[2], "entry 2 with default=true should start selected");
+    }
+
+    // ST3-TEST-3: RegionState::from_config where one entry has default=false
+    // should initialize that entry's slot as false, others as true.
+    #[test]
+    fn region_state_one_default_false_starts_unselected() {
+        let entry = BlockSelectEntry {
+            id: "region_b".to_string(),
+            label: "Region B".to_string(),
+            header: "Region B Header".to_string(),
+            entries: vec![
+                make_full_entry("opt1", "Option 1", true),
+                make_full_entry("opt2", "Option 2", false),
+                make_full_entry("opt3", "Option 3", true),
+            ],
+        };
+        let state = RegionState::from_config(&entry);
+        assert_eq!(state.technique_selected.len(), 3);
+        assert!(state.technique_selected[0], "entry 0 with default=true should start selected");
+        assert!(!state.technique_selected[1], "entry 1 with default=false should start unselected");
+        assert!(state.technique_selected[2], "entry 2 with default=true should start selected");
+    }
+
+    // ST3-TEST-4: BlockSelectState::new propagates default selection through from_config.
+    // All entries default=true => all selected; one default=false => that one unselected.
+    #[test]
+    fn block_select_state_new_propagates_defaults() {
+        let regions = vec![
+            BlockSelectEntry {
+                id: "r1".to_string(),
+                label: "R1".to_string(),
+                header: "R1 Header".to_string(),
+                entries: vec![
+                    make_full_entry("a", "A", true),
+                    make_full_entry("b", "B", false),
+                ],
+            },
+        ];
+        let state = BlockSelectState::new(regions);
+        assert!(state.regions[0].technique_selected[0], "A (default=true) should start selected");
+        assert!(!state.regions[0].technique_selected[1], "B (default=false) should start unselected");
     }
 }
 

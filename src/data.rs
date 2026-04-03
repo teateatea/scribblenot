@@ -36,6 +36,12 @@ impl PartOption {
             _ => None,
         }
     }
+    pub fn default_selected(&self) -> bool {
+        match self {
+            Self::Full { default, .. } => *default,
+            _ => true,
+        }
+    }
 }
 
 fn default_true() -> bool { true }
