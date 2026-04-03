@@ -1,5 +1,10 @@
 # Closed Tasks
 
+- [ ] **#46** Neutralise block_select struct and key names so they aren't tied to treatment-region vocabulary *(implemented)*
+  [D:20 C:90]
+  Claude: Renamed RegionConfig->BlockSelectEntry, RegionsFile->BlockSelectFile (TechniqueConfig deleted; entries reuse Vec<PartOption>), YAML keys regions:/techniques:->entries:. Runtime renames: RegionState->BlockSelectGroup, technique_selected->item_selected, toggle_technique->toggle_item, BlockSelectFocus::Regions/Techniques->Groups/Items, BlockSelectState fields regions->groups/region_cursor->group_cursor/technique_cursor->item_cursor, methods enter_region->enter_group/exit_techniques->exit_items/in_techniques->in_items/current_region_idx->current_group_idx. Updated app.rs, ui.rs, note.rs call sites. Zero warnings; 111 tests pass.
+- Completed: 2026-04-02T21:02:22
+
 - [ ] **#47** Add per-technique default selection state to block_select *(implemented)*
   [D:20 C:92]
   Claude: Add `default: bool` (serde default = true) to `TechniqueConfig` in `src/data.rs`. Update `RegionState::from_config` in `src/sections/block_select.rs` to initialize `technique_selected` from each technique's `default` field rather than hardcoding `false`. In tx_regions.yml, any technique with `default: false` will start unselected; all others (field omitted or `default: true`) start selected. Lets authors mark rarely-used techniques as off by default on a per-region basis without affecting others.
