@@ -483,6 +483,7 @@ mod tests {
                 options: vec![],
                 composite: None,
                 default: None,
+                repeat_limit: None,
             })
             .collect();
         let mut hs = HeaderState::new(configs);
@@ -504,6 +505,7 @@ mod tests {
             options: vec![],
             composite: None,
             default: None,
+            repeat_limit: None,
         };
         let date_cfg = HeaderFieldConfig {
             id: "date".to_string(),
@@ -518,6 +520,7 @@ mod tests {
                     CompositePart { id: "day".to_string(), label: "Day".to_string(), preview: None, options: vec![PartOption::Simple("02".to_string())], data_file: None, sticky: true, default: None },
                 ],
             }),
+            repeat_limit: None,
         };
         let configs = vec![date_cfg, dur_cfg];
         let mut hs = HeaderState::new(configs);
@@ -537,6 +540,7 @@ mod tests {
             options: vec![],
             default: None,
             composite: None,
+            repeat_limit: None,
         };
         let time_cfg = HeaderFieldConfig {
             id: "start_time".to_string(),
@@ -544,6 +548,7 @@ mod tests {
             options: vec![],
             default: None,
             composite: None,
+            repeat_limit: None,
         };
         let dur_cfg = HeaderFieldConfig {
             id: "appointment_duration".to_string(),
@@ -551,6 +556,7 @@ mod tests {
             options: vec![],
             composite: None,
             default: None,
+            repeat_limit: None,
         };
         let appt_cfg = HeaderFieldConfig {
             id: "appointment_type".to_string(),
@@ -558,6 +564,7 @@ mod tests {
             options: vec![],
             composite: None,
             default: None,
+            repeat_limit: None,
         };
         let configs = vec![date_cfg, time_cfg, dur_cfg, appt_cfg];
         let mut hs = HeaderState::new(configs);

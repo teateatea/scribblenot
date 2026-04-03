@@ -1416,8 +1416,8 @@ mod tests {
         use std::path::PathBuf;
 
         let fields = vec![
-            HeaderFieldConfig { id: "f1".to_string(), name: "F1".to_string(), options: vec![], composite: None, default: Some("hello".to_string()) },
-            HeaderFieldConfig { id: "f2".to_string(), name: "F2".to_string(), options: vec![], composite: None, default: None },
+            HeaderFieldConfig { id: "f1".to_string(), name: "F1".to_string(), options: vec![], composite: None, default: Some("hello".to_string()), repeat_limit: None },
+            HeaderFieldConfig { id: "f2".to_string(), name: "F2".to_string(), options: vec![], composite: None, default: None, repeat_limit: None },
         ];
         let section = SectionConfig {
             id: "s1".to_string(), name: "S1".to_string(), map_label: "S1".to_string(),
@@ -1450,7 +1450,7 @@ mod tests {
         use std::path::PathBuf;
 
         let fields = vec![
-            HeaderFieldConfig { id: "f1".to_string(), name: "F1".to_string(), options: vec![], composite: None, default: None },
+            HeaderFieldConfig { id: "f1".to_string(), name: "F1".to_string(), options: vec![], composite: None, default: None, repeat_limit: None },
         ];
         let section = SectionConfig {
             id: "s1".to_string(), name: "S1".to_string(), map_label: "S1".to_string(),

@@ -86,6 +86,8 @@ pub struct HeaderFieldConfig {
     pub options: Vec<String>,
     pub composite: Option<CompositeConfig>,
     pub default: Option<String>,
+    #[serde(default)]
+    pub repeat_limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -716,6 +718,7 @@ pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
                                     options: options.clone(),
                                     composite: composite.clone(),
                                     default: default.clone(),
+                                    repeat_limit: None,
                                 });
                             }
                         }
@@ -1673,6 +1676,50 @@ mod boilerplate_load_tests {
         assert!(
             err_msg.contains("duplicate_bp"),
             "error message should mention the duplicate id; got: {err_msg}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod header_field_repeat_limit_tests {
+    use super::*;
+
+    // ST49-1-TEST-1: HeaderFieldConfig with repeat_limit: 5 deserializes to Some(5)
+    #[test]
+    fn repeat_limit_some_when_present() {
+        let yaml = "id: foo\nname: Foo\nrepeat_limit: 5\n";
+        let cfg: HeaderFieldConfig = serde_yaml::from_str(yaml)
+            .expect("should deserialize HeaderFieldConfig with repeat_limit");
+        assert_eq!(
+            cfg.repeat_limit,
+            Some(5),
+            "repeat_limit should be Some(5) when specified as 5 in YAML"
+        );
+    }
+
+    // ST49-1-TEST-2: HeaderFieldConfig without repeat_limit deserializes to None
+    #[test]
+    fn repeat_limit_none_when_absent() {
+        let yaml = "id: bar\nname: Bar\n";
+        let cfg: HeaderFieldConfig = serde_yaml::from_str(yaml)
+            .expect("should deserialize HeaderFieldConfig without repeat_limit");
+        assert_eq!(
+            cfg.repeat_limit,
+            None,
+            "repeat_limit should be None when not specified in YAML"
+        );
+    }
+
+    // ST49-1-TEST-3: repeat_limit: 0 is valid and deserializes to Some(0)
+    #[test]
+    fn repeat_limit_some_zero_when_zero() {
+        let yaml = "id: baz\nname: Baz\nrepeat_limit: 0\n";
+        let cfg: HeaderFieldConfig = serde_yaml::from_str(yaml)
+            .expect("should deserialize HeaderFieldConfig with repeat_limit 0");
+        assert_eq!(
+            cfg.repeat_limit,
+            Some(0),
+            "repeat_limit should be Some(0) when specified as 0 in YAML"
         );
     }
 }
