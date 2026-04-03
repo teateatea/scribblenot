@@ -607,6 +607,88 @@ fn block_children(b: &crate::flat_file::FlatBlock) -> &[String] {
     }
 }
 
+/// Identifies the structural level of a hierarchy node for scoped (TypeTag, id) uniqueness.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TypeTag {
+    Template,
+    Group,
+    Section,
+    Field,
+    List,
+    Item,
+    Boilerplate,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HierarchyItem {
+    pub id: String,
+    pub label: String,
+    pub default: Option<bool>,
+    pub output: Option<String>,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HierarchyList {
+    pub id: String,
+    pub label: Option<String>,
+    pub items: Vec<HierarchyItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HierarchyField {
+    pub id: String,
+    pub label: String,
+    pub field_type: String,
+    #[serde(default)]
+    pub options: Vec<String>,
+    pub list_id: Option<String>,
+    pub data_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HierarchySection {
+    pub id: String,
+    pub nav_label: String,
+    pub map_label: String,
+    pub section_type: String,
+    pub fields: Option<Vec<HierarchyField>>,
+    pub lists: Option<Vec<HierarchyList>>,
+    pub date_prefix: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HierarchyGroup {
+    pub id: String,
+    pub nav_label: String,
+    pub sections: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HierarchyTemplate {
+    pub id: Option<String>,
+    pub groups: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BoilerplateEntry {
+    pub id: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HierarchyFile {
+    pub template: Option<HierarchyTemplate>,
+    pub groups: Option<Vec<HierarchyGroup>>,
+    pub sections: Option<Vec<HierarchySection>>,
+    pub fields: Option<Vec<HierarchyField>>,
+    pub lists: Option<Vec<HierarchyList>>,
+    pub items: Option<Vec<HierarchyItem>>,
+    #[serde(default)]
+    pub boilerplate: Vec<BoilerplateEntry>,
+}
+
 pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
     // Collect all *.yml files, skipping keybindings.yml
     let entries = fs::read_dir(path)
@@ -2190,5 +2272,179 @@ mod section_metadata_complete_tests {
                 id, slot, sec.note_render_slot
             );
         }
+    }
+}
+
+// ST70-1: Hierarchy struct tests.
+// These tests FAIL before implementation because HierarchyItem, HierarchyList, HierarchyField,
+// HierarchySection, HierarchyGroup, HierarchyTemplate, and HierarchyFile do not exist yet.
+#[cfg(test)]
+mod hierarchy_struct_tests {
+    use super::*;
+
+    // ST70-1-TEST-1: HierarchyItem deserializes from YAML with required fields (id, label)
+    // and optional fields (default, output, note).
+    // FAILS because HierarchyItem does not exist yet.
+    #[test]
+    fn hierarchy_item_deserializes_basic() {
+        let yaml = "id: opt_a\nlabel: Option A\n";
+        let item: HierarchyItem = serde_yaml::from_str(yaml)
+            .expect("HierarchyItem must deserialize from YAML with id and label");
+        assert_eq!(item.id, "opt_a");
+        assert_eq!(item.label, "Option A");
+        assert!(item.default.is_none(), "default should be None when not specified");
+        assert!(item.output.is_none(), "output should be None when not specified");
+        assert!(item.note.is_none(), "note should be None when not specified");
+    }
+
+    // ST70-1-TEST-2: HierarchyItem deserializes with all optional fields present.
+    // FAILS because HierarchyItem does not exist yet.
+    #[test]
+    fn hierarchy_item_deserializes_with_optional_fields() {
+        let yaml = "id: opt_b\nlabel: Option B\ndefault: true\noutput: B output\nnote: a note\n";
+        let item: HierarchyItem = serde_yaml::from_str(yaml)
+            .expect("HierarchyItem must deserialize from YAML with all fields");
+        assert_eq!(item.id, "opt_b");
+        assert_eq!(item.label, "Option B");
+        assert_eq!(item.default, Some(true));
+        assert_eq!(item.output, Some("B output".to_string()));
+        assert_eq!(item.note, Some("a note".to_string()));
+    }
+
+    // ST70-1-TEST-3: HierarchyList deserializes from YAML with id and items.
+    // FAILS because HierarchyList does not exist yet.
+    #[test]
+    fn hierarchy_list_deserializes() {
+        let yaml = "id: list_one\nitems:\n  - id: x\n    label: X\n  - id: y\n    label: Y\n";
+        let list: HierarchyList = serde_yaml::from_str(yaml)
+            .expect("HierarchyList must deserialize from YAML with id and items");
+        assert_eq!(list.id, "list_one");
+        assert_eq!(list.items.len(), 2);
+        assert_eq!(list.items[0].id, "x");
+        assert_eq!(list.items[1].label, "Y");
+    }
+
+    // ST70-1-TEST-4: HierarchyField deserializes with id, label, field_type, and optional
+    // options, list_id, and data_file fields.
+    // FAILS because HierarchyField does not exist yet.
+    #[test]
+    fn hierarchy_field_deserializes() {
+        let yaml = "id: f1\nlabel: Field One\nfield_type: select\noptions:\n  - alpha\n  - beta\n";
+        let field: HierarchyField = serde_yaml::from_str(yaml)
+            .expect("HierarchyField must deserialize from YAML with id, label, field_type, options");
+        assert_eq!(field.id, "f1");
+        assert_eq!(field.label, "Field One");
+        assert_eq!(field.field_type, "select");
+        assert_eq!(field.options, vec!["alpha".to_string(), "beta".to_string()]);
+        assert!(field.list_id.is_none());
+        assert!(field.data_file.is_none());
+    }
+
+    // ST70-1-TEST-5: HierarchyField deserializes with list_id and data_file.
+    // FAILS because HierarchyField does not exist yet.
+    #[test]
+    fn hierarchy_field_deserializes_with_list_id_and_data_file() {
+        let yaml = "id: f2\nlabel: Field Two\nfield_type: list\nlist_id: my_list\ndata_file: data.yml\n";
+        let field: HierarchyField = serde_yaml::from_str(yaml)
+            .expect("HierarchyField must deserialize from YAML with list_id and data_file");
+        assert_eq!(field.id, "f2");
+        assert_eq!(field.list_id, Some("my_list".to_string()));
+        assert_eq!(field.data_file, Some("data.yml".to_string()));
+    }
+
+    // ST70-1-TEST-6: HierarchySection deserializes with id, nav_label, map_label, section_type,
+    // and optional fields and lists children.
+    // FAILS because HierarchySection does not exist yet.
+    #[test]
+    fn hierarchy_section_deserializes() {
+        let yaml = concat!(
+            "id: sec1\n",
+            "nav_label: Section One\n",
+            "map_label: SEC 1\n",
+            "section_type: composite\n",
+            "fields:\n",
+            "  - id: f1\n",
+            "    label: Field One\n",
+            "    field_type: select\n",
+        );
+        let section: HierarchySection = serde_yaml::from_str(yaml)
+            .expect("HierarchySection must deserialize from YAML");
+        assert_eq!(section.id, "sec1");
+        assert_eq!(section.nav_label, "Section One");
+        assert_eq!(section.map_label, "SEC 1");
+        assert_eq!(section.section_type, "composite");
+        let fields = section.fields.as_ref().expect("fields must be Some");
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].id, "f1");
+        assert!(section.lists.is_none());
+    }
+
+    // ST70-1-TEST-7: HierarchyGroup deserializes with id, nav_label, and sections (Vec<String> IDs).
+    // FAILS because HierarchyGroup does not exist yet.
+    #[test]
+    fn hierarchy_group_deserializes() {
+        let yaml = "id: grp1\nnav_label: Group One\nsections:\n  - sec_a\n  - sec_b\n";
+        let group: HierarchyGroup = serde_yaml::from_str(yaml)
+            .expect("HierarchyGroup must deserialize from YAML");
+        assert_eq!(group.id, "grp1");
+        assert_eq!(group.nav_label, "Group One");
+        assert_eq!(group.sections, vec!["sec_a".to_string(), "sec_b".to_string()]);
+    }
+
+    // ST70-1-TEST-8: HierarchyTemplate deserializes with groups (Vec<String> IDs).
+    // FAILS because HierarchyTemplate does not exist yet.
+    #[test]
+    fn hierarchy_template_deserializes() {
+        let yaml = "groups:\n  - grp1\n  - grp2\n";
+        let template: HierarchyTemplate = serde_yaml::from_str(yaml)
+            .expect("HierarchyTemplate must deserialize from YAML");
+        assert_eq!(template.groups, vec!["grp1".to_string(), "grp2".to_string()]);
+    }
+
+    // ST70-1-TEST-9: HierarchyFile (top-level container) deserializes with optional
+    // template, groups, sections, fields, lists, items, and boilerplate entries.
+    // FAILS because HierarchyFile does not exist yet.
+    #[test]
+    fn hierarchy_file_deserializes_minimal() {
+        let yaml = "template:\n  groups:\n    - g1\n";
+        let file: HierarchyFile = serde_yaml::from_str(yaml)
+            .expect("HierarchyFile must deserialize from YAML with just a template");
+        let tmpl = file.template.as_ref().expect("template must be Some");
+        assert_eq!(tmpl.groups, vec!["g1".to_string()]);
+        assert!(file.groups.is_none());
+        assert!(file.sections.is_none());
+        assert!(file.fields.is_none());
+        assert!(file.lists.is_none());
+        assert!(file.items.is_none());
+    }
+
+    // ST70-1-TEST-10: HierarchyFile deserializes with all optional collections present.
+    // FAILS because HierarchyFile does not exist yet.
+    #[test]
+    fn hierarchy_file_deserializes_full() {
+        let yaml = concat!(
+            "template:\n  groups:\n    - g1\n",
+            "groups:\n  - id: g1\n    nav_label: G1\n    sections:\n      - s1\n",
+            "sections:\n  - id: s1\n    nav_label: S1\n    map_label: S1\n    section_type: list\n",
+            "fields:\n  - id: fi1\n    label: Fi1\n    field_type: text\n",
+            "lists:\n  - id: l1\n    items:\n      - id: i1\n        label: I1\n",
+            "items:\n  - id: i2\n    label: I2\n",
+        );
+        let file: HierarchyFile = serde_yaml::from_str(yaml)
+            .expect("HierarchyFile must deserialize from YAML with all collections");
+        assert!(file.template.is_some());
+        let groups = file.groups.as_ref().expect("groups must be Some");
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].id, "g1");
+        let sections = file.sections.as_ref().expect("sections must be Some");
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].id, "s1");
+        let fields = file.fields.as_ref().expect("fields must be Some");
+        assert_eq!(fields.len(), 1);
+        let lists = file.lists.as_ref().expect("lists must be Some");
+        assert_eq!(lists.len(), 1);
+        let items = file.items.as_ref().expect("items must be Some");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, "i2");
     }
 }
