@@ -155,7 +155,10 @@ pub fn render_note(
             }
         }
     }
-    subj_parts.push("\n\n\n#### INFORMED CONSENT\n- Patient has been informed of the risks and benefits of massage therapy, and has given informed consent to assessment and treatment.".to_string());
+    let informed_consent = boilerplate_texts.get("informed_consent").map(|s| s.as_str()).unwrap_or("");
+    if !informed_consent.is_empty() {
+        subj_parts.push(format!("\n\n\n#### INFORMED CONSENT\n- {}", informed_consent));
+    }
     parts.push(subj_parts.join(""));
 
     // SEPARATOR
@@ -163,7 +166,13 @@ pub fn render_note(
 
     // TREATMENT / PLAN
     let mut tx_parts: Vec<String> = Vec::new();
-    tx_parts.push("\n\n## TREATMENT / PLAN\nRegions and locations are bilateral unless indicated otherwise.\nPatient is pillowed under ankles when prone, and under knees when supine.".to_string());
+    let tx_disclaimer = boilerplate_texts.get("treatment_plan_disclaimer").map(|s| s.as_str()).unwrap_or("");
+    let tx_header = if tx_disclaimer.is_empty() {
+        "\n\n## TREATMENT / PLAN".to_string()
+    } else {
+        format!("\n\n## TREATMENT / PLAN\n{}", tx_disclaimer)
+    };
+    tx_parts.push(tx_header);
 
     // tx_mods
     for (cfg, state) in sections.iter().zip(states.iter()) {
@@ -663,6 +672,76 @@ mod tests {
         let line = section_start_line(&sections, &states, &sticky, &groups, &bp, "adl");
         // intake group has no ## heading -> fallback is 0
         assert_eq!(line, 0);
+    }
+
+    // --- boilerplate_texts lookup tests (sub-task 52.5) ---
+
+    fn make_minimal_sections() -> (Vec<SectionConfig>, Vec<SectionState>) {
+        // Minimal: no sections, so only the static scaffolding renders.
+        (vec![], vec![])
+    }
+
+    #[test]
+    fn informed_consent_text_comes_from_boilerplate_map() {
+        let (sections, states) = make_minimal_sections();
+        let sticky = HashMap::new();
+        let mut bp = HashMap::new();
+        bp.insert("informed_consent".to_string(), "CUSTOM CONSENT TEXT FOR TEST".to_string());
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
+
+        // The custom value must appear in the note
+        assert!(
+            note.contains("CUSTOM CONSENT TEXT FOR TEST"),
+            "expected custom informed_consent text in note, but got:\n{}", note
+        );
+        // The hard-coded string must NOT appear
+        assert!(
+            !note.contains("Patient has been informed of the risks and benefits"),
+            "found hard-coded informed consent text that should have been replaced"
+        );
+    }
+
+    #[test]
+    fn treatment_plan_disclaimer_comes_from_boilerplate_map() {
+        let (sections, states) = make_minimal_sections();
+        let sticky = HashMap::new();
+        let mut bp = HashMap::new();
+        bp.insert("treatment_plan_disclaimer".to_string(), "CUSTOM DISCLAIMER FOR TEST".to_string());
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
+
+        // The custom value must appear in the note
+        assert!(
+            note.contains("CUSTOM DISCLAIMER FOR TEST"),
+            "expected custom treatment_plan_disclaimer text in note, but got:\n{}", note
+        );
+        // The hard-coded string must NOT appear
+        assert!(
+            !note.contains("bilateral unless indicated otherwise"),
+            "found hard-coded treatment plan disclaimer text that should have been replaced"
+        );
+    }
+
+    #[test]
+    fn empty_boilerplate_map_does_not_silently_use_hard_coded_strings() {
+        let (sections, states) = make_minimal_sections();
+        let sticky = HashMap::new();
+        let bp: HashMap<String, String> = HashMap::new();
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
+
+        // With an empty map, neither hard-coded string should appear
+        // (the feature should either omit, panic, or use a recognizable fallback --
+        // but it must NOT silently fall back to the old hard-coded literals)
+        assert!(
+            !note.contains("Patient has been informed of the risks and benefits"),
+            "render_note silently used hard-coded informed consent text when boilerplate_texts was empty"
+        );
+        assert!(
+            !note.contains("bilateral unless indicated otherwise"),
+            "render_note silently used hard-coded treatment plan disclaimer when boilerplate_texts was empty"
+        );
     }
 
     #[test]
