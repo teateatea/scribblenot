@@ -866,6 +866,189 @@ pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
     })
 }
 
+pub fn load_hierarchy_dir(dir: &std::path::Path) -> Result<HierarchyFile, String> {
+    // --- Phase 1: scan and parse ---
+    let entries = fs::read_dir(dir)
+        .map_err(|e| format!("failed to read directory {:?}: {}", dir, e))?;
+
+    let mut merged = HierarchyFile {
+        template: None,
+        groups: None,
+        sections: None,
+        fields: None,
+        lists: None,
+        items: None,
+        boilerplate: Vec::new(),
+    };
+    let mut template_count = 0usize;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("directory entry error: {}", e))?;
+        let file_path = entry.path();
+        let file_name = file_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        if !file_name.ends_with(".yml") {
+            continue;
+        }
+        if file_name == "keybindings.yml" || file_name == "config.yml" {
+            continue;
+        }
+        let content = fs::read_to_string(&file_path)
+            .map_err(|e| format!("failed to read {:?}: {}", file_path, e))?;
+        let hf: HierarchyFile = serde_yaml::from_str(&content)
+            .map_err(|e| format!("parse error in {:?}: {}", file_path, e))?;
+
+        // Merge template (count occurrences for cardinality check)
+        if hf.template.is_some() {
+            template_count += 1;
+            if merged.template.is_none() {
+                merged.template = hf.template;
+            }
+        }
+        // Merge Option<Vec<>> fields
+        if let Some(v) = hf.groups {
+            merged.groups.get_or_insert_with(Vec::new).extend(v);
+        }
+        if let Some(v) = hf.sections {
+            merged.sections.get_or_insert_with(Vec::new).extend(v);
+        }
+        if let Some(v) = hf.fields {
+            merged.fields.get_or_insert_with(Vec::new).extend(v);
+        }
+        if let Some(v) = hf.lists {
+            merged.lists.get_or_insert_with(Vec::new).extend(v);
+        }
+        if let Some(v) = hf.items {
+            merged.items.get_or_insert_with(Vec::new).extend(v);
+        }
+        merged.boilerplate.extend(hf.boilerplate);
+    }
+
+    // --- Phase 2: template cardinality ---
+    match template_count {
+        0 => return Err("no template defined: exactly 1 template is required across all hierarchy files".to_string()),
+        1 => {}
+        n => return Err(format!("multiple templates defined: found {}, expected exactly 1", n)),
+    }
+
+    // --- Phase 3: typed ID uniqueness ---
+    let mut seen: HashSet<(TypeTag, String)> = HashSet::new();
+    for g in merged.groups.as_deref().unwrap_or(&[]) {
+        let key = (TypeTag::Group, g.id.clone());
+        if !seen.insert(key) {
+            return Err(format!("duplicate group id: {}", g.id));
+        }
+    }
+    for s in merged.sections.as_deref().unwrap_or(&[]) {
+        let key = (TypeTag::Section, s.id.clone());
+        if !seen.insert(key) {
+            return Err(format!("duplicate section id: {}", s.id));
+        }
+    }
+    for f in merged.fields.as_deref().unwrap_or(&[]) {
+        let key = (TypeTag::Field, f.id.clone());
+        if !seen.insert(key) {
+            return Err(format!("duplicate field id: {}", f.id));
+        }
+    }
+    for l in merged.lists.as_deref().unwrap_or(&[]) {
+        let key = (TypeTag::List, l.id.clone());
+        if !seen.insert(key) {
+            return Err(format!("duplicate list id: {}", l.id));
+        }
+    }
+
+    // --- Phase 4: boilerplate ID uniqueness ---
+    let mut bp_seen: HashSet<String> = HashSet::new();
+    for bp in &merged.boilerplate {
+        if !bp_seen.insert(bp.id.clone()) {
+            return Err(format!("duplicate boilerplate id: {}", bp.id));
+        }
+    }
+
+    // --- Phase 5: cross-reference validation ---
+    // Build typed lookup sets for O(1) existence checks
+    let group_ids: HashSet<&str> = merged.groups.as_deref().unwrap_or(&[])
+        .iter().map(|g| g.id.as_str()).collect();
+    let section_ids: HashSet<&str> = merged.sections.as_deref().unwrap_or(&[])
+        .iter().map(|s| s.id.as_str()).collect();
+    let _field_ids: HashSet<&str> = merged.fields.as_deref().unwrap_or(&[])
+        .iter().map(|f| f.id.as_str()).collect();
+    let list_ids: HashSet<&str> = merged.lists.as_deref().unwrap_or(&[])
+        .iter().map(|l| l.id.as_str()).collect();
+
+    // Template -> group refs
+    let template = merged.template.as_ref().unwrap(); // safe: cardinality already checked
+    for gref in &template.groups {
+        if !group_ids.contains(gref.as_str()) {
+            return Err(format!("unresolved template group ref: {}", gref));
+        }
+    }
+    // Group -> section refs
+    for g in merged.groups.as_deref().unwrap_or(&[]) {
+        for sref in &g.sections {
+            if !section_ids.contains(sref.as_str()) {
+                return Err(format!("unresolved section ref '{}' in group '{}'", sref, g.id));
+            }
+        }
+    }
+    // Field -> list_id ref
+    for f in merged.fields.as_deref().unwrap_or(&[]) {
+        if let Some(ref lid) = f.list_id {
+            if !list_ids.contains(lid.as_str()) {
+                return Err(format!("unresolved list_id ref '{}' in field '{}'", lid, f.id));
+            }
+        }
+    }
+
+    // --- Phase 6: DFS cycle detection over group->section->field->list refs ---
+    fn dfs_hier(
+        node: &str,
+        adj: &HashMap<String, Vec<String>>,
+        visited: &mut HashSet<String>,
+        in_stack: &mut HashSet<String>,
+    ) -> Result<(), String> {
+        if in_stack.contains(node) {
+            return Err(format!("cycle detected at node id={}", node));
+        }
+        if visited.contains(node) {
+            return Ok(());
+        }
+        visited.insert(node.to_string());
+        in_stack.insert(node.to_string());
+        if let Some(children) = adj.get(node) {
+            for child in children {
+                dfs_hier(child, adj, visited, in_stack)?;
+            }
+        }
+        in_stack.remove(node);
+        Ok(())
+    }
+
+    let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+    for g in merged.groups.as_deref().unwrap_or(&[]) {
+        adj.entry(g.id.clone()).or_default().extend(g.sections.iter().cloned());
+    }
+    for f in merged.fields.as_deref().unwrap_or(&[]) {
+        if let Some(ref lid) = f.list_id {
+            adj.entry(f.id.clone()).or_default().push(lid.clone());
+        }
+    }
+
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut in_stack: HashSet<String> = HashSet::new();
+    for g in merged.groups.as_deref().unwrap_or(&[]) {
+        dfs_hier(&g.id, &adj, &mut visited, &mut in_stack)?;
+    }
+    for f in merged.fields.as_deref().unwrap_or(&[]) {
+        dfs_hier(&f.id, &adj, &mut visited, &mut in_stack)?;
+    }
+
+    Ok(merged)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2446,5 +2629,251 @@ mod hierarchy_struct_tests {
         let items = file.items.as_ref().expect("items must be Some");
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].id, "i2");
+    }
+}
+
+// ST70-2: Hierarchy loader tests.
+// These tests FAIL before implementation because `load_hierarchy_dir` does not exist yet.
+// The function under test has this signature:
+//   pub fn load_hierarchy_dir(dir: &std::path::Path) -> Result<HierarchyFile, String>
+//
+// It scans `dir` for all *.yml files, merges them into a single HierarchyFile,
+// validates template cardinality (exactly 1 template across all files),
+// detects duplicate (TypeTag, id) pairs, verifies that all group->section and
+// template->group cross-references point to IDs that exist in the merged pool,
+// detects reference cycles, and returns the merged HierarchyFile on success.
+#[cfg(test)]
+mod hierarchy_loader_tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    fn make_hier_test_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join("scribblenot_hier_tests")
+            .join(name);
+        std::fs::create_dir_all(&dir).expect("create hierarchy test dir");
+        dir
+    }
+
+    fn cleanup_hier_test_dir(dir: &Path) {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn write_hier_yml(dir: &Path, name: &str, content: &str) {
+        std::fs::write(dir.join(name), content).expect("write hierarchy yml");
+    }
+
+    // ST70-2-TEST-1: A directory containing a single valid YAML file (one template, one group,
+    // one section) returns Ok and the merged HierarchyFile has the correct group count.
+    // FAILS because load_hierarchy_dir does not exist yet.
+    #[test]
+    fn load_hierarchy_dir_returns_ok_for_valid_single_file() {
+        let dir = make_hier_test_dir("valid_single");
+        write_hier_yml(
+            &dir,
+            "hierarchy.yml",
+            concat!(
+                "template:\n",
+                "  groups:\n",
+                "    - grp1\n",
+                "groups:\n",
+                "  - id: grp1\n",
+                "    nav_label: Group One\n",
+                "    sections:\n",
+                "      - sec1\n",
+                "sections:\n",
+                "  - id: sec1\n",
+                "    nav_label: Section One\n",
+                "    map_label: SEC 1\n",
+                "    section_type: composite\n",
+            ),
+        );
+        let result = load_hierarchy_dir(&dir);
+        cleanup_hier_test_dir(&dir);
+        assert!(
+            result.is_ok(),
+            "expected Ok(HierarchyFile) for valid single-file directory, got: {:?}",
+            result.err()
+        );
+        let file = result.unwrap();
+        let groups = file.groups.as_ref().expect("merged file must have groups");
+        assert_eq!(groups.len(), 1, "merged file should have exactly 1 group");
+    }
+
+    // ST70-2-TEST-2: A directory containing a YAML file with no template at all returns Err
+    // (template cardinality violation: 0 templates found).
+    // FAILS because load_hierarchy_dir does not exist yet.
+    #[test]
+    fn load_hierarchy_dir_errors_when_zero_templates() {
+        let dir = make_hier_test_dir("zero_templates");
+        write_hier_yml(
+            &dir,
+            "no_template.yml",
+            concat!(
+                "groups:\n",
+                "  - id: grp1\n",
+                "    nav_label: Group One\n",
+                "    sections: []\n",
+            ),
+        );
+        let result = load_hierarchy_dir(&dir);
+        cleanup_hier_test_dir(&dir);
+        assert!(
+            result.is_err(),
+            "expected Err when no template is defined across all files, got Ok"
+        );
+        let msg = result.unwrap_err();
+        assert!(
+            msg.to_lowercase().contains("template"),
+            "error message must mention 'template', got: {:?}",
+            msg
+        );
+    }
+
+    // ST70-2-TEST-3: A directory containing two YAML files that each define a template returns
+    // Err (template cardinality violation: 2 templates found).
+    // FAILS because load_hierarchy_dir does not exist yet.
+    #[test]
+    fn load_hierarchy_dir_errors_when_two_templates() {
+        let dir = make_hier_test_dir("two_templates");
+        write_hier_yml(
+            &dir,
+            "file_a.yml",
+            "template:\n  groups:\n    - grp1\n",
+        );
+        write_hier_yml(
+            &dir,
+            "file_b.yml",
+            "template:\n  groups:\n    - grp2\n",
+        );
+        let result = load_hierarchy_dir(&dir);
+        cleanup_hier_test_dir(&dir);
+        assert!(
+            result.is_err(),
+            "expected Err when two templates are defined across files, got Ok"
+        );
+        let msg = result.unwrap_err();
+        assert!(
+            msg.to_lowercase().contains("template"),
+            "error message must mention 'template', got: {:?}",
+            msg
+        );
+    }
+
+    // ST70-2-TEST-4: A directory containing two files that define a group with the same id
+    // returns Err (duplicate (TypeTag::Group, id) pair).
+    // FAILS because load_hierarchy_dir does not exist yet.
+    #[test]
+    fn load_hierarchy_dir_errors_on_duplicate_group_id() {
+        let dir = make_hier_test_dir("duplicate_group_id");
+        write_hier_yml(
+            &dir,
+            "file_a.yml",
+            concat!(
+                "template:\n",
+                "  groups:\n",
+                "    - grp1\n",
+                "groups:\n",
+                "  - id: grp1\n",
+                "    nav_label: Group One\n",
+                "    sections: []\n",
+            ),
+        );
+        write_hier_yml(
+            &dir,
+            "file_b.yml",
+            concat!(
+                "groups:\n",
+                "  - id: grp1\n",
+                "    nav_label: Group One Duplicate\n",
+                "    sections: []\n",
+            ),
+        );
+        let result = load_hierarchy_dir(&dir);
+        cleanup_hier_test_dir(&dir);
+        assert!(
+            result.is_err(),
+            "expected Err for duplicate group id 'grp1' across files, got Ok"
+        );
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("grp1") || msg.to_lowercase().contains("duplicate"),
+            "error message must mention 'grp1' or 'duplicate', got: {:?}",
+            msg
+        );
+    }
+
+    // ST70-2-TEST-5: A directory where a group's sections list references a section id that
+    // does not exist in any file returns Err (missing cross-reference).
+    // FAILS because load_hierarchy_dir does not exist yet.
+    #[test]
+    fn load_hierarchy_dir_errors_on_missing_section_reference() {
+        let dir = make_hier_test_dir("missing_section_ref");
+        write_hier_yml(
+            &dir,
+            "hierarchy.yml",
+            concat!(
+                "template:\n",
+                "  groups:\n",
+                "    - grp1\n",
+                "groups:\n",
+                "  - id: grp1\n",
+                "    nav_label: Group One\n",
+                "    sections:\n",
+                "      - sec_nonexistent\n",
+            ),
+        );
+        let result = load_hierarchy_dir(&dir);
+        cleanup_hier_test_dir(&dir);
+        assert!(
+            result.is_err(),
+            "expected Err when group references section id 'sec_nonexistent' that does not exist, got Ok"
+        );
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("sec_nonexistent") || msg.to_lowercase().contains("missing") || msg.to_lowercase().contains("not found"),
+            "error message must mention 'sec_nonexistent' or 'missing'/'not found', got: {:?}",
+            msg
+        );
+    }
+
+    // ST70-2-TEST-6: A directory where two boilerplate entries share the same id returns Err
+    // (duplicate boilerplate ID).
+    // FAILS because load_hierarchy_dir does not exist yet.
+    #[test]
+    fn load_hierarchy_dir_errors_on_duplicate_boilerplate_id() {
+        let dir = make_hier_test_dir("duplicate_boilerplate_id");
+        write_hier_yml(
+            &dir,
+            "file_a.yml",
+            concat!(
+                "template:\n",
+                "  groups: []\n",
+                "boilerplate:\n",
+                "  - id: bp1\n",
+                "    text: First boilerplate entry\n",
+            ),
+        );
+        write_hier_yml(
+            &dir,
+            "file_b.yml",
+            concat!(
+                "boilerplate:\n",
+                "  - id: bp1\n",
+                "    text: Duplicate boilerplate entry\n",
+            ),
+        );
+        let result = load_hierarchy_dir(&dir);
+        cleanup_hier_test_dir(&dir);
+        assert!(
+            result.is_err(),
+            "expected Err for duplicate boilerplate id 'bp1' across files, got Ok"
+        );
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("bp1") || msg.to_lowercase().contains("duplicate") || msg.to_lowercase().contains("boilerplate"),
+            "error message must mention 'bp1', 'duplicate', or 'boilerplate', got: {:?}",
+            msg
+        );
     }
 }
