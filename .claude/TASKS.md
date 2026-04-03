@@ -17,7 +17,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 - [x] **#46** Neutralise block_select struct and key names so they aren't tied to treatment-region vocabulary
   [D:20 C:90]
 
-- [ ] **#48** Generalize multi_field note rendering to support arbitrary sections beyond the appointment header
+- [ ] **#48** Generalize multi_field note rendering to support arbitrary sections beyond the appointment header *(implemented)*
   [D:40 C:72]
   Claude: `format_header()` in `src/note.rs` renders multi_field output with hard-coded assumptions about date/time/appointment structure. To use multi_field for other sections (like tx_mods), the renderer must be generalized: given any completed multi_field section, output each confirmed field's value in sequence without assuming field semantics. The existing appointment header must continue to render identically -- either keep `format_header()` for the header section specifically (detected by section id) and add a generic renderer for others, or refactor `format_header()` to branch on section id. Changes are in `src/note.rs` and potentially `src/app.rs`. Prerequisite for #50.
   Context: tx_mods restructuring discussion

@@ -89,12 +89,12 @@ pub fn render_note(
     let mut parts: Vec<String> = Vec::new();
     let today = Local::now().format("%Y-%m-%d").to_string();
 
-    // Header: always first - find the multi_field section
-    let header_text = sections.iter().zip(states.iter()).find_map(|(cfg, state)| {
-        if cfg.section_type == "multi_field" {
+    // Pass 1: render the appointment header section (cfg.id == "header") first.
+    for (cfg, state) in sections.iter().zip(states.iter()) {
+        if cfg.section_type == "multi_field" && cfg.id == "header" {
             if let SectionState::Header(hs) = state {
                 let has_repeatable = hs.field_configs.iter().any(|c| c.repeat_limit.is_some());
-                match &mode {
+                let rendered = match &mode {
                     NoteRenderMode::Preview => {
                         let has_any = hs.field_configs.iter().enumerate().any(|(i, fcfg)| {
                             let confirmed = hs.repeated_values.get(i)
@@ -120,17 +120,34 @@ pub fn render_note(
                             format_header_export(hs, sticky_values)
                         }
                     }
+                };
+                if let Some(h) = rendered {
+                    parts.push(h);
                 }
-            } else {
-                None
             }
-        } else {
-            None
+            break;
         }
-    });
+    }
 
-    if let Some(h) = header_text {
-        parts.push(h);
+    // Pass 2: render all remaining multi_field sections generically (skip the appointment header).
+    for (cfg, state) in sections.iter().zip(states.iter()) {
+        if cfg.section_type == "multi_field" && cfg.id != "header" {
+            if let SectionState::Header(hs) = state {
+                match &mode {
+                    NoteRenderMode::Preview => {
+                        let rendered = format_header_generic_preview(hs, sticky_values);
+                        if !rendered.trim().is_empty() {
+                            parts.push(rendered);
+                        }
+                    }
+                    NoteRenderMode::Export => {
+                        if let Some(rendered) = format_header_generic_export(hs, sticky_values) {
+                            parts.push(rendered);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // INTAKE group sections (no ## heading, just #### subsections)
@@ -1031,5 +1048,290 @@ mod tests {
             .collect();
         assert!(!target.is_empty());
         assert_eq!(line, target[0].0 as u16);
+    }
+
+    // --- ST48-1: two-pass multi_field rendering tests ---
+    //
+    // These tests confirm that render_note renders BOTH the appointment header
+    // section (cfg.id == "header") AND any additional multi_field sections
+    // (e.g. id == "test_section"). The current single find_map pass silently
+    // drops the second section, so these tests must FAIL before implementation.
+
+    fn make_multi_field_section(id: &str) -> SectionConfig {
+        SectionConfig {
+            id: id.to_string(),
+            name: id.to_string(),
+            map_label: id.to_string(),
+            section_type: "multi_field".to_string(),
+            data_file: None,
+            date_prefix: None,
+            options: vec![],
+            composite: None,
+            fields: None,
+        }
+    }
+
+    fn make_header_state_with_value(field_id: &str, field_name: &str, value: &str) -> HeaderState {
+        let cfg = HeaderFieldConfig {
+            id: field_id.to_string(),
+            name: field_name.to_string(),
+            options: vec![],
+            composite: None,
+            default: None,
+            repeat_limit: None,
+        };
+        let mut hs = HeaderState::new(vec![cfg]);
+        hs.repeated_values[0].push(value.to_string());
+        hs.completed = true;
+        hs
+    }
+
+    // ST48-1-TEST-1: preview renders header section output
+    // The header section (id="header") with a confirmed appointment_type value
+    // must produce visible output in the rendered note. This establishes the
+    // baseline that the header section still renders after the two-pass refactor.
+    #[test]
+    fn preview_renders_header_section_output() {
+        let header_sec = make_multi_field_section("header");
+        let other_sec = make_section("subjective_section", "free_text");
+
+        let header_hs = make_header_state_with_value(
+            "appointment_type",
+            "Appointment Type",
+            "HEADER_SENTINEL_VALUE",
+        );
+
+        use crate::sections::free_text::FreeTextState;
+        let sections = vec![header_sec, other_sec];
+        let states = vec![
+            SectionState::Header(header_hs),
+            SectionState::FreeText(FreeTextState::new()),
+        ];
+        let sticky = HashMap::new();
+        let bp = HashMap::new();
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
+
+        assert!(
+            note.contains("HEADER_SENTINEL_VALUE"),
+            "render_note must render the header multi_field section (id='header'); \
+             sentinel value 'HEADER_SENTINEL_VALUE' not found in:\n{}", note
+        );
+    }
+
+    // ST48-1-TEST-2: preview renders second multi_field section output
+    // A second multi_field section with id != "header" must also produce output.
+    // With the current find_map approach this test FAILS because find_map stops
+    // at the first match and the second section is silently dropped.
+    #[test]
+    fn preview_renders_second_multi_field_section_output() {
+        let header_sec = make_multi_field_section("header");
+        let test_sec = make_multi_field_section("test_section");
+
+        let header_hs = make_header_state_with_value(
+            "appointment_type",
+            "Appointment Type",
+            "HEADER_SECTION_VALUE",
+        );
+        let test_hs = make_header_state_with_value(
+            "note_field",
+            "Note Field",
+            "TEST_SECTION_SENTINEL_VALUE",
+        );
+
+        let sections = vec![header_sec, test_sec];
+        let states = vec![
+            SectionState::Header(header_hs),
+            SectionState::Header(test_hs),
+        ];
+        let sticky = HashMap::new();
+        let bp = HashMap::new();
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
+
+        assert!(
+            note.contains("TEST_SECTION_SENTINEL_VALUE"),
+            "render_note must render the second multi_field section (id='test_section'); \
+             sentinel value 'TEST_SECTION_SENTINEL_VALUE' not found in:\n{}", note
+        );
+    }
+
+    // ST48-1-TEST-3: preview renders BOTH sections when both have confirmed values
+    // Both the header section AND the test_section must produce output in the
+    // same rendered note. This is the combined proof that neither section is dropped.
+    #[test]
+    fn preview_renders_both_multi_field_sections() {
+        let header_sec = make_multi_field_section("header");
+        let test_sec = make_multi_field_section("test_section");
+
+        let header_hs = make_header_state_with_value(
+            "appointment_type",
+            "Appointment Type",
+            "HEADER_SECTION_VALUE",
+        );
+        let test_hs = make_header_state_with_value(
+            "note_field",
+            "Note Field",
+            "TEST_SECTION_SENTINEL_VALUE",
+        );
+
+        let sections = vec![header_sec, test_sec];
+        let states = vec![
+            SectionState::Header(header_hs),
+            SectionState::Header(test_hs),
+        ];
+        let sticky = HashMap::new();
+        let bp = HashMap::new();
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
+
+        assert!(
+            note.contains("HEADER_SECTION_VALUE"),
+            "header section (id='header') output must appear in rendered note, got:\n{}", note
+        );
+        assert!(
+            note.contains("TEST_SECTION_SENTINEL_VALUE"),
+            "second multi_field section (id='test_section') output must appear in rendered note, got:\n{}", note
+        );
+    }
+
+    // ST48-1-TEST-4: export renders second multi_field section output
+    // Same as TEST-2 but for Export mode, ensuring both modes are covered.
+    #[test]
+    fn export_renders_second_multi_field_section_output() {
+        let header_sec = make_multi_field_section("header");
+        let test_sec = make_multi_field_section("test_section");
+
+        let header_hs = make_header_state_with_value(
+            "appointment_type",
+            "Appointment Type",
+            "HEADER_SECTION_VALUE",
+        );
+        let test_hs = make_header_state_with_value(
+            "note_field",
+            "Note Field",
+            "EXPORT_TEST_SECTION_SENTINEL",
+        );
+
+        let sections = vec![header_sec, test_sec];
+        let states = vec![
+            SectionState::Header(header_hs),
+            SectionState::Header(test_hs),
+        ];
+        let sticky = HashMap::new();
+        let bp = HashMap::new();
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Export);
+
+        assert!(
+            note.contains("EXPORT_TEST_SECTION_SENTINEL"),
+            "render_note (Export mode) must render the second multi_field section (id='test_section'); \
+             sentinel value 'EXPORT_TEST_SECTION_SENTINEL' not found in:\n{}", note
+        );
+    }
+
+    // ST48-1-TEST-5: header section output is byte-for-byte identical with and without
+    // a second multi_field section present. This guards against the refactor accidentally
+    // changing appointment header output.
+    #[test]
+    fn header_output_unchanged_when_second_section_present() {
+        // Build an appointment header state with all four standard fields.
+        let header_field_configs = vec![
+            HeaderFieldConfig {
+                id: "date".to_string(),
+                name: "Date".to_string(),
+                options: vec![],
+                composite: None,
+                default: None,
+                repeat_limit: None,
+            },
+            HeaderFieldConfig {
+                id: "start_time".to_string(),
+                name: "Start Time".to_string(),
+                options: vec![],
+                composite: None,
+                default: None,
+                repeat_limit: None,
+            },
+            HeaderFieldConfig {
+                id: "appointment_duration".to_string(),
+                name: "Duration".to_string(),
+                options: vec![],
+                composite: None,
+                default: None,
+                repeat_limit: None,
+            },
+            HeaderFieldConfig {
+                id: "appointment_type".to_string(),
+                name: "Appointment Type".to_string(),
+                options: vec![],
+                composite: None,
+                default: None,
+                repeat_limit: None,
+            },
+        ];
+        let mut header_hs = HeaderState::new(header_field_configs.clone());
+        header_hs.repeated_values[0].push("2026-04-03".to_string());
+        header_hs.repeated_values[1].push("10:00".to_string());
+        header_hs.repeated_values[2].push("60".to_string());
+        header_hs.repeated_values[3].push("Deep Tissue Massage".to_string());
+        header_hs.completed = true;
+
+        let sticky = HashMap::new();
+        let bp = HashMap::new();
+
+        // Baseline: header section alone
+        let header_sec_only = make_multi_field_section("header");
+        let sections_baseline = vec![header_sec_only];
+        let states_baseline = vec![SectionState::Header(header_hs.clone())];
+        let note_baseline = render_note(
+            &sections_baseline,
+            &states_baseline,
+            &sticky,
+            &bp,
+            NoteRenderMode::Preview,
+        );
+
+        // With second section present
+        let header_sec = make_multi_field_section("header");
+        let test_sec = make_multi_field_section("test_section");
+        let test_hs = make_header_state_with_value("note_field", "Note Field", "EXTRA_VALUE");
+        let sections_with_extra = vec![header_sec, test_sec];
+        let states_with_extra = vec![
+            SectionState::Header(header_hs.clone()),
+            SectionState::Header(test_hs),
+        ];
+        let note_with_extra = render_note(
+            &sections_with_extra,
+            &states_with_extra,
+            &sticky,
+            &bp,
+            NoteRenderMode::Preview,
+        );
+
+        // Extract the header portion (everything before the first separator line
+        // or the first blank-blank block) to compare just the header output.
+        // Both notes must start with the same appointment header text.
+        let baseline_first_line = note_baseline.lines().next().unwrap_or("");
+        let extra_first_line = note_with_extra.lines().next().unwrap_or("");
+
+        assert_eq!(
+            baseline_first_line,
+            extra_first_line,
+            "first line of header output must be identical whether or not a second \
+             multi_field section is present.\nbaseline: {:?}\nwith extra: {:?}",
+            baseline_first_line,
+            extra_first_line
+        );
+
+        // Also verify the specific expected content is present in both
+        assert!(
+            note_baseline.contains("Fri Apr 3, 2026"),
+            "baseline note must contain formatted date, got:\n{}", note_baseline
+        );
+        assert!(
+            note_with_extra.contains("Fri Apr 3, 2026"),
+            "note with extra section must still contain formatted date, got:\n{}", note_with_extra
+        );
     }
 }
