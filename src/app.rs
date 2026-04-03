@@ -1428,7 +1428,8 @@ mod tests {
         let data = AppData {
             groups: vec![group], sections: vec![section],
             list_data: Default::default(), checklist_data: Default::default(),
-            block_select_data: Default::default(), keybindings: KeyBindings::default(),
+            block_select_data: Default::default(), boilerplate_texts: Default::default(),
+            keybindings: KeyBindings::default(),
             data_dir: PathBuf::new(),
         };
         let mut app = App::new(data, Config::default(), PathBuf::new());
@@ -1460,7 +1461,8 @@ mod tests {
         let data = AppData {
             groups: vec![group], sections: vec![section],
             list_data: Default::default(), checklist_data: Default::default(),
-            block_select_data: Default::default(), keybindings: KeyBindings::default(),
+            block_select_data: Default::default(), boilerplate_texts: Default::default(),
+            keybindings: KeyBindings::default(),
             data_dir: PathBuf::new(),
         };
         let mut app = App::new(data, Config::default(), PathBuf::new());

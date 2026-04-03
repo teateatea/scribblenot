@@ -209,6 +209,7 @@ pub struct AppData {
     pub list_data: HashMap<String, Vec<ListEntry>>,
     pub checklist_data: HashMap<String, Vec<String>>,
     pub block_select_data: HashMap<String, Vec<BlockSelectEntry>>,
+    pub boilerplate_texts: HashMap<String, String>,
     pub keybindings: KeyBindings,
     pub data_dir: PathBuf,
 }
@@ -289,6 +290,7 @@ impl AppData {
             list_data,
             checklist_data,
             block_select_data,
+            boilerplate_texts: base.boilerplate_texts,
             keybindings,
             data_dir,
         })
@@ -745,12 +747,22 @@ pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
         }
     }
 
+    // Boilerplate extraction: collect id -> text.
+    // Duplicate ids are already rejected by the general duplicate check above.
+    let mut boilerplate_texts: HashMap<String, String> = HashMap::new();
+    for block in &pool {
+        if let crate::flat_file::FlatBlock::Boilerplate { id, text } = block {
+            boilerplate_texts.insert(id.clone(), text.clone());
+        }
+    }
+
     Ok(AppData {
         groups,
         sections: all_sections,
         list_data: HashMap::new(),
         checklist_data: HashMap::new(),
         block_select_data: HashMap::new(),
+        boilerplate_texts,
         keybindings: KeyBindings::default(),
         data_dir: path.to_path_buf(),
     })
@@ -1554,4 +1566,113 @@ pub fn find_data_dir() -> PathBuf {
 
     // Fallback to cwd/data
     cwd_data
+}
+
+#[cfg(test)]
+mod boilerplate_load_tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    fn make_bp_test_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join("scribblenot_bp_tests")
+            .join(name);
+        std::fs::create_dir_all(&dir).expect("create test dir");
+        dir
+    }
+
+    fn cleanup_bp_test_dir(dir: &Path) {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn write_bp_yml(dir: &Path, name: &str, content: &str) {
+        std::fs::write(dir.join(name), content).expect("write yml");
+    }
+
+    // ST52-3-TEST-1: AppData must have a `boilerplate_texts` field of type
+    // HashMap<String, String>. This test fails to compile until the field is added.
+    #[test]
+    fn app_data_has_boilerplate_texts_field() {
+        fn check_field(ad: &AppData) -> &HashMap<String, String> {
+            &ad.boilerplate_texts
+        }
+        let _ = check_field;
+    }
+
+    // ST52-3-TEST-2: After loading a directory containing a boilerplate.yml with
+    // the treatment_plan_disclaimer block, boilerplate_texts must contain that key
+    // with the correct text.
+    #[test]
+    fn boilerplate_texts_contains_treatment_plan_disclaimer() {
+        let dir = make_bp_test_dir("bp_disclaimer");
+        write_bp_yml(
+            &dir,
+            "boilerplate.yml",
+            "blocks:\n  - type: boilerplate\n    id: treatment_plan_disclaimer\n    text: |\n      Regions and locations are bilateral unless indicated otherwise.\n      Patient is pillowed under ankles when prone, and under knees when supine.\n",
+        );
+        let result = load_data_dir(&dir);
+        cleanup_bp_test_dir(&dir);
+        let app_data = result.expect("load_data_dir should succeed with valid boilerplate yml");
+        assert!(
+            app_data.boilerplate_texts.contains_key("treatment_plan_disclaimer"),
+            "boilerplate_texts must contain treatment_plan_disclaimer key"
+        );
+        let text = &app_data.boilerplate_texts["treatment_plan_disclaimer"];
+        assert!(
+            text.contains("bilateral unless indicated otherwise"),
+            "treatment_plan_disclaimer text must contain expected content; got: {text:?}"
+        );
+        assert!(
+            text.contains("pillowed under ankles when prone"),
+            "treatment_plan_disclaimer text must contain expected content; got: {text:?}"
+        );
+    }
+
+    // ST52-3-TEST-3: After loading a directory containing a boilerplate.yml with
+    // the informed_consent block, boilerplate_texts must contain that key with the
+    // correct text.
+    #[test]
+    fn boilerplate_texts_contains_informed_consent() {
+        let dir = make_bp_test_dir("bp_consent");
+        write_bp_yml(
+            &dir,
+            "boilerplate.yml",
+            "blocks:\n  - type: boilerplate\n    id: informed_consent\n    text: Patient has been informed of the risks and benefits of massage therapy, and has given informed consent to assessment and treatment.\n",
+        );
+        let result = load_data_dir(&dir);
+        cleanup_bp_test_dir(&dir);
+        let app_data = result.expect("load_data_dir should succeed with valid boilerplate yml");
+        assert!(
+            app_data.boilerplate_texts.contains_key("informed_consent"),
+            "boilerplate_texts must contain informed_consent key"
+        );
+        let text = &app_data.boilerplate_texts["informed_consent"];
+        assert!(
+            text.contains("informed consent to assessment and treatment"),
+            "informed_consent text must contain expected content; got: {text:?}"
+        );
+    }
+
+    // ST52-3-TEST-4: Loading a directory with two boilerplate blocks sharing the
+    // same id must return an error (duplicate detection).
+    #[test]
+    fn load_data_dir_errors_on_duplicate_boilerplate_id() {
+        let dir = make_bp_test_dir("bp_dupe");
+        write_bp_yml(
+            &dir,
+            "boilerplate.yml",
+            "blocks:\n  - type: boilerplate\n    id: duplicate_bp\n    text: First text.\n  - type: boilerplate\n    id: duplicate_bp\n    text: Second text.\n",
+        );
+        let result = load_data_dir(&dir);
+        cleanup_bp_test_dir(&dir);
+        assert!(
+            result.is_err(),
+            "expected an error for duplicate boilerplate id, but got Ok"
+        );
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("duplicate_bp"),
+            "error message should mention the duplicate id; got: {err_msg}"
+        );
+    }
 }
