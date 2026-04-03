@@ -95,7 +95,11 @@ pub fn render_note(
             if let SectionState::Header(hs) = state {
                 match &mode {
                     NoteRenderMode::Preview => {
-                        let has_any = hs.field_configs.iter().zip(hs.values.iter()).any(|(fcfg, confirmed)| {
+                        let has_any = hs.field_configs.iter().enumerate().any(|(i, fcfg)| {
+                            let confirmed = hs.repeated_values.get(i)
+                                .and_then(|v| v.last())
+                                .map(|s| s.as_str())
+                                .unwrap_or("");
                             !resolve_multifield_value(confirmed, fcfg, sticky_values).is_empty_variant()
                         });
                         if has_any {
@@ -383,9 +387,13 @@ fn format_header_preview(
     let field_preview = |id: &str| -> String {
         hs.field_configs
             .iter()
-            .zip(hs.values.iter())
-            .find(|(cfg, _)| cfg.id == id)
-            .map(|(cfg, confirmed)| {
+            .enumerate()
+            .find(|(_, cfg)| cfg.id == id)
+            .map(|(i, cfg)| {
+                let confirmed = hs.repeated_values.get(i)
+                    .and_then(|v| v.last())
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
                 resolve_multifield_value(confirmed, cfg, sticky_values)
                     .preview_str()
                     .to_string()
@@ -411,9 +419,13 @@ fn format_header_export(
     let field_export = |id: &str| -> Option<String> {
         hs.field_configs
             .iter()
-            .zip(hs.values.iter())
-            .find(|(cfg, _)| cfg.id == id)
-            .and_then(|(cfg, confirmed)| {
+            .enumerate()
+            .find(|(_, cfg)| cfg.id == id)
+            .and_then(|(i, cfg)| {
+                let confirmed = hs.repeated_values.get(i)
+                    .and_then(|v| v.last())
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
                 resolve_multifield_value(confirmed, cfg, sticky_values)
                     .export_value()
                     .map(|s| s.to_string())
@@ -488,8 +500,10 @@ mod tests {
             .collect();
         let mut hs = HeaderState::new(configs);
         for (i, val) in values.iter().enumerate() {
-            if let Some(v) = hs.values.get_mut(i) {
-                *v = val.to_string();
+            if let Some(slot) = hs.repeated_values.get_mut(i) {
+                if !val.is_empty() {
+                    slot.push(val.to_string());
+                }
             }
         }
         hs
@@ -524,7 +538,7 @@ mod tests {
         };
         let configs = vec![date_cfg, dur_cfg];
         let mut hs = HeaderState::new(configs);
-        hs.values[1] = "60".to_string(); // only duration confirmed
+        hs.repeated_values[1].push("60".to_string()); // only duration confirmed
         let sticky = HashMap::new();
 
         let result = format_header_export(&hs, &sticky);
@@ -568,10 +582,10 @@ mod tests {
         };
         let configs = vec![date_cfg, time_cfg, dur_cfg, appt_cfg];
         let mut hs = HeaderState::new(configs);
-        hs.values[0] = "2026-04-02".to_string();
-        hs.values[1] = "13:00".to_string();
-        hs.values[2] = "60".to_string();
-        hs.values[3] = "Treatment focused massage".to_string();
+        hs.repeated_values[0].push("2026-04-02".to_string());
+        hs.repeated_values[1].push("13:00".to_string());
+        hs.repeated_values[2].push("60".to_string());
+        hs.repeated_values[3].push("Treatment focused massage".to_string());
         let sticky = HashMap::new();
 
         let result = format_header_export(&hs, &sticky);

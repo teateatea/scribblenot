@@ -310,7 +310,14 @@ fn render_header_widget(
 
     for i in 0..n.min(chunks.len()) {
         let cfg = &state.field_configs[i];
-        let value = &state.values[i];
+        let last_val;
+        let value: &str = {
+            last_val = state.repeated_values.get(i)
+                .and_then(|v| v.last())
+                .map(|s| s.as_str())
+                .unwrap_or("");
+            last_val
+        };
         let is_active = i == display_field_index;
         let has_value = !value.is_empty();
         let modal_for_field = active_modal.filter(|m| m.field_idx == i);
@@ -385,7 +392,7 @@ fn render_header_widget(
             let display = if is_active && !map_preview {
                 format!("{}_", value)
             } else {
-                value.clone()
+                value.to_string()
             };
             f.render_widget(Paragraph::new(display).style(theme::selected()).block(field_block), chunks[i]);
             continue;

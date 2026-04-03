@@ -607,7 +607,10 @@ impl App {
             let idx = self.current_idx;
             let resolved = if let Some(SectionState::Header(s)) = self.section_states.get(idx) {
                 s.field_configs.get(s.field_index).map(|cfg| {
-                    let confirmed = s.values.get(s.field_index).map(|v| v.as_str()).unwrap_or("");
+                    let confirmed = s.repeated_values.get(s.field_index)
+                        .and_then(|v| v.last())
+                        .map(|v| v.as_str())
+                        .unwrap_or("");
                     crate::sections::multi_field::resolve_multifield_value(
                         confirmed,
                         cfg,
@@ -635,6 +638,10 @@ impl App {
                 // Normalize out-of-bounds index before going back
                 if s.field_index >= s.field_configs.len() && !s.field_configs.is_empty() {
                     s.field_index = s.field_configs.len() - 1;
+                    s.repeat_counts[s.field_index] = 0;
+                    if let Some(slot) = s.repeated_values.get_mut(s.field_index) {
+                        slot.clear();
+                    }
                     s.completed = false;
                     true
                 } else {
@@ -817,7 +824,7 @@ impl App {
                     let preview = compute_composite_preview(self.modal.as_ref().unwrap());
                     let spans = compute_composite_spans(self.modal.as_ref().unwrap());
                     if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
-                        s.set_current_value(preview);
+                        s.set_preview_value(preview);
                         s.composite_spans = Some(spans);
                     }
                     let _ = self.config.save(&self.data_dir);
@@ -825,6 +832,9 @@ impl App {
                 CompositeAdvance::Complete(final_value) => {
                     if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                         s.composite_spans = None;
+                        if let Some(slot) = s.repeated_values.get_mut(s.field_index) {
+                            slot.clear();
+                        }
                         s.set_current_value(final_value);
                         let done = s.advance();
                         if done {
@@ -1303,7 +1313,9 @@ impl App {
             // Back to first part - clear partial state (preload will show via render)
             if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                 s.composite_spans = None;
-                s.set_current_value(String::new());
+                if let Some(slot) = s.repeated_values.get_mut(s.field_index) {
+                    slot.clear();
+                }
             }
         } else {
             let (preview, spans) = {
@@ -1311,7 +1323,7 @@ impl App {
                 (compute_composite_preview(modal), compute_composite_spans(modal))
             };
             if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
-                s.set_current_value(preview);
+                s.set_preview_value(preview);
                 s.composite_spans = Some(spans);
             }
         }
@@ -1436,7 +1448,7 @@ mod tests {
         let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT);
         app.handle_header_key(key);
         if let Some(SectionState::Header(s)) = app.section_states.get(0) {
-            assert_eq!(s.values[0], "hello", "field 0 should be filled with its default");
+            assert_eq!(s.repeated_values[0].last().map(|s| s.as_str()).unwrap_or(""), "hello", "field 0 should be filled with its default");
             assert_eq!(s.field_index, 1, "field_index should advance to 1");
         } else {
             panic!("expected Header state at index 0");
