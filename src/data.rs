@@ -710,7 +710,7 @@ pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
                             let Some(&fidx) = id_map.get(fid.as_str()) else { continue };
                             if let crate::flat_file::FlatBlock::Field {
                                 id: field_id, name: field_name,
-                                options, composite, default, ..
+                                options, composite, default, repeat_limit, ..
                             } = &pool[fidx] {
                                 hfields.push(HeaderFieldConfig {
                                     id: field_id.clone(),
@@ -718,7 +718,7 @@ pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
                                     options: options.clone(),
                                     composite: composite.clone(),
                                     default: default.clone(),
-                                    repeat_limit: None,
+                                    repeat_limit: *repeat_limit,
                                 });
                             }
                         }
@@ -1720,6 +1720,115 @@ mod header_field_repeat_limit_tests {
             cfg.repeat_limit,
             Some(0),
             "repeat_limit should be Some(0) when specified as 0 in YAML"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tx_mods_multi_field_tests {
+    use super::*;
+
+    fn data_dir() -> std::path::PathBuf {
+        let manifest_dir = std::path::PathBuf::from(
+            std::env::var("CARGO_MANIFEST_DIR")
+                .expect("CARGO_MANIFEST_DIR must be set when running cargo test"),
+        );
+        manifest_dir.join("data")
+    }
+
+    fn load() -> AppData {
+        let dir = data_dir();
+        load_data_dir(&dir).expect("load_data_dir on real data directory must succeed")
+    }
+
+    fn find_tx_mods(app: &AppData) -> &SectionConfig {
+        app.sections
+            .iter()
+            .find(|s| s.id == "tx_mods")
+            .expect("tx_mods section must exist in sections")
+    }
+
+    // ST50-1-TEST-1: tx_mods section_type must be "multi_field" after sub-task 1.
+    // FAILS before implementation because sections.yml still has section_type: list_select.
+    #[test]
+    fn tx_mods_section_type_is_multi_field() {
+        let app = load();
+        let sec = find_tx_mods(&app);
+        assert_eq!(
+            sec.section_type, "multi_field",
+            "tx_mods section_type must be 'multi_field' after sub-task 1 implementation; \
+             got '{}'",
+            sec.section_type
+        );
+    }
+
+    // ST50-1-TEST-2: tx_mods must have exactly 5 field children after sub-task 1.
+    // FAILS before implementation because the section has no fields (it uses data_file instead).
+    #[test]
+    fn tx_mods_has_five_field_children() {
+        let app = load();
+        let sec = find_tx_mods(&app);
+        let fields = sec
+            .fields
+            .as_ref()
+            .expect("tx_mods.fields must be Some(Vec<HeaderFieldConfig>) after implementation");
+        assert_eq!(
+            fields.len(),
+            5,
+            "tx_mods must have exactly 5 inline field children \
+             (pressure, challenge, mood, communication, modifications); got {}",
+            fields.len()
+        );
+    }
+
+    // ST50-1-TEST-3: the 'modifications' field in tx_mods must have repeat_limit: Some(10).
+    // FAILS before implementation because FlatBlock::Field has no repeat_limit field
+    // and the loader hardcodes repeat_limit: None for all fields.
+    #[test]
+    fn tx_mods_modifications_field_has_repeat_limit_10() {
+        let app = load();
+        let sec = find_tx_mods(&app);
+        let fields = sec
+            .fields
+            .as_ref()
+            .expect("tx_mods.fields must be Some after implementation");
+        let modifications = fields
+            .iter()
+            .find(|f| f.id == "modifications")
+            .expect("a field with id 'modifications' must exist in tx_mods fields");
+        assert_eq!(
+            modifications.repeat_limit,
+            Some(10),
+            "tx_mods modifications field must have repeat_limit: Some(10); \
+             got {:?}",
+            modifications.repeat_limit
+        );
+    }
+
+    // ST50-1-TEST-4: the 'modifications' field options must include the value "PREGNANCY".
+    // FAILS before implementation because the field doesn't exist yet.
+    // The options are simple strings matching the label values from tx_mods.yml.
+    #[test]
+    fn tx_mods_modifications_field_contains_pregnancy_option() {
+        let app = load();
+        let sec = find_tx_mods(&app);
+        let fields = sec
+            .fields
+            .as_ref()
+            .expect("tx_mods.fields must be Some after implementation");
+        let modifications = fields
+            .iter()
+            .find(|f| f.id == "modifications")
+            .expect("a field with id 'modifications' must exist in tx_mods fields");
+        let has_pregnancy = modifications
+            .options
+            .iter()
+            .any(|o| o.contains("PREGNANCY"));
+        assert!(
+            has_pregnancy,
+            "tx_mods modifications field options must include an entry containing 'PREGNANCY'; \
+             options found: {:?}",
+            modifications.options
         );
     }
 }

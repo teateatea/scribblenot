@@ -29,6 +29,7 @@ pub enum FlatBlock {
         #[serde(default)] options: Vec<String>,
         #[serde(default)] composite: Option<CompositeConfig>,
         #[serde(default)] default: Option<String>,
+        #[serde(default)] repeat_limit: Option<usize>,
     },
     OptionsList {
         id: String,
@@ -87,7 +88,7 @@ mod tests {
 
     #[test]
     fn flat_block_field_variant_has_id() {
-        let block = FlatBlock::Field { id: "fld1".to_string(), children: vec![], name: None, options: vec![], composite: None, default: None };
+        let block = FlatBlock::Field { id: "fld1".to_string(), children: vec![], name: None, options: vec![], composite: None, default: None, repeat_limit: None };
         match &block {
             FlatBlock::Field { id, .. } => assert_eq!(id, "fld1"),
             _ => panic!("expected Field variant"),
@@ -139,7 +140,7 @@ blocks:
     #[test]
     fn flat_block_id_is_string() {
         // Verify at compile time that id is a String (not &str or numeric).
-        let block = FlatBlock::Field { id: String::from("field_id"), children: vec![], name: None, options: vec![], composite: None, default: None };
+        let block = FlatBlock::Field { id: String::from("field_id"), children: vec![], name: None, options: vec![], composite: None, default: None, repeat_limit: None };
         let _id: String = match block {
             FlatBlock::Field { id, .. } => id,
             _ => unreachable!(),

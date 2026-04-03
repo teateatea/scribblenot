@@ -17,13 +17,8 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
 - [x] **#46** Neutralise block_select struct and key names so they aren't tied to treatment-region vocabulary
   [D:20 C:90]
 
-- [ ] **#48** Generalize multi_field note rendering to support arbitrary sections beyond the appointment header *(implemented)*
-  [D:40 C:72]
-  Claude: `format_header()` in `src/note.rs` renders multi_field output with hard-coded assumptions about date/time/appointment structure. To use multi_field for other sections (like tx_mods), the renderer must be generalized: given any completed multi_field section, output each confirmed field's value in sequence without assuming field semantics. The existing appointment header must continue to render identically -- either keep `format_header()` for the header section specifically (detected by section id) and add a generic renderer for others, or refactor `format_header()` to branch on section id. Changes are in `src/note.rs` and potentially `src/app.rs`. Prerequisite for #50.
-  Context: tx_mods restructuring discussion
 
-
-- [ ] **#50** Convert tx_mods section to multi_field with 5 categorized fields, removing tx_mods.yml
+- [ ] **#50** Convert tx_mods section to multi_field with 5 categorized fields, removing tx_mods.yml *(implemented)*
   [D:40 C:88]
   Claude: Restructure tx_mods from list_select (one scrollable multi-select list) to multi_field (sequential single-select per category). Five fields: Pressure (LIGHT/MODERATE/REGULAR/FIRM/HEAVY/FULL), Challenge (VERY GENTLE/GENTLE/RELAXED/COMFORTABLE/STRONG/CHALLENGING), Mood (CALMING/RELAXING/CONVERSATIONAL/SOCIAL/RESTFUL/INTROSPECTIVE), Communication (CONCISE/STOIC x2/CONTROLLED/COMMUNICATIVE -- STOIC appears as two distinct entries for the two different notes), Modifications (PREGNANCY/POST-CONCUSSION/VERTIGO/LOW LIGHT/NO PRONE/SUPINE ONLY/HEAD PILLOW/HEAD PILLOW REQUIRED/LOWER TABLE/TALL/CLOTHED/RAYNAUDS/TIMELY with repeat_limit: 10). Pressure/Challenge/Mood/Communication are single-select. All options move inline to sections.yml field blocks; data/tx_mods.yml is deleted and the data_file reference removed from the section config. Note: RAYNAUD'S apostrophe needs handling in YAML. Depends on #48 and #49.
   Joseph-Raw: So, Tx Mods should probably actually be a multi_field. Can you split the list up into fields: Pressure, Challenge, Mood, Communication, and Modifications? Try to categorize them correctly, I'll adjust any that are confusing.

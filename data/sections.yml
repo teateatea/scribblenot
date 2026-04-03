@@ -76,8 +76,8 @@ blocks:
     id: tx_mods
     name: "Treatment Modifications & Preferences"
     map_label: "Tx Mods"
-    section_type: list_select
-    data_file: "tx_mods.yml"
+    section_type: multi_field
+    children: [pressure, challenge, mood, communication, modifications]
   - type: section
     id: tx_regions
     name: "Treatment Regions"
@@ -205,3 +205,66 @@ blocks:
               output: "Relaxation"
             - label: "General"
               output: "General massage"
+
+# Tx Mods fields
+  - type: field
+    id: pressure
+    name: "Pressure"
+    options:
+      - "- LIGHT PRESSURE: Pt prefers much less than Mr. Gormley's usual working pressure."
+      - "- MODERATE PRESSURE: Pt prefers slightly less than Mr. Gormley's usual working pressure."
+      - "- REGULAR PRESSURE: Pt is comfortable with Mr. Gormley's usual working pressure."
+      - "- FIRM PRESSURE: Pt prefers slightly more than Mr. Gormley's usual working pressure."
+      - "- HEAVY PRESSURE: Pt prefers much more than Mr. Gormley's usual pressure."
+      - "- FULL PRESSURE: Pt prefers the maximum pressure that Mr. Gormley can apply safely. Consider lowering the massage table."
+
+  - type: field
+    id: challenge
+    name: "Challenge"
+    options:
+      - "- VERY GENTLE TREATMENT: Pt prefers a gentle treatment: Avoid all challenging techniques."
+      - "- GENTLE TREATMENT: Pt prefers a gentle treatment: Avoid challenging techniques."
+      - "- RELAXED TREATMENT: Pt prefers a relaxed treatment, but may tolerate some challenge."
+      - "- COMFORTABLE TREATMENT: Pt prefers a challenge only when necessary for treatment."
+      - "- STRONG TREATMENT: Pt prefers a strong treatment, with some challenge expected."
+      - "- CHALLENGING TREATMENT: Pt prefers a challenging treatment, with pressure that approaches discomfort."
+
+  - type: field
+    id: mood
+    name: "Mood"
+    options:
+      - "- CALMING: Pt responds well to slow-paced techniques with limited conversation.\n- - Give time to breathe and feel muscles relax, without distraction!"
+      - "- RELAXING: Pt responds well to limited or casual conversation."
+      - "- CONVERSATIONAL: Pt responds well to a social atmosphere during treatment.\n- - Remember to interrupt conversation for check ins; allow time for quiet."
+      - "- SOCIAL: Pt responds well to ongoing sociable conversation during treatment.\n- - If necessary, interrupt conversation to check in!"
+
+  - type: field
+    id: communication
+    name: "Communication"
+    options:
+      - "- CONCISE: Pt responds well to clear, direct language, with limited conversation."
+      - "- INTROSPECTIVE: Pt responds well to limited conversation.\n- - Give space for slowing down without distraction."
+      - "- STOIC: Pt may suppress their responses to pain or discomfort. Check in as needed."
+      - "- STOIC: Pt responds well to frequent verbal check ins.\n- - Pt may suppress their responses to pain or discomfort."
+      - "- CONTROLLED: Pt prefers a very specific amount of pressure.\n- - Check in frequently, even with each muscle change."
+      - "- COMMUNICATIVE: Pt speaks up about their needs or discomfort. Check in regularly anyways!"
+      - "- RESTFUL: Pt prefers resting during appointment. Limit conversation, focus on recovery."
+
+  - type: field
+    id: modifications
+    name: "Modifications"
+    repeat_limit: 10
+    options:
+      - "- PREGNANCY: Patient is treated in sidelying whenever possible, and pillowed under the head, in front of the chest, and between the knees.\n- - Patient may be treated in supine for up to 5 minutes.\n- - Lower table at the beginning and end of treatment."
+      - "- POST-CONCUSSION: Patient is treated supine only, and pillowed under head and knees.\n- - Avoid using prone position.\n- - Avoid the neck.\n- - Dim lighting when possible.\n- - No music.\n- - No air filter fan."
+      - "- VERTIGO: Encourage taking time to turn over slowly.\n- - Allow extra time to settle after changing positions before continuing treatment.\n- - Encourage pausing at each step when sitting up from the massage table."
+      - "- LOW LIGHT: Pt prefers as lights as dimmed as possible."
+      - "- NO PRONE: Do not put Pt in prone position."
+      - "- SUPINE ONLY: Treat Pt only in supine position."
+      - "- HEAD PILLOW: Pt accepts pillow for head while supine."
+      - "- HEAD PILLOW REQUIRED: Pillow must be immediately available when supine."
+      - "- LOWER TABLE: Lower massage table before & after treatment."
+      - "- TALL: Recommend using height extender on massage table."
+      - "- CLOTHED: Patient prefers to be clothed, using no oil during treatment."
+      - "- RAYNAUD'S: Pt may be sensitive to cold."
+      - "- TIMELY: Patient prefers finishing treatment strictly on schedule."
