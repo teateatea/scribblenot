@@ -1,5 +1,12 @@
 # Closed Tasks
 
+- [ ] **#49** Add repeat_limit: N to multi_field fields so a field can re-queue itself up to N times after confirmation
+  [D:60 C:82]
+  Claude: Add optional `repeat_limit: usize` to `HeaderFieldConfig` in `src/data.rs` (serde default = none = no repeat). In `HeaderState`, track a repetition counter per field slot. After confirming a field with repeat_limit set, re-present the same field at the current position and increment the counter; once the counter reaches repeat_limit, advance normally. The user can skip/back to stop repeating early. All confirmed values from repetitions are collected and included in the section's note output. The N cap prevents runaway repetition from held keys. Primary use case is the Modifications field in the planned tx_mods multi_field section. Touches HeaderFieldConfig, HeaderState (src/sections/header.rs), and note rendering. Prerequisite for #50.
+  Joseph-Raw: I think for modifications, can we add a new field setting? "repeating: N" (or recommend a better name), where after that field is confirmed, it'll add itself as an available field again below, up to N times. So I can choose Modication: PREGNANCY, then Modification: HEAD PILLOW REQUIRED, then Modification: TIMELY, up to N times. (And it's up to N times and not repeating: true just to prevent accidentally adding thousands of entries if a button is held down too long lol. I'd probably put it at N = 10 or something most of the time.)
+  Context: tx_mods restructuring discussion
+- Completed: 2026-04-03T01:19:15
+
 - [ ] **#52** Extract hard-coded boilerplate strings from note.rs into editable YML data files *(implemented)*
   [D:62 C:72]
   Claude: Added FlatBlock::Boilerplate variant to flat_file.rs; created data/boilerplate.yml with treatment_plan_disclaimer and informed_consent blocks; added boilerplate_texts: HashMap<String,String> to AppData populated from loader; threaded &HashMap through render_note() and section_start_line() signatures; replaced hard-coded literals in note.rs with runtime lookups. 122 tests pass, zero warnings.
