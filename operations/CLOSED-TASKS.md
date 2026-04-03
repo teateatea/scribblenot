@@ -1,5 +1,11 @@
 # Closed Tasks
 
+- [ ] **#48** Generalize multi_field note rendering to support arbitrary sections beyond the appointment header
+  [D:40 C:72]
+  Claude: Generalized multi_field rendering in note.rs. Split render_note into two passes: Pass 1 renders the appointment header by cfg.id=="header" using existing format functions (identical output); Pass 2/inline dispatch renders all other multi_field sections via render_multifield_section() at their correct position in the note. Added pub fn render_multifield_section dispatcher, #[derive(Clone)] to NoteRenderMode, and catch-all block for unknown multi_field ids after INFECTION CONTROL. tx_mods block now calls render_multifield_section when section_type is "multi_field". 160 tests pass, zero warnings.
+  Context: tx_mods restructuring discussion
+- Completed: 2026-04-03T02:18:58
+
 - [ ] **#49** Add repeat_limit: N to multi_field fields so a field can re-queue itself up to N times after confirmation
   [D:60 C:82]
   Claude: Add optional `repeat_limit: usize` to `HeaderFieldConfig` in `src/data.rs` (serde default = none = no repeat). In `HeaderState`, track a repetition counter per field slot. After confirming a field with repeat_limit set, re-present the same field at the current position and increment the counter; once the counter reaches repeat_limit, advance normally. The user can skip/back to stop repeating early. All confirmed values from repetitions are collected and included in the section's note output. The N cap prevents runaway repetition from held keys. Primary use case is the Modifications field in the planned tx_mods multi_field section. Touches HeaderFieldConfig, HeaderState (src/sections/header.rs), and note rendering. Prerequisite for #50.
