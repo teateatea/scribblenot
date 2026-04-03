@@ -11,7 +11,7 @@ use crate::flat_file::FlatFile;
 #[serde(untagged)]
 pub enum PartOption {
     Simple(String),
-    Full { id: String, label: String, output: String },
+    Full { id: String, label: String, output: String, #[serde(default = "default_true")] default: bool },
     Labeled { label: String, output: String },
 }
 
@@ -37,6 +37,8 @@ impl PartOption {
         }
     }
 }
+
+fn default_true() -> bool { true }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompositePart {
@@ -446,6 +448,35 @@ mod rename_tests {
             &ad.block_select_data
         }
         let _ = check_field;
+    }
+}
+
+#[cfg(test)]
+mod part_option_default_tests {
+    use super::*;
+
+    #[test]
+    fn full_without_default_field_yields_default_true() {
+        let yaml = "id: opt1\nlabel: Option One\noutput: out1\n";
+        let parsed: PartOption = serde_yaml::from_str(yaml).expect("deserialize failed");
+        match parsed {
+            PartOption::Full { default, .. } => {
+                assert!(default, "expected default == true when `default:` key is absent");
+            }
+            other => panic!("expected PartOption::Full, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn full_with_default_false_yields_false() {
+        let yaml = "id: opt2\nlabel: Option Two\noutput: out2\ndefault: false\n";
+        let parsed: PartOption = serde_yaml::from_str(yaml).expect("deserialize failed");
+        match parsed {
+            PartOption::Full { default, .. } => {
+                assert!(!default, "expected default == false when `default: false` is set");
+            }
+            other => panic!("expected PartOption::Full, got {:?}", other),
+        }
     }
 }
 
