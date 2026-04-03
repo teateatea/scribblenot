@@ -486,6 +486,40 @@ mod part_option_default_tests {
     }
 }
 
+#[cfg(test)]
+mod tx_regions_default_tests {
+    use super::*;
+
+    // ST47-3-TEST-1: The `fascial_l4l5` entry in `back_lower_prone` (LOWER BACK Prone, index 3)
+    // must start UNSELECTED (default: false) because it is rarely used per user context.
+    // This test FAILS before the yml change (no `default` field means default=true -> selected).
+    // It PASSES after `default: false` is added to the fascial_l4l5 entry in tx_regions.yml.
+    #[test]
+    fn lower_back_prone_fascial_l4l5_starts_unselected() {
+        let yaml_content = include_str!("../data/tx_regions.yml");
+        let file: BlockSelectFile =
+            serde_yaml::from_str(yaml_content).expect("tx_regions.yml must parse as BlockSelectFile");
+
+        let region = file
+            .entries
+            .iter()
+            .find(|e| e.id == "back_lower_prone")
+            .expect("back_lower_prone region must exist in tx_regions.yml");
+
+        // Entries order: swedish(0), spec_comp_ql(1), muscle_strip_es(2), fascial_l4l5(3)
+        let fascial_entry = region
+            .entries
+            .iter()
+            .find(|e| e.option_id() == Some("fascial_l4l5"))
+            .expect("fascial_l4l5 entry must exist in back_lower_prone");
+
+        assert!(
+            !fascial_entry.default_selected(),
+            "fascial_l4l5 in LOWER BACK (Prone) must have default: false and start unselected"
+        );
+    }
+}
+
 /// Returns the flat section index of the first section in `groups[g_idx]`.
 ///
 /// - If `g_idx` is in bounds, returns the sum of `sections.len()` for all preceding groups.
@@ -539,6 +573,7 @@ fn block_type_tag(b: &crate::flat_file::FlatBlock) -> &'static str {
         Section {..} => "section",
         Field {..} => "field",
         OptionsList {..} => "options-list",
+        Boilerplate {..} => "boilerplate",
     }
 }
 
@@ -546,7 +581,8 @@ fn block_id(b: &crate::flat_file::FlatBlock) -> &str {
     use crate::flat_file::FlatBlock::*;
     match b {
         Box { id, .. } | Group { id, .. } | Section { id, .. }
-            | Field { id, .. } | OptionsList { id, .. } => id.as_str(),
+            | Field { id, .. } | OptionsList { id, .. }
+            | Boilerplate { id, .. } => id.as_str(),
     }
 }
 
@@ -555,6 +591,7 @@ fn block_children(b: &crate::flat_file::FlatBlock) -> &[String] {
     match b {
         Box { children, .. } | Group { children, .. } | Section { children, .. }
             | Field { children, .. } | OptionsList { children, .. } => children.as_slice(),
+        Boilerplate {..} => &[],
     }
 }
 

@@ -35,6 +35,10 @@ pub enum FlatBlock {
         #[serde(default)] children: Vec<String>,
         #[serde(default)] entries: Vec<PartOption>,
     },
+    Boilerplate {
+        id: String,
+        text: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,5 +214,67 @@ blocks:
             }
             _ => panic!("expected OptionsList variant"),
         }
+    }
+
+    // --- Tests for FlatBlock::Boilerplate variant (task #52 sub-task 1) ---
+
+    #[test]
+    fn boilerplate_variant_deserializes_from_yaml() {
+        // A FlatBlock of type "boilerplate" must deserialize with id and text fields.
+        let yaml = r#"
+blocks:
+  - type: boilerplate
+    id: bp_intro
+    text: "This is the boilerplate text content."
+"#;
+        let file: FlatFile = serde_yaml::from_str(yaml).expect("deserialization failed");
+        assert_eq!(file.blocks.len(), 1);
+        match &file.blocks[0] {
+            FlatBlock::Boilerplate { id, text } => {
+                assert_eq!(id, "bp_intro");
+                assert_eq!(text, "This is the boilerplate text content.");
+            }
+            _ => panic!("expected Boilerplate variant"),
+        }
+    }
+
+    #[test]
+    fn boilerplate_variant_id_and_text_are_correct() {
+        // Verify that id and text are independently extracted correctly.
+        let block = FlatBlock::Boilerplate {
+            id: "my_bp".to_string(),
+            text: "Hello, world!".to_string(),
+        };
+        match &block {
+            FlatBlock::Boilerplate { id, text } => {
+                assert_eq!(id, "my_bp");
+                assert_eq!(text, "Hello, world!");
+            }
+            _ => panic!("expected Boilerplate variant"),
+        }
+    }
+
+    #[test]
+    fn boilerplate_missing_id_fails_deserialization() {
+        // Deserialization must fail when the required `id` field is absent.
+        let yaml = r#"
+blocks:
+  - type: boilerplate
+    text: "Missing id field."
+"#;
+        let result: Result<FlatFile, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err(), "expected deserialization to fail when id is missing");
+    }
+
+    #[test]
+    fn boilerplate_missing_text_fails_deserialization() {
+        // Deserialization must fail when the required `text` field is absent.
+        let yaml = r#"
+blocks:
+  - type: boilerplate
+    id: bp_no_text
+"#;
+        let result: Result<FlatFile, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err(), "expected deserialization to fail when text is missing");
     }
 }
