@@ -49,6 +49,7 @@ entries:
       - id: fascial_l4l5
         label: "Fascial Techniques (L4-L5)"
         output: "- Fascial Techniques (L4-L5)"
+        default: false
 
   - id: glutes_prone
     label: "GLUTEAL MUSCLES / BUTTOCKS (Prone)"
