@@ -29,20 +29,21 @@ Primary user is a clinician (the developer) who needs to document patient encoun
 - No section-level copy (full note only, for now — polish later).
 - Startup must be near-instant; startup latency is a hard UX requirement.
 - Windows-first; Linux compatibility is a plus but not a near-term requirement.
-- The core logic stays in Rust. The GUI layer may use a non-Rust frontend (e.g. Tauri) if it serves speed and packaging goals.
+- The core logic stays in Rust. No web-based GUI (Tauri excluded) -- too much frontend pixel-pushing. Pure Rust GUI only (egui or iced).
 
 ## Key Decisions
 
 - **Editable preview**: The rendered note pane is directly editable, not just a read-only render of shorthand input. This is a shift from the current terminal model.
-- **Highlight-to-import**: Detected via clipboard snapshot on open (capture system selection before invoking app), pre-filled into the editable note pane.
-- **Global chords**: Option (a) — firing a chord like `arstob` system-wide should both open scribblenot and expand that section template. The user had not previously considered this was possible; it is directionally correct but not fully specified.
+- **Highlight-to-import**: Since the app runs continuously in the tray, it can capture the clipboard at the moment the open-hotkey fires. That clipboard snapshot pre-fills the editable note pane. Edge case (user's clipboard already has unrelated content) to be resolved in planning.
+- **Global chords**: Option (a) -- firing a chord like `arstob` system-wide should both open scribblenot and expand that section template. The chord detector maintains only a rolling buffer of the last 6-10 keypresses and never persists anything; user believes this does not constitute a HIPAA violation (no patient data stored, no logging). Plan should confirm.
+- **HIPAA keylogger boundary**: A minimal rolling keypress buffer (6-10 chars, never written to disk, never transmitted) is considered acceptable. Plan must verify this interpretation is safe.
 - **Custom themes**: In scope (user explicitly wants this).
 - **Shift+Enter**: Must work in the note input; terminal currently cannot support it.
 
 ## Open Questions
 
-- Which GUI framework best satisfies instant startup + system tray + global hotkeys + Windows/Linux? Main candidates: Tauri (Rust backend + web frontend), egui (pure Rust immediate-mode), iced (pure Rust retained-mode). Propose-plan should evaluate and recommend.
-- How does highlight-to-import detect the selected text? Clipboard snapshot before open is the likely approach but has edge cases (clipboard already has something important). Plan should address.
-- Global chord implementation: a background keyboard hook vs. integrating with an existing tool like espanso. Plan should evaluate the trade-offs (reliability, HIPAA implications of a keylogger-adjacent hook, etc.).
-- Exact hotkey scheme: which keys trigger open, close-and-copy, and section chords? User has preferences from espanso but these need to be defined and configurable.
-- Packaging: how is the app distributed? Single `.exe`, NSIS installer, or something else?
+- **GUI framework**: Tauri ruled out (web frontend). Candidates are egui (immediate-mode, very fast, simpler) and iced (retained-mode, more polished, closer to traditional UI feel). User leans toward iced but is not well-informed yet. Propose-plan should benchmark startup time and tray/hotkey support for both and make a recommendation.
+- **Clipboard edge case on import**: If the user's clipboard already holds something important when they open scribblenot, the snapshot approach could silently discard it. Plan should propose a safe resolution (e.g. only import if clipboard contains plain text that looks like a note, or always prompt).
+- **Chord implementation approach**: Rolling in-process keypress buffer vs. delegating to espanso. Given the user already uses espanso, integration may be natural -- but an in-process hook gives more control and avoids a runtime dependency. Plan should weigh.
+- **Exact hotkey scheme**: TBD during development. Should be fully configurable.
+- **Packaging and distribution**: Informed by framework choice. Single `.exe` is the minimum; installer (e.g. NSIS or WiX) for colleague distribution. Plan to address after framework is selected.

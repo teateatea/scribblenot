@@ -334,37 +334,6 @@ Remove `src/flat_file.rs` and its module declaration from `src/main.rs` (confirm
 - Regression test for tx_regions migration: parse `tx_regions.yml` as `HierarchyFile`, assert the `back_lower_prone` list exists, assert the `fascial_l4l5` item has `default: Some(false)`.
 - Integration test for block_select dispatch (Decision 6): call `hierarchy_to_runtime` on the loaded `HierarchyFile` from the actual `data/` directory and assert that `block_select_data` contains a key `"tx_regions"` (keyed by section id, not `data_file`) with at least one `HierarchyList` entry.
 
-## Prefect Report
-
-### P1 (blocking): ST4.6 omits migration plan for ~20 `load_data_dir` unit tests in `src/data.rs`
-
-`src/data.rs` contains approximately 20 tests that call `load_data_dir` directly, all feeding flat-format YAML (e.g. `load_data_dir_returns_app_data_for_valid_directory`, `load_data_dir_errors_on_duplicate_id_and_type`, `load_data_dir_merges_blocks_from_multiple_yml_files`, etc. - lines ~1290-1669). These tests write temporary files in the old `FlatFile` `blocks:` format. When ST4 replaces `load_data_dir` with `load_hierarchy_dir` and removes `flat_file.rs`, all of these tests will fail to compile or will test a function that no longer exists.
-
-ST4.6 only addresses: (a) migrating tests from `flat_file.rs` itself into `data.rs`, and (b) replacing the single `lower_back_prone_fascial_l4l5_starts_unselected` test that parses `tx_regions.yml` as `BlockSelectFile`. It says nothing about the existing `load_data_dir` test suite in `data.rs`.
-
-The plan must explicitly state one of:
-- Remove `load_data_dir` entirely in ST4; each removed test must be replaced with an equivalent `load_hierarchy_dir` test using `HierarchyFile`-format YAML; or
-- Rename `load_data_dir` to `load_hierarchy_dir` (signature change only) and update each test to supply hierarchy-format YAML instead of flat-format YAML; or
-- Keep `load_data_dir` as a deprecated shim calling `load_hierarchy_dir` + `hierarchy_to_runtime` (simplest compat path, but must be stated explicitly).
-
-Without this, ST4.7 (`cargo test` - all existing tests must pass) cannot be satisfied.
-
-`src/data.rs:602` (`pub fn load_data_dir`), `src/data.rs:1290-1669` (test suite)
-
-### P2 (minor): Approach section says "The `load_data_dir` entry point signature stays the same; callers see no change" - this is inaccurate after ST4
-
-The Approach section (line 42) states the `load_data_dir` entry point signature stays the same. But ST4.2 explicitly replaces the `load_data_dir` call in `AppData::load` with `load_hierarchy_dir`, and ST4.6 removes `flat_file.rs` (on which `load_data_dir` depends). The claim is self-contradicting: either `load_data_dir` is replaced (ST4.2/ST4.6) or it stays (Approach). A developer following this plan will be confused about whether to keep or delete `load_data_dir`.
-
-Suggested correction: change the Approach statement to "The public `AppData::load` entry point signature stays the same; callers of `AppData::load` see no change. The internal `load_data_dir` helper is replaced by `load_hierarchy_dir`."
-
-`operations/plans/70-yaml-data-hierarchy.md:42`
-
-### P3 (nit): ST3.2 `default:` mapping description is ambiguous for the `true` case
-
-ST3.2 says: "and `default:` (from `default_selected()` if false, omit if true to let the renderer use its own default)." The phrasing "omit if true" reads as "omit the field when `default_selected()` returns true", which is correct behavior, but the parenthetical "(to let the renderer use its own default)" could lead a developer to think there is renderer-level defaulting logic to preserve. The actual reason is simply that `HierarchyItem.default: Option<bool>` defaults to `None` when omitted, and the existing `PartOption::default_selected()` returns `true` for the `Simple` and `Labeled` variants (which have no `default` field). The description would be clearer as: "set `default: Some(false)` only when `default_selected()` is false; omit the field (leave `None`) when true, matching the existing behavior where absent means selected."
-
-`operations/plans/70-yaml-data-hierarchy.md:243`
-
 ## Changelog
 
 ### Review - 2026-04-02
@@ -381,6 +350,12 @@ ST3.2 says: "and `default:` (from `default_selected()` if false, omit if true to
 - #7 (minor): ST4.1 stated "copies `section_type` unchanged" but `HierarchySection.section_type` is `Option<String>` and `SectionConfig.section_type` is `String`; corrected to use `.unwrap_or_default()` matching the reconstruction pass at `data.rs:733`.
 - #8 (minor): ST4.1 shim omitted setting `SectionConfig.options = vec![]` and `SectionConfig.composite = None`; added explicit note matching the reconstruction pass at `data.rs:736-737`.
 - #9 (minor): ST4.1 shim mentioned only `label -> name` for `HeaderFieldConfig` but omitted `options`, `composite`, `default`, and `repeat_limit` (all present on `HierarchyField`); updated bullet to cover all five fields including `repeat_limit` (which the old reconstruction pass hardcoded to `None`).
+
+### Codex review fixes – 2026-04-02
+- #10 (blocking): ST2.2 now explicitly validates boilerplate IDs for uniqueness, preserving the existing error behavior at `data.rs:1662`.
+- #11 (blocking): ST4.6 now specifies that `load_data_dir` is removed and all ~20 existing tests are rewritten to use `load_hierarchy_dir` with hierarchy-format YAML.
+- #12 (minor): ST2.3 added template cardinality validation (exactly 1 template required after merge; 0 or >1 is a loud error). ST2.6 updated to include template cardinality tests.
+- #13 (minor): Approach section corrected: `AppData::load` signature stays the same; `load_data_dir` is replaced by `load_hierarchy_dir`.
 
 ## Status
 User Approved

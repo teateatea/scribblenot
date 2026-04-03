@@ -1,5 +1,10 @@
 # Closed Tasks
 
+- [ ] **#51** Move hard-coded section metadata into sections.yml to enable config-driven section definitions
+  [D:65 C:72]
+  Claude: Added is_intake/heading_search_text/heading_label/note_render_slot to SectionConfig and FlatBlock::Section; populated all 14 section blocks in sections.yml; removed heading_anchor() section arms, is_intake_section(), intake_heading() from note.rs; replaced all 9 cfg.id == "..." render checks with cfg.note_render_slot lookups; eliminated known_ids shim. 180 tests pass, zero warnings.
+- Completed: 2026-04-03T14:57:37
+
 - [ ] **#50** Convert tx_mods section to multi_field with 5 categorized fields, removing tx_mods.yml
   [D:40 C:88]
   Claude: Restructured tx_mods from list_select to multi_field with 5 inline field children in sections.yml: pressure (6 options), challenge (6), mood (6), communication (6 incl. 2x STOIC entries for distinct patient notes), modifications (13 options, repeat_limit: 10). All options moved inline; data/tx_mods.yml deleted; no source references remain. FlatBlock::Field gained repeat_limit field; loader threads it through to HeaderFieldConfig. 172 tests pass, zero warnings.
