@@ -93,22 +93,33 @@ pub fn render_note(
     let header_text = sections.iter().zip(states.iter()).find_map(|(cfg, state)| {
         if cfg.section_type == "multi_field" {
             if let SectionState::Header(hs) = state {
+                let has_repeatable = hs.field_configs.iter().any(|c| c.repeat_limit.is_some());
                 match &mode {
                     NoteRenderMode::Preview => {
                         let has_any = hs.field_configs.iter().enumerate().any(|(i, fcfg)| {
                             let confirmed = hs.repeated_values.get(i)
-                                .and_then(|v| v.last())
+                                .and_then(|v| v.first())
                                 .map(|s| s.as_str())
                                 .unwrap_or("");
                             !resolve_multifield_value(confirmed, fcfg, sticky_values).is_empty_variant()
                         });
                         if has_any {
-                            Some(format_header_preview(hs, sticky_values))
+                            if has_repeatable {
+                                Some(format_header_generic_preview(hs, sticky_values))
+                            } else {
+                                Some(format_header_preview(hs, sticky_values))
+                            }
                         } else {
                             None
                         }
                     }
-                    NoteRenderMode::Export => format_header_export(hs, sticky_values),
+                    NoteRenderMode::Export => {
+                        if has_repeatable {
+                            format_header_generic_export(hs, sticky_values)
+                        } else {
+                            format_header_export(hs, sticky_values)
+                        }
+                    }
                 }
             } else {
                 None
@@ -391,7 +402,7 @@ fn format_header_preview(
             .find(|(_, cfg)| cfg.id == id)
             .map(|(i, cfg)| {
                 let confirmed = hs.repeated_values.get(i)
-                    .and_then(|v| v.last())
+                    .and_then(|v| v.first())
                     .map(|s| s.as_str())
                     .unwrap_or("");
                 resolve_multifield_value(confirmed, cfg, sticky_values)
@@ -423,7 +434,7 @@ fn format_header_export(
             .find(|(_, cfg)| cfg.id == id)
             .and_then(|(i, cfg)| {
                 let confirmed = hs.repeated_values.get(i)
-                    .and_then(|v| v.last())
+                    .and_then(|v| v.first())
                     .map(|s| s.as_str())
                     .unwrap_or("");
                 resolve_multifield_value(confirmed, cfg, sticky_values)
@@ -457,6 +468,68 @@ fn format_header_export(
         (Some(l1), None) => Some(l1),
         (None, Some(l2)) => Some(l2),
         (Some(l1), Some(l2)) => Some(format!("{}\n{}", l1, l2)),
+    }
+}
+
+/// Format a generic multi_field header section for live note preview.
+/// Non-repeatable fields show their first confirmed value (or "--").
+/// Repeatable fields (repeat_limit is Some) emit one line per confirmed value.
+fn format_header_generic_preview(
+    hs: &crate::sections::header::HeaderState,
+    sticky_values: &HashMap<String, String>,
+) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    for (i, cfg) in hs.field_configs.iter().enumerate() {
+        let slot = hs.repeated_values.get(i).map(|v| v.as_slice()).unwrap_or(&[]);
+        if cfg.repeat_limit.is_some() {
+            // Emit one line per confirmed value in order
+            if slot.is_empty() {
+                lines.push(format!("{}: --", cfg.name));
+            } else {
+                for entry in slot {
+                    let resolved = resolve_multifield_value(entry.as_str(), cfg, sticky_values);
+                    lines.push(format!("{}: {}", cfg.name, resolved.preview_str()));
+                }
+            }
+        } else {
+            let confirmed = slot.first().map(|s| s.as_str()).unwrap_or("");
+            let resolved = resolve_multifield_value(confirmed, cfg, sticky_values);
+            lines.push(format!("{}: {}", cfg.name, resolved.preview_str()));
+        }
+    }
+    lines.join("\n")
+}
+
+/// Format a generic multi_field header section for clipboard export.
+/// Non-repeatable fields emit their first confirmed value (if resolved).
+/// Repeatable fields (repeat_limit is Some) emit one line per confirmed value.
+/// Returns None when no fields resolve at all.
+fn format_header_generic_export(
+    hs: &crate::sections::header::HeaderState,
+    sticky_values: &HashMap<String, String>,
+) -> Option<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for (i, cfg) in hs.field_configs.iter().enumerate() {
+        let slot = hs.repeated_values.get(i).map(|v| v.as_slice()).unwrap_or(&[]);
+        if cfg.repeat_limit.is_some() {
+            for entry in slot {
+                let resolved = resolve_multifield_value(entry.as_str(), cfg, sticky_values);
+                if let Some(val) = resolved.export_value() {
+                    lines.push(val.to_string());
+                }
+            }
+        } else {
+            let confirmed = slot.first().map(|s| s.as_str()).unwrap_or("");
+            let resolved = resolve_multifield_value(confirmed, cfg, sticky_values);
+            if let Some(val) = resolved.export_value() {
+                lines.push(val.to_string());
+            }
+        }
+    }
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n"))
     }
 }
 
@@ -762,6 +835,181 @@ mod tests {
         assert!(
             !note.contains("bilateral unless indicated otherwise"),
             "render_note silently used hard-coded treatment plan disclaimer when boilerplate_texts was empty"
+        );
+    }
+
+    // --- ST49-3: repeated field rendering tests ---
+
+    fn make_field_with_repeat_limit(id: &str, repeat_limit: Option<usize>) -> crate::data::HeaderFieldConfig {
+        crate::data::HeaderFieldConfig {
+            id: id.to_string(),
+            name: id.to_string(),
+            options: vec![],
+            composite: None,
+            default: None,
+            repeat_limit,
+        }
+    }
+
+    // ST49-3-TEST-1: export uses first confirmed value for a non-repeating field
+    // (no repeat_limit), not last. With two values pushed, export should use [0], not [1].
+    #[test]
+    fn export_uses_first_value_for_non_repeated_field() {
+        let configs = vec![
+            make_field_with_repeat_limit("appointment_duration", None),
+        ];
+        let mut hs = HeaderState::new(configs);
+        // Push two values; the implementation should use the first (index 0)
+        hs.repeated_values[0].push("30".to_string());
+        hs.repeated_values[0].push("60".to_string()); // second value - should NOT appear
+        let sticky = HashMap::new();
+
+        let result = format_header_export(&hs, &sticky);
+        // Must contain the first value "30", not the second "60"
+        assert_eq!(
+            result,
+            Some("(30 min)".to_string()),
+            "export should use the FIRST confirmed value for non-repeated fields, got: {:?}",
+            result
+        );
+    }
+
+    // ST49-3-TEST-2: export emits ALL confirmed values as separate output lines
+    // for a field with repeat_limit set.
+    #[test]
+    fn export_emits_all_values_for_repeated_field() {
+        // A field with repeat_limit=3 holding 3 confirmed modifications
+        let configs = vec![
+            make_field_with_repeat_limit("modifications", Some(3)),
+        ];
+        let mut hs = HeaderState::new(configs);
+        hs.repeated_values[0].push("No deep pressure on lower back".to_string());
+        hs.repeated_values[0].push("Avoid prone positioning".to_string());
+        hs.repeated_values[0].push("Use bolster under knees".to_string());
+        let sticky = HashMap::new();
+
+        let result = format_header_generic_export(&hs, &sticky);
+        let output = result.expect("export should produce output for a repeated field with 3 values");
+
+        // All three values must appear in the output
+        assert!(
+            output.contains("No deep pressure on lower back"),
+            "first modification must appear in export output, got: {}", output
+        );
+        assert!(
+            output.contains("Avoid prone positioning"),
+            "second modification must appear in export output, got: {}", output
+        );
+        assert!(
+            output.contains("Use bolster under knees"),
+            "third modification must appear in export output, got: {}", output
+        );
+        // Each value must be on its own line
+        let lines: Vec<&str> = output.lines().collect();
+        assert_eq!(
+            lines.len(),
+            3,
+            "repeated field with 3 values should produce exactly 3 output lines, got: {:?}",
+            lines
+        );
+    }
+
+    // ST49-3-TEST-3: preview uses first confirmed value for a non-repeating field
+    #[test]
+    fn preview_uses_first_value_for_non_repeated_field() {
+        // date, start_time, appointment_duration, appointment_type - all non-repeated
+        let configs = vec![
+            make_field_with_repeat_limit("date", None),
+            make_field_with_repeat_limit("start_time", None),
+            make_field_with_repeat_limit("appointment_duration", None),
+            make_field_with_repeat_limit("appointment_type", None),
+        ];
+        let mut hs = HeaderState::new(configs);
+        // Push first value then a second (preview should use first)
+        hs.repeated_values[2].push("30".to_string()); // first duration
+        hs.repeated_values[2].push("90".to_string()); // second - should NOT appear
+        hs.repeated_values[0].push("2026-04-02".to_string());
+        hs.repeated_values[1].push("09:00".to_string());
+        hs.repeated_values[3].push("Initial Assessment".to_string());
+        let sticky = HashMap::new();
+
+        let result = format_header_preview(&hs, &sticky);
+        // Must show "30" not "90"
+        assert!(
+            result.contains("30 min"),
+            "preview should use the FIRST confirmed duration value (30), got: {}", result
+        );
+        assert!(
+            !result.contains("90 min"),
+            "preview must NOT show the second duration value (90), got: {}", result
+        );
+    }
+
+    // ST49-3-TEST-4: preview shows all repeated values for a field with repeat_limit
+    #[test]
+    fn preview_emits_all_values_for_repeated_field() {
+        let configs = vec![
+            make_field_with_repeat_limit("modifications", Some(2)),
+        ];
+        let mut hs = HeaderState::new(configs);
+        hs.repeated_values[0].push("Mod A".to_string());
+        hs.repeated_values[0].push("Mod B".to_string());
+        let sticky = HashMap::new();
+
+        let result = format_header_generic_preview(&hs, &sticky);
+        assert!(
+            result.contains("Mod A"),
+            "preview must show first repeated value 'Mod A', got: {}", result
+        );
+        assert!(
+            result.contains("Mod B"),
+            "preview must show second repeated value 'Mod B', got: {}", result
+        );
+    }
+
+    // ST49-3-TEST-5: export with repeat_limit field having only one value still emits that value
+    #[test]
+    fn export_emits_single_value_for_repeated_field_with_one_entry() {
+        let configs = vec![
+            make_field_with_repeat_limit("modifications", Some(3)),
+        ];
+        let mut hs = HeaderState::new(configs);
+        hs.repeated_values[0].push("Only one mod".to_string());
+        let sticky = HashMap::new();
+
+        let result = format_header_generic_export(&hs, &sticky);
+        let output = result.expect("export should produce output for a repeated field with 1 value");
+        assert!(
+            output.contains("Only one mod"),
+            "export must emit the single repeated value, got: {}", output
+        );
+    }
+
+    // ST49-3-TEST-6: repeated values are emitted in confirmation order (first confirmed appears first)
+    #[test]
+    fn export_emits_repeated_values_in_confirmation_order() {
+        let configs = vec![
+            make_field_with_repeat_limit("modifications", Some(2)),
+        ];
+        let mut hs = HeaderState::new(configs);
+        hs.repeated_values[0].push("First Confirmed".to_string());
+        hs.repeated_values[0].push("Second Confirmed".to_string());
+        let sticky = HashMap::new();
+
+        let result = format_header_generic_export(&hs, &sticky);
+        let output = result.expect("export should produce output");
+        let lines: Vec<&str> = output.lines().collect();
+        assert!(
+            lines.len() >= 2,
+            "expected at least 2 lines for 2 repeated values, got: {:?}", lines
+        );
+        assert_eq!(
+            lines[0], "First Confirmed",
+            "first confirmed value must appear on first line, got: {:?}", lines
+        );
+        assert_eq!(
+            lines[1], "Second Confirmed",
+            "second confirmed value must appear on second line, got: {:?}", lines
         );
     }
 
