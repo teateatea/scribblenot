@@ -1648,4 +1648,162 @@ mod tests {
             sentinel_idx, treatment_idx
         );
     }
+
+    // --- ST48-4: tx_mods multi_field SectionState::Header detection tests ---
+    //
+    // These tests verify the specific render_note behavior added in sub-task 3:
+    // when tx_mods has section_type "multi_field" and state SectionState::Header,
+    // render_note must call render_multifield_section and emit the exact heading
+    // "#### TREATMENT MODIFICATIONS & PREFERENCES".
+
+    // ST48-4-TEST-1: preview mode - the exact "#### TREATMENT MODIFICATIONS & PREFERENCES"
+    // heading must appear when tx_mods is multi_field + SectionState::Header with a
+    // confirmed value.  Without the multi_field branch this heading would still appear
+    // (via the else/render_section_content path) but the value would not; the combination
+    // of heading + value is the diagnostic signal.
+    #[test]
+    fn tx_mods_multi_field_header_state_preview_shows_exact_heading_and_value() {
+        let sec = make_multi_field_section_with_id("tx_mods");
+        let hs = make_header_state_with_confirmed(
+            "pressure",
+            "Pressure",
+            "ST48_4_PREVIEW_VALUE",
+        );
+
+        let sections = vec![sec];
+        let states = vec![SectionState::Header(hs)];
+        let sticky = HashMap::new();
+        let bp = HashMap::new();
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
+
+        assert!(
+            note.contains("#### TREATMENT MODIFICATIONS & PREFERENCES"),
+            "exact heading '#### TREATMENT MODIFICATIONS & PREFERENCES' must appear for \
+             tx_mods multi_field section in preview mode, got:\n{}", note
+        );
+        assert!(
+            note.contains("ST48_4_PREVIEW_VALUE"),
+            "confirmed field value ST48_4_PREVIEW_VALUE must appear in preview note, got:\n{}", note
+        );
+    }
+
+    // ST48-4-TEST-2: export mode - the exact "#### TREATMENT MODIFICATIONS & PREFERENCES"
+    // heading must appear when tx_mods is multi_field + SectionState::Header with a
+    // confirmed value.
+    #[test]
+    fn tx_mods_multi_field_header_state_export_shows_exact_heading_and_value() {
+        let sec = make_multi_field_section_with_id("tx_mods");
+        let hs = make_header_state_with_confirmed(
+            "pressure",
+            "Pressure",
+            "ST48_4_EXPORT_VALUE",
+        );
+
+        let sections = vec![sec];
+        let states = vec![SectionState::Header(hs)];
+        let sticky = HashMap::new();
+        let bp = HashMap::new();
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Export);
+
+        assert!(
+            note.contains("#### TREATMENT MODIFICATIONS & PREFERENCES"),
+            "exact heading '#### TREATMENT MODIFICATIONS & PREFERENCES' must appear for \
+             tx_mods multi_field section in export mode, got:\n{}", note
+        );
+        assert!(
+            note.contains("ST48_4_EXPORT_VALUE"),
+            "confirmed field value ST48_4_EXPORT_VALUE must appear in export note, got:\n{}", note
+        );
+    }
+
+    // ST48-4-TEST-3: tx_mods multi_field + SectionState::Header with two fields, both
+    // confirmed values must appear in preview output.  Without the multi_field branch,
+    // render_section_content returns "" for SectionState::Header so neither value
+    // would appear.
+    #[test]
+    fn tx_mods_multi_field_header_state_preview_renders_multiple_field_values() {
+        let sec = make_multi_field_section_with_id("tx_mods");
+        // Build a HeaderState with two fields, each confirmed
+        let cfg_a = crate::data::HeaderFieldConfig {
+            id: "pressure".to_string(),
+            name: "Pressure".to_string(),
+            options: vec![],
+            composite: None,
+            default: None,
+            repeat_limit: None,
+        };
+        let cfg_b = crate::data::HeaderFieldConfig {
+            id: "challenge".to_string(),
+            name: "Challenge".to_string(),
+            options: vec![],
+            composite: None,
+            default: None,
+            repeat_limit: None,
+        };
+        let mut hs = HeaderState::new(vec![cfg_a, cfg_b]);
+        hs.repeated_values[0].push("ST48_4_PRESSURE".to_string());
+        hs.repeated_values[1].push("ST48_4_CHALLENGE".to_string());
+        hs.completed = true;
+
+        let sections = vec![sec];
+        let states = vec![SectionState::Header(hs)];
+        let sticky = HashMap::new();
+        let bp = HashMap::new();
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
+
+        assert!(
+            note.contains("ST48_4_PRESSURE"),
+            "first field value ST48_4_PRESSURE must appear in preview note via \
+             render_multifield_section, got:\n{}", note
+        );
+        assert!(
+            note.contains("ST48_4_CHALLENGE"),
+            "second field value ST48_4_CHALLENGE must appear in preview note via \
+             render_multifield_section, got:\n{}", note
+        );
+    }
+
+    // ST48-4-TEST-4: tx_mods multi_field + SectionState::Header with a sticky value.
+    // The multi_field path resolves sticky values via render_multifield_section;
+    // the old render_section_content path ignores sticky values entirely for Header state
+    // (it returns "" for any Header state).  Without the multi_field branch, the
+    // sticky value would not appear.
+    #[test]
+    fn tx_mods_multi_field_header_state_preview_resolves_sticky_value() {
+        let sec = make_multi_field_section_with_id("tx_mods");
+        let cfg_field = crate::data::HeaderFieldConfig {
+            id: "mood".to_string(),
+            name: "Mood".to_string(),
+            options: vec![],
+            composite: None,
+            default: None,
+            repeat_limit: None,
+        };
+        // confirmed value is the sticky key; sticky map resolves it to a display value
+        let mut hs = HeaderState::new(vec![cfg_field]);
+        hs.repeated_values[0].push("ST48_4_STICKY_KEY".to_string());
+        hs.completed = true;
+
+        let sections = vec![sec];
+        let states = vec![SectionState::Header(hs)];
+        let mut sticky = HashMap::new();
+        sticky.insert("ST48_4_STICKY_KEY".to_string(), "ST48_4_STICKY_RESOLVED".to_string());
+        let bp = HashMap::new();
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
+
+        assert!(
+            note.contains("ST48_4_STICKY_KEY") || note.contains("ST48_4_STICKY_RESOLVED"),
+            "tx_mods multi_field preview must render the confirmed/sticky value for the field; \
+             expected ST48_4_STICKY_KEY or ST48_4_STICKY_RESOLVED in note, got:\n{}", note
+        );
+        assert!(
+            note.contains("#### TREATMENT MODIFICATIONS & PREFERENCES"),
+            "heading must appear when tx_mods multi_field HeaderState has confirmed values, \
+             got:\n{}", note
+        );
+    }
 }
