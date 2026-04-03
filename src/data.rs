@@ -1886,4 +1886,81 @@ mod tx_mods_multi_field_tests {
             modifications.options
         );
     }
+
+    // ST50-4-TEST-1: the communication field must contain exactly two STOIC entries.
+    // STOIC intentionally appears twice: one entry for pts who suppress pain responses
+    // and one for pts who respond well to frequent verbal check-ins. Both are distinct
+    // in the full option text even though they start with "- STOIC:".
+    // FAILS if communication only has one STOIC or the two entries are collapsed into one.
+    #[test]
+    fn communication_has_exactly_two_stoic_entries() {
+        let app = load();
+        let sec = find_tx_mods(&app);
+        let fields = sec
+            .fields
+            .as_ref()
+            .expect("tx_mods.fields must be Some after implementation");
+        let communication = fields
+            .iter()
+            .find(|f| f.id == "communication")
+            .expect("a field with id 'communication' must exist in tx_mods fields");
+        let stoic_count = communication
+            .options
+            .iter()
+            .filter(|o| o.contains("STOIC"))
+            .count();
+        assert_eq!(
+            stoic_count, 2,
+            "communication field must have exactly 2 STOIC entries \
+             (one for pain-suppressing pts, one for frequent check-in pts); \
+             found {} entry/entries. Options: {:?}",
+            stoic_count, communication.options
+        );
+    }
+
+    // ST50-4-TEST-2: pressure, challenge, mood, and communication fields must be single-select
+    // (repeat_limit: None). Only the modifications field has repeat_limit: Some(10).
+    // FAILS if any of these four fields accidentally have repeat_limit set.
+    #[test]
+    fn single_select_fields_have_no_repeat_limit() {
+        let app = load();
+        let sec = find_tx_mods(&app);
+        let fields = sec
+            .fields
+            .as_ref()
+            .expect("tx_mods.fields must be Some after implementation");
+        for field_id in &["pressure", "challenge", "mood", "communication"] {
+            let field = fields
+                .iter()
+                .find(|f| &f.id.as_str() == field_id)
+                .unwrap_or_else(|| panic!("field '{}' must exist in tx_mods fields", field_id));
+            assert_eq!(
+                field.repeat_limit, None,
+                "field '{}' must be single-select (repeat_limit: None); \
+                 only 'modifications' should have a repeat_limit. Got: {:?}",
+                field_id, field.repeat_limit
+            );
+        }
+    }
+
+    // ST50-4-TEST-3: tx_mods must have exactly the 5 expected field IDs in order:
+    // pressure, challenge, mood, communication, modifications.
+    // FAILS if any field is missing, misspelled, or in wrong order.
+    #[test]
+    fn tx_mods_field_ids_are_correct() {
+        let app = load();
+        let sec = find_tx_mods(&app);
+        let fields = sec
+            .fields
+            .as_ref()
+            .expect("tx_mods.fields must be Some after implementation");
+        let ids: Vec<&str> = fields.iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["pressure", "challenge", "mood", "communication", "modifications"],
+            "tx_mods field IDs must be exactly ['pressure', 'challenge', 'mood', \
+             'communication', 'modifications'] in that order; got {:?}",
+            ids
+        );
+    }
 }
