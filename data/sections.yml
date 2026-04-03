@@ -40,6 +40,8 @@ blocks:
     name: "Activities of Daily Living"
     map_label: "ADL"
     section_type: free_text
+    is_intake: true
+    heading_label: "#### ACTIVITIES OF DAILY LIVING"
   - type: section
     id: exercise
     name: "Exercise Habits"
@@ -77,6 +79,8 @@ blocks:
     name: "Treatment Modifications & Preferences"
     map_label: "Tx Mods"
     section_type: multi_field
+    heading_search_text: "TREATMENT MODIFICATIONS"
+    note_render_slot: "tx_mods"
     children: [pressure, challenge, mood, communication, modifications]
   - type: section
     id: tx_regions

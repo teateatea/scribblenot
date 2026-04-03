@@ -737,6 +737,10 @@ mod tests {
             options: vec![],
             composite: None,
             fields: None,
+            is_intake: false,
+            heading_search_text: None,
+            heading_label: None,
+            note_render_slot: None,
         }
     }
 
@@ -1089,6 +1093,10 @@ mod tests {
             options: vec![],
             composite: None,
             fields: None,
+            is_intake: false,
+            heading_search_text: None,
+            heading_label: None,
+            note_render_slot: None,
         }
     }
 
@@ -1397,6 +1405,10 @@ mod tests {
             options: vec![],
             composite: None,
             fields: None,
+            is_intake: false,
+            heading_search_text: None,
+            heading_label: None,
+            note_render_slot: None,
         };
         (sec_cfg, hs)
     }
@@ -1476,6 +1488,10 @@ mod tests {
             options: vec![],
             composite: None,
             fields: None,
+            is_intake: false,
+            heading_search_text: None,
+            heading_label: None,
+            note_render_slot: None,
         }
     }
 

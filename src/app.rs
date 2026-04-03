@@ -1435,6 +1435,7 @@ mod tests {
             id: "s1".to_string(), name: "S1".to_string(), map_label: "S1".to_string(),
             section_type: "multi_field".to_string(), data_file: None, date_prefix: None,
             options: vec![], composite: None, fields: Some(fields),
+            is_intake: false, heading_search_text: None, heading_label: None, note_render_slot: None,
         };
         let group = SectionGroup { id: "g1".to_string(), num: None, name: "G1".to_string(), sections: vec![section.clone()] };
         let data = AppData {
@@ -1468,6 +1469,7 @@ mod tests {
             id: "s1".to_string(), name: "S1".to_string(), map_label: "S1".to_string(),
             section_type: "multi_field".to_string(), data_file: None, date_prefix: None,
             options: vec![], composite: None, fields: Some(fields),
+            is_intake: false, heading_search_text: None, heading_label: None, note_render_slot: None,
         };
         let group = SectionGroup { id: "g1".to_string(), num: None, name: "G1".to_string(), sections: vec![section.clone()] };
         let data = AppData {

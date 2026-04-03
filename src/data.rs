@@ -111,6 +111,14 @@ pub struct SectionConfig {
     pub options: Vec<String>,
     pub composite: Option<CompositeConfig>,
     pub fields: Option<Vec<HeaderFieldConfig>>,
+    #[serde(default)]
+    pub is_intake: bool,
+    #[serde(default)]
+    pub heading_search_text: Option<String>,
+    #[serde(default)]
+    pub heading_label: Option<String>,
+    #[serde(default)]
+    pub note_render_slot: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -702,7 +710,8 @@ pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
                 let Some(&sec_idx) = id_map.get(child_id.as_str()) else { continue };
                 if let crate::flat_file::FlatBlock::Section {
                     id: sid, name: sname, map_label, section_type,
-                    data_file, date_prefix, children: field_ids, ..
+                    data_file, date_prefix, children: field_ids,
+                    is_intake, heading_search_text, heading_label, note_render_slot,
                 } = &pool[sec_idx] {
                     let fields = if section_type.as_deref() == Some("multi_field") {
                         let mut hfields: Vec<HeaderFieldConfig> = Vec::new();
@@ -736,6 +745,10 @@ pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
                         options: vec![],
                         composite: None,
                         fields,
+                        is_intake: *is_intake,
+                        heading_search_text: heading_search_text.clone(),
+                        heading_label: heading_label.clone(),
+                        note_render_slot: note_render_slot.clone(),
                     };
                     group_sections.push(sc.clone());
                     all_sections.push(sc);
@@ -1080,6 +1093,10 @@ mod tests {
                 options: vec![],
                 composite: None,
                 fields: None,
+                is_intake: false,
+                heading_search_text: None,
+                heading_label: None,
+                note_render_slot: None,
             })
             .collect();
         SectionGroup {
@@ -1183,6 +1200,10 @@ mod tests {
                         options: vec![],
                         composite: None,
                         fields: None,
+                        is_intake: false,
+                        heading_search_text: None,
+                        heading_label: None,
+                        note_render_slot: None,
                     })
                     .collect(),
             })
@@ -1961,6 +1982,92 @@ mod tx_mods_multi_field_tests {
             "tx_mods field IDs must be exactly ['pressure', 'challenge', 'mood', \
              'communication', 'modifications'] in that order; got {:?}",
             ids
+        );
+    }
+}
+
+#[cfg(test)]
+mod section_metadata_fields_tests {
+    use super::*;
+
+    fn data_dir() -> std::path::PathBuf {
+        let manifest_dir = std::path::PathBuf::from(
+            std::env::var("CARGO_MANIFEST_DIR")
+                .expect("CARGO_MANIFEST_DIR must be set when running cargo test"),
+        );
+        manifest_dir.join("data")
+    }
+
+    fn load() -> AppData {
+        let dir = data_dir();
+        load_data_dir(&dir).expect("load_data_dir on real data directory must succeed")
+    }
+
+    fn find_section<'a>(app: &'a AppData, id: &str) -> &'a SectionConfig {
+        app.sections
+            .iter()
+            .find(|s| s.id == id)
+            .unwrap_or_else(|| panic!("section with id '{}' must exist in sections", id))
+    }
+
+    // ST51-1-TEST-1: the 'adl' section must have is_intake == true.
+    // FAILS before implementation because SectionConfig does not have an is_intake field yet.
+    #[test]
+    fn adl_is_intake_is_true() {
+        let app = load();
+        let sec = find_section(&app, "adl");
+        assert!(
+            sec.is_intake,
+            "adl section must have is_intake == true after sub-task 51.1 implementation; \
+             SectionConfig.is_intake field does not exist yet"
+        );
+    }
+
+    // ST51-1-TEST-2: the 'tx_mods' section must have heading_search_text == Some("TREATMENT MODIFICATIONS").
+    // FAILS before implementation because SectionConfig does not have a heading_search_text field yet.
+    #[test]
+    fn tx_mods_heading_search_text_is_set() {
+        let app = load();
+        let sec = find_section(&app, "tx_mods");
+        assert_eq!(
+            sec.heading_search_text,
+            Some("TREATMENT MODIFICATIONS".to_string()),
+            "tx_mods section must have heading_search_text == Some(\"TREATMENT MODIFICATIONS\") \
+             after sub-task 51.1 implementation; \
+             SectionConfig.heading_search_text field does not exist yet. Got: {:?}",
+            sec.heading_search_text
+        );
+    }
+
+    // ST51-1-TEST-3: the 'adl' section must have heading_label == Some("#### ACTIVITIES OF DAILY LIVING").
+    // FAILS before implementation because SectionConfig does not have a heading_label field yet.
+    #[test]
+    fn adl_heading_label_is_set() {
+        let app = load();
+        let sec = find_section(&app, "adl");
+        assert_eq!(
+            sec.heading_label,
+            Some("#### ACTIVITIES OF DAILY LIVING".to_string()),
+            "adl section must have heading_label == Some(\"#### ACTIVITIES OF DAILY LIVING\") \
+             after sub-task 51.1 implementation; \
+             SectionConfig.heading_label field does not exist yet. Got: {:?}",
+            sec.heading_label
+        );
+    }
+
+    // ST51-1-TEST-4: the 'tx_mods' section must have note_render_slot == Some("tx_mods").
+    // FAILS before implementation because SectionConfig does not have a note_render_slot field yet.
+    #[test]
+    fn tx_mods_note_render_slot_is_set() {
+        let app = load();
+        let sec = find_section(&app, "tx_mods");
+        assert_eq!(
+            sec.note_render_slot,
+            Some("tx_mods".to_string()),
+            "tx_mods section must have note_render_slot == Some(\"tx_mods\") \
+             after sub-task 51.1 implementation; \
+             SectionConfig.note_render_slot field does not exist yet. Got: {:?}",
+            sec.note_render_slot
         );
     }
 }

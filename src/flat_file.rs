@@ -21,6 +21,10 @@ pub enum FlatBlock {
         #[serde(default)] section_type: Option<String>,
         #[serde(default)] data_file: Option<String>,
         #[serde(default)] date_prefix: Option<bool>,
+        #[serde(default)] is_intake: bool,
+        #[serde(default)] heading_search_text: Option<String>,
+        #[serde(default)] heading_label: Option<String>,
+        #[serde(default)] note_render_slot: Option<String>,
     },
     Field {
         id: String,
@@ -79,7 +83,7 @@ mod tests {
 
     #[test]
     fn flat_block_section_variant_has_id() {
-        let block = FlatBlock::Section { id: "sec1".to_string(), children: vec![], name: None, map_label: None, section_type: None, data_file: None, date_prefix: None };
+        let block = FlatBlock::Section { id: "sec1".to_string(), children: vec![], name: None, map_label: None, section_type: None, data_file: None, date_prefix: None, is_intake: false, heading_search_text: None, heading_label: None, note_render_slot: None };
         match &block {
             FlatBlock::Section { id, .. } => assert_eq!(id, "sec1"),
             _ => panic!("expected Section variant"),
@@ -110,7 +114,7 @@ mod tests {
         let file = FlatFile {
             blocks: vec![
                 FlatBlock::Box { id: "b1".to_string(), children: vec![] },
-                FlatBlock::Section { id: "s1".to_string(), children: vec![], name: None, map_label: None, section_type: None, data_file: None, date_prefix: None },
+                FlatBlock::Section { id: "s1".to_string(), children: vec![], name: None, map_label: None, section_type: None, data_file: None, date_prefix: None, is_intake: false, heading_search_text: None, heading_label: None, note_render_slot: None },
             ],
         };
         assert_eq!(file.blocks.len(), 2);
