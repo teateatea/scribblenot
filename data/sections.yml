@@ -34,6 +34,7 @@ blocks:
     name: "Header"
     map_label: "Header"
     section_type: multi_field
+    note_render_slot: "header"
     children: [date, start_time, appointment_duration, appointment_type]
   - type: section
     id: adl
@@ -42,37 +43,55 @@ blocks:
     section_type: free_text
     is_intake: true
     heading_label: "#### ACTIVITIES OF DAILY LIVING"
+    heading_search_text: "ACTIVITIES OF DAILY LIVING"
   - type: section
     id: exercise
     name: "Exercise Habits"
     map_label: "Exer"
     section_type: free_text
+    is_intake: true
+    heading_label: "#### EXERCISE HABITS"
+    heading_search_text: "EXERCISE HABITS"
   - type: section
     id: sleep_diet
     name: "Sleep & Diet"
     map_label: "Slp/Dt"
     section_type: free_text
+    is_intake: true
+    heading_label: "#### SLEEP & DIET"
+    heading_search_text: "SLEEP & DIET"
   - type: section
     id: social
     name: "Social & Stress"
     map_label: "Social"
     section_type: free_text
+    is_intake: true
+    heading_label: "#### SOCIAL & STRESS"
+    heading_search_text: "SOCIAL & STRESS"
   - type: section
     id: history
     name: "History & Previous Diagnoses"
     map_label: "History"
     section_type: free_text
+    is_intake: true
+    heading_label: "#### HISTORY & PREVIOUS DIAGNOSES"
+    heading_search_text: "HISTORY & PREVIOUS DIAGNOSES"
   - type: section
     id: specialists
     name: "Specialists & Treatment"
     map_label: "Specialists"
     section_type: free_text
+    is_intake: true
+    heading_label: "#### SPECIALISTS & TREATMENT"
+    heading_search_text: "SPECIALISTS & TREATMENT"
   ## SUBJECTIVE
   - type: section
     id: subjective_section
     name: "Subjective"
     map_label: "Subjective"
     section_type: free_text
+    heading_search_text: "## SUBJECTIVE"
+    note_render_slot: "subjective_section"
   ## TREATMENT
   - type: section
     id: tx_mods
@@ -88,6 +107,8 @@ blocks:
     map_label: "Regions"
     section_type: block_select
     data_file: "tx_regions.yml"
+    heading_search_text: "TREATMENT / PLAN"
+    note_render_slot: "tx_regions"
   ## OBJECTIVE
   - type: section
     id: objective_section
@@ -96,12 +117,16 @@ blocks:
     section_type: list_select
     data_file: "objective_findings.yml"
     date_prefix: true
+    heading_search_text: "## OBJECTIVE / OBSERVATIONS"
+    note_render_slot: "objective_section"
   ## POST-TX
   - type: section
     id: post_treatment
     name: "Post-Treatment"
     map_label: "Post-Tx"
     section_type: free_text
+    heading_search_text: "## POST-TREATMENT"
+    note_render_slot: "post_treatment"
   - type: section
     id: remedial_section
     name: "Remedial Exercises & Self-Care"
@@ -109,18 +134,24 @@ blocks:
     section_type: list_select
     data_file: "remedial.yml"
     date_prefix: true
+    heading_search_text: "REMEDIAL EXERCISES"
+    note_render_slot: "remedial_section"
   - type: section
     id: tx_plan
     name: "Treatment Plan / Therapist Notes"
     map_label: "Tx Plan"
     section_type: free_text
+    heading_search_text: "TREATMENT PLAN"
+    note_render_slot: "tx_plan"
   - type: section
     id: infection_control_section
     name: "Infection Control"
     map_label: "Infection Ctrl"
     section_type: checklist
     data_file: "infection_control.yml"
-    
+    heading_search_text: "INFECTION CONTROL"
+    note_render_slot: "infection_control_section"
+
   # ------
   # Header fields
   ## INTAKE

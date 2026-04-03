@@ -2071,3 +2071,124 @@ mod section_metadata_fields_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod section_metadata_complete_tests {
+    use super::*;
+
+    fn data_dir() -> std::path::PathBuf {
+        let manifest_dir = std::path::PathBuf::from(
+            std::env::var("CARGO_MANIFEST_DIR")
+                .expect("CARGO_MANIFEST_DIR must be set when running cargo test"),
+        );
+        manifest_dir.join("data")
+    }
+
+    fn load() -> AppData {
+        let dir = data_dir();
+        load_data_dir(&dir).expect("load_data_dir on real data directory must succeed")
+    }
+
+    fn find_section<'a>(app: &'a AppData, id: &str) -> &'a SectionConfig {
+        app.sections
+            .iter()
+            .find(|s| s.id == id)
+            .unwrap_or_else(|| panic!("section with id '{}' must exist in sections", id))
+    }
+
+    // ST51-2-TEST-1: all remaining intake sections (exercise, sleep_diet, social, history,
+    // specialists) must have is_intake == true.
+    // FAILS before implementation because sections.yml has not been populated for these sections.
+    #[test]
+    fn all_intake_sections_have_is_intake_true() {
+        let app = load();
+        for id in &["exercise", "sleep_diet", "social", "history", "specialists"] {
+            let sec = find_section(&app, id);
+            assert!(
+                sec.is_intake,
+                "section '{}' must have is_intake == true after sub-task 51.2 implementation; \
+                 sections.yml has not been populated for this section yet",
+                id
+            );
+        }
+    }
+
+    // ST51-2-TEST-2: all remaining intake sections must have the correct heading_label.
+    // FAILS before implementation because sections.yml has not been populated for these sections.
+    #[test]
+    fn all_intake_sections_have_heading_label() {
+        let app = load();
+        let expected: &[(&str, &str)] = &[
+            ("exercise",    "#### EXERCISE HABITS"),
+            ("sleep_diet",  "#### SLEEP & DIET"),
+            ("social",      "#### SOCIAL & STRESS"),
+            ("history",     "#### HISTORY & PREVIOUS DIAGNOSES"),
+            ("specialists", "#### SPECIALISTS & TREATMENT"),
+        ];
+        for &(id, label) in expected {
+            let sec = find_section(&app, id);
+            assert_eq!(
+                sec.heading_label,
+                Some(label.to_string()),
+                "section '{}' must have heading_label == Some({:?}) after sub-task 51.2 \
+                 implementation; sections.yml has not been populated for this section yet. \
+                 Got: {:?}",
+                id, label, sec.heading_label
+            );
+        }
+    }
+
+    // ST51-2-TEST-3: a representative set of sections must have the correct heading_search_text.
+    // FAILS before implementation because sections.yml has not been populated for most sections.
+    #[test]
+    fn all_sections_with_search_text_are_set() {
+        let app = load();
+        let expected: &[(&str, &str)] = &[
+            ("adl",               "ACTIVITIES OF DAILY LIVING"),
+            ("exercise",          "EXERCISE HABITS"),
+            ("tx_regions",        "TREATMENT / PLAN"),
+            ("objective_section", "## OBJECTIVE / OBSERVATIONS"),
+            ("post_treatment",    "## POST-TREATMENT"),
+        ];
+        for &(id, text) in expected {
+            let sec = find_section(&app, id);
+            assert_eq!(
+                sec.heading_search_text,
+                Some(text.to_string()),
+                "section '{}' must have heading_search_text == Some({:?}) after sub-task 51.2 \
+                 implementation; sections.yml has not been populated for this section yet. \
+                 Got: {:?}",
+                id, text, sec.heading_search_text
+            );
+        }
+    }
+
+    // ST51-2-TEST-4: all sections that map to a note render slot must have the correct
+    // note_render_slot value.
+    // FAILS before implementation because sections.yml has not been populated for most sections.
+    #[test]
+    fn remaining_sections_have_note_render_slot() {
+        let app = load();
+        let expected: &[(&str, &str)] = &[
+            ("header",                   "header"),
+            ("subjective_section",       "subjective_section"),
+            ("tx_regions",               "tx_regions"),
+            ("objective_section",        "objective_section"),
+            ("post_treatment",           "post_treatment"),
+            ("remedial_section",         "remedial_section"),
+            ("tx_plan",                  "tx_plan"),
+            ("infection_control_section","infection_control_section"),
+        ];
+        for &(id, slot) in expected {
+            let sec = find_section(&app, id);
+            assert_eq!(
+                sec.note_render_slot,
+                Some(slot.to_string()),
+                "section '{}' must have note_render_slot == Some({:?}) after sub-task 51.2 \
+                 implementation; sections.yml has not been populated for this section yet. \
+                 Got: {:?}",
+                id, slot, sec.note_render_slot
+            );
+        }
+    }
+}
