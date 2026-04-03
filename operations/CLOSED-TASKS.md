@@ -1,5 +1,10 @@
 # Closed Tasks
 
+- [ ] **#50** Convert tx_mods section to multi_field with 5 categorized fields, removing tx_mods.yml
+  [D:40 C:88]
+  Claude: Restructured tx_mods from list_select to multi_field with 5 inline field children in sections.yml: pressure (6 options), challenge (6), mood (6), communication (6 incl. 2x STOIC entries for distinct patient notes), modifications (13 options, repeat_limit: 10). All options moved inline; data/tx_mods.yml deleted; no source references remain. FlatBlock::Field gained repeat_limit field; loader threads it through to HeaderFieldConfig. 172 tests pass, zero warnings.
+- Completed: 2026-04-03T14:23:04
+
 - [ ] **#48** Generalize multi_field note rendering to support arbitrary sections beyond the appointment header
   [D:40 C:72]
   Claude: Generalized multi_field rendering in note.rs. Split render_note into two passes: Pass 1 renders the appointment header by cfg.id=="header" using existing format functions (identical output); Pass 2/inline dispatch renders all other multi_field sections via render_multifield_section() at their correct position in the note. Added pub fn render_multifield_section dispatcher, #[derive(Clone)] to NoteRenderMode, and catch-all block for unknown multi_field ids after INFECTION CONTROL. tx_mods block now calls render_multifield_section when section_type is "multi_field". 160 tests pass, zero warnings.

@@ -18,7 +18,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   [D:20 C:90]
 
 
-- [ ] **#50** Convert tx_mods section to multi_field with 5 categorized fields, removing tx_mods.yml *(implemented)*
+- [x] **#50** Convert tx_mods section to multi_field with 5 categorized fields, removing tx_mods.yml *(implemented)*
   [D:40 C:88]
   Claude: Restructure tx_mods from list_select (one scrollable multi-select list) to multi_field (sequential single-select per category). Five fields: Pressure (LIGHT/MODERATE/REGULAR/FIRM/HEAVY/FULL), Challenge (VERY GENTLE/GENTLE/RELAXED/COMFORTABLE/STRONG/CHALLENGING), Mood (CALMING/RELAXING/CONVERSATIONAL/SOCIAL/RESTFUL/INTROSPECTIVE), Communication (CONCISE/STOIC x2/CONTROLLED/COMMUNICATIVE -- STOIC appears as two distinct entries for the two different notes), Modifications (PREGNANCY/POST-CONCUSSION/VERTIGO/LOW LIGHT/NO PRONE/SUPINE ONLY/HEAD PILLOW/HEAD PILLOW REQUIRED/LOWER TABLE/TALL/CLOTHED/RAYNAUDS/TIMELY with repeat_limit: 10). Pressure/Challenge/Mood/Communication are single-select. All options move inline to sections.yml field blocks; data/tx_mods.yml is deleted and the data_file reference removed from the section config. Note: RAYNAUD'S apostrophe needs handling in YAML. Depends on #48 and #49.
   Joseph-Raw: So, Tx Mods should probably actually be a multi_field. Can you split the list up into fields: Pressure, Challenge, Mood, Communication, and Modifications? Try to categorize them correctly, I'll adjust any that are confusing.
