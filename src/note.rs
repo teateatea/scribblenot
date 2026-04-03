@@ -4,6 +4,7 @@ use crate::sections::multi_field::resolve_multifield_value;
 use chrono::Local;
 use std::collections::HashMap;
 
+#[derive(Clone)]
 pub enum NoteRenderMode {
     Preview,
     Export,
@@ -129,27 +130,6 @@ pub fn render_note(
         }
     }
 
-    // Pass 2: render all remaining multi_field sections generically (skip the appointment header).
-    for (cfg, state) in sections.iter().zip(states.iter()) {
-        if cfg.section_type == "multi_field" && cfg.id != "header" {
-            if let SectionState::Header(hs) = state {
-                match &mode {
-                    NoteRenderMode::Preview => {
-                        let rendered = format_header_generic_preview(hs, sticky_values);
-                        if !rendered.trim().is_empty() {
-                            parts.push(rendered);
-                        }
-                    }
-                    NoteRenderMode::Export => {
-                        if let Some(rendered) = format_header_generic_export(hs, sticky_values) {
-                            parts.push(rendered);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     // INTAKE group sections (no ## heading, just #### subsections)
     let intake_sections: Vec<(&SectionConfig, &SectionState)> = sections
         .iter()
@@ -209,9 +189,19 @@ pub fn render_note(
     // tx_mods
     for (cfg, state) in sections.iter().zip(states.iter()) {
         if cfg.id == "tx_mods" {
-            let rendered = render_section_content(cfg, state, &today);
-            if !rendered.trim().is_empty() {
-                tx_parts.push(format!("\n\n\n#### TREATMENT MODIFICATIONS & PREFERENCES\n{}", rendered));
+            if cfg.section_type == "multi_field" {
+                if let SectionState::Header(hs) = state {
+                    if let Some(rendered) = render_multifield_section(cfg, hs, sticky_values, mode.clone()) {
+                        if !rendered.trim().is_empty() {
+                            tx_parts.push(format!("\n\n\n#### TREATMENT MODIFICATIONS & PREFERENCES\n{}", rendered));
+                        }
+                    }
+                }
+            } else {
+                let rendered = render_section_content(cfg, state, &today);
+                if !rendered.trim().is_empty() {
+                    tx_parts.push(format!("\n\n\n#### TREATMENT MODIFICATIONS & PREFERENCES\n{}", rendered));
+                }
             }
         }
     }
@@ -289,6 +279,22 @@ pub fn render_note(
             let rendered = render_section_content(cfg, state, &today);
             if !rendered.trim().is_empty() {
                 parts.push(format!("\n\n\n#### STANDARD INFECTION CONTROL PRECAUTIONS\n{}", rendered));
+            }
+        }
+    }
+
+    // Catch-all: non-header multi_field sections with unrecognized ids
+    for (cfg, state) in sections.iter().zip(states.iter()) {
+        if cfg.section_type == "multi_field" && cfg.id != "header" {
+            let known_ids = ["tx_mods"];
+            if !known_ids.contains(&cfg.id.as_str()) {
+                if let SectionState::Header(hs) = state {
+                    if let Some(rendered) = render_multifield_section(cfg, hs, sticky_values, mode.clone()) {
+                        if !rendered.trim().is_empty() {
+                            parts.push(format!("\n\n\n#### {}\n{}", cfg.name.to_uppercase(), rendered));
+                        }
+                    }
+                }
             }
         }
     }
@@ -1450,5 +1456,196 @@ mod tests {
         let result = render_multifield_section(&cfg, &hs, &sticky, NoteRenderMode::Export);
         assert_eq!(result, Some("only_this".to_string()),
             "expected Some with only the non-empty value, got: {:?}", result);
+    }
+
+    // --- ST48-3: non-header multi_field sections rendered at correct position ---
+    //
+    // These tests verify that render_note places non-header multi_field sections
+    // at the correct position in the note output (controlled by where the section id
+    // appears in the existing section-position logic), NOT dumped before the INTAKE
+    // group as a side-effect of Pass 2.
+
+    fn make_multi_field_section_with_id(id: &str) -> SectionConfig {
+        SectionConfig {
+            id: id.to_string(),
+            name: id.to_string(),
+            map_label: id.to_string(),
+            section_type: "multi_field".to_string(),
+            data_file: None,
+            date_prefix: None,
+            options: vec![],
+            composite: None,
+            fields: None,
+        }
+    }
+
+    fn make_header_state_with_confirmed(field_id: &str, field_name: &str, value: &str) -> HeaderState {
+        let cfg = crate::data::HeaderFieldConfig {
+            id: field_id.to_string(),
+            name: field_name.to_string(),
+            options: vec![],
+            composite: None,
+            default: None,
+            repeat_limit: None,
+        };
+        let mut hs = HeaderState::new(vec![cfg]);
+        hs.repeated_values[0].push(value.to_string());
+        hs.completed = true;
+        hs
+    }
+
+    // ST48-3-TEST-1: a non-header multi_field section with id "tx_mods" and a confirmed
+    // value must appear AFTER the "## TREATMENT / PLAN" heading in the rendered note.
+    // With the current Pass-2 implementation, the content is dumped before the INTAKE
+    // block (before "## TREATMENT / PLAN"), so this test must FAIL before the fix.
+    #[test]
+    fn non_header_multi_field_section_appears_after_treatment_heading() {
+        let tx_mods_sec = make_multi_field_section_with_id("tx_mods");
+        let tx_mods_hs = make_header_state_with_confirmed(
+            "mod_field",
+            "Modification",
+            "TX_MODS_SENTINEL_VALUE",
+        );
+
+        let sections = vec![tx_mods_sec];
+        let states = vec![SectionState::Header(tx_mods_hs)];
+        let sticky = HashMap::new();
+        let bp = HashMap::new();
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
+
+        // The sentinel value must appear somewhere in the note
+        assert!(
+            note.contains("TX_MODS_SENTINEL_VALUE"),
+            "TX_MODS_SENTINEL_VALUE must appear in rendered note, got:\n{}", note
+        );
+
+        // Find the line index of "## TREATMENT / PLAN" and the sentinel value.
+        // The sentinel must appear AFTER the treatment heading.
+        let treatment_line = note.lines().enumerate()
+            .find(|(_, l)| l.contains("## TREATMENT / PLAN"))
+            .map(|(i, _)| i);
+        let sentinel_line = note.lines().enumerate()
+            .find(|(_, l)| l.contains("TX_MODS_SENTINEL_VALUE"))
+            .map(|(i, _)| i);
+
+        let treatment_idx = treatment_line.expect("## TREATMENT / PLAN heading must be present");
+        let sentinel_idx = sentinel_line.expect("TX_MODS_SENTINEL_VALUE must be in the note");
+
+        assert!(
+            sentinel_idx > treatment_idx,
+            "TX_MODS_SENTINEL_VALUE (line {}) must appear AFTER ## TREATMENT / PLAN (line {}), \
+             but it appeared before it. The section is being dumped at the wrong position.",
+            sentinel_idx, treatment_idx
+        );
+    }
+
+    // ST48-3-TEST-2: a non-header multi_field section with a generic id (not any known
+    // section id) must still produce non-empty output in the rendered note.
+    // This verifies the generic case: even unknown ids do not silently drop content.
+    #[test]
+    fn non_header_multi_field_section_with_unknown_id_produces_output() {
+        let sec = make_multi_field_section_with_id("my_custom_section");
+        let hs = make_header_state_with_confirmed(
+            "custom_field",
+            "Custom Field",
+            "CUSTOM_SECTION_SENTINEL",
+        );
+
+        let sections = vec![sec];
+        let states = vec![SectionState::Header(hs)];
+        let sticky = HashMap::new();
+        let bp = HashMap::new();
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
+
+        assert!(
+            note.contains("CUSTOM_SECTION_SENTINEL"),
+            "CUSTOM_SECTION_SENTINEL must appear in rendered note for a generic multi_field \
+             section id, got:\n{}", note
+        );
+    }
+
+    // ST48-3-TEST-3: a non-header multi_field section with id "tx_mods" must NOT
+    // appear before the INTAKE separator (the first "_______________" line).
+    // Pass 2 currently dumps it before INTAKE (before the separator), so this
+    // test must FAIL before the fix.
+    #[test]
+    fn non_header_multi_field_section_not_before_intake_separator() {
+        let tx_mods_sec = make_multi_field_section_with_id("tx_mods");
+        let tx_mods_hs = make_header_state_with_confirmed(
+            "mod_field",
+            "Modification",
+            "PREMATURE_SENTINEL",
+        );
+
+        let sections = vec![tx_mods_sec];
+        let states = vec![SectionState::Header(tx_mods_hs)];
+        let sticky = HashMap::new();
+        let bp = HashMap::new();
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
+
+        // Find the first separator line index
+        let first_separator_line = note.lines().enumerate()
+            .find(|(_, l)| l.contains("_______________"))
+            .map(|(i, _)| i);
+        let sentinel_line = note.lines().enumerate()
+            .find(|(_, l)| l.contains("PREMATURE_SENTINEL"))
+            .map(|(i, _)| i);
+
+        let separator_idx = first_separator_line
+            .expect("at least one _______________ separator must appear in the note");
+        let sentinel_idx = sentinel_line
+            .expect("PREMATURE_SENTINEL must appear in the note");
+
+        assert!(
+            sentinel_idx > separator_idx,
+            "PREMATURE_SENTINEL (line {}) must NOT appear before the first _______________ \
+             separator (line {}). The section is being prematurely dumped before the INTAKE block.",
+            sentinel_idx, separator_idx
+        );
+    }
+
+    // ST48-3-TEST-4: export mode - a non-header multi_field section with id "tx_mods"
+    // and a confirmed value must appear after "## TREATMENT / PLAN" in export output.
+    #[test]
+    fn export_non_header_multi_field_section_appears_after_treatment_heading() {
+        let tx_mods_sec = make_multi_field_section_with_id("tx_mods");
+        let tx_mods_hs = make_header_state_with_confirmed(
+            "mod_field",
+            "Modification",
+            "EXPORT_TX_MODS_SENTINEL",
+        );
+
+        let sections = vec![tx_mods_sec];
+        let states = vec![SectionState::Header(tx_mods_hs)];
+        let sticky = HashMap::new();
+        let bp = HashMap::new();
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Export);
+
+        assert!(
+            note.contains("EXPORT_TX_MODS_SENTINEL"),
+            "EXPORT_TX_MODS_SENTINEL must appear in export output for tx_mods multi_field section, \
+             got:\n{}", note
+        );
+
+        let treatment_line = note.lines().enumerate()
+            .find(|(_, l)| l.contains("## TREATMENT / PLAN"))
+            .map(|(i, _)| i);
+        let sentinel_line = note.lines().enumerate()
+            .find(|(_, l)| l.contains("EXPORT_TX_MODS_SENTINEL"))
+            .map(|(i, _)| i);
+
+        let treatment_idx = treatment_line.expect("## TREATMENT / PLAN must be in export output");
+        let sentinel_idx = sentinel_line.expect("EXPORT_TX_MODS_SENTINEL must be in export output");
+
+        assert!(
+            sentinel_idx > treatment_idx,
+            "EXPORT_TX_MODS_SENTINEL (line {}) must appear AFTER ## TREATMENT / PLAN (line {}) \
+             in export mode.",
+            sentinel_idx, treatment_idx
+        );
     }
 }
