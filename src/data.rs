@@ -1831,4 +1831,59 @@ mod tx_mods_multi_field_tests {
             modifications.options
         );
     }
+
+    // ST50-3-TEST-1: the tx_mods SectionConfig must NOT have a data_file field set.
+    // This verifies that the migration to inline fields is complete and data/tx_mods.yml
+    // has been properly removed -- any remaining data_file reference would mean the
+    // migration is incomplete.
+    // FAILS if tx_mods still has a data_file value pointing to the deleted file.
+    #[test]
+    fn tx_mods_section_has_no_data_file() {
+        let app = load();
+        let sec = find_tx_mods(&app);
+        assert!(
+            sec.data_file.is_none(),
+            "tx_mods section must NOT have a data_file set after migration to inline fields; \
+             data/tx_mods.yml was deleted and all options are now inline. \
+             Found data_file: {:?}",
+            sec.data_file
+        );
+    }
+
+    // ST50-3-TEST-2: PREGNANCY option must be present as an inline field option in sections.yml,
+    // not loaded from an external file. This verifies the migration moved all options inline
+    // and the now-deleted data/tx_mods.yml is no longer needed as a source.
+    // FAILS if the modifications field is missing or PREGNANCY is absent from inline options.
+    #[test]
+    fn tx_mods_pregnancy_option_is_inline_not_from_external_file() {
+        let app = load();
+        let sec = find_tx_mods(&app);
+
+        // The section must NOT use a data_file (external file was deleted).
+        assert!(
+            sec.data_file.is_none(),
+            "tx_mods must not reference an external data file; migration to inline is incomplete"
+        );
+
+        // The PREGNANCY option must be reachable directly from the inline fields.
+        let fields = sec
+            .fields
+            .as_ref()
+            .expect("tx_mods.fields must be Some -- inline fields are required after migration");
+        let modifications = fields
+            .iter()
+            .find(|f| f.id == "modifications")
+            .expect("'modifications' field must exist as an inline child of tx_mods");
+        let has_pregnancy = modifications
+            .options
+            .iter()
+            .any(|o| o.contains("PREGNANCY"));
+        assert!(
+            has_pregnancy,
+            "PREGNANCY option must be present in the inline 'modifications' field options \
+             (not loaded from the deleted data/tx_mods.yml); \
+             inline options found: {:?}",
+            modifications.options
+        );
+    }
 }
