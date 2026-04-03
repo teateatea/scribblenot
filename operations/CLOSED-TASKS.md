@@ -1,5 +1,11 @@
 # Closed Tasks
 
+- [ ] **#47** Add per-technique default selection state to block_select *(implemented)*
+  [D:20 C:92]
+  Claude: Add `default: bool` (serde default = true) to `TechniqueConfig` in `src/data.rs`. Update `RegionState::from_config` in `src/sections/block_select.rs` to initialize `technique_selected` from each technique's `default` field rather than hardcoding `false`. In tx_regions.yml, any technique with `default: false` will start unselected; all others (field omitted or `default: true`) start selected. Lets authors mark rarely-used techniques as off by default on a per-region basis without affecting others.
+  Context: User noted they nearly always use the first three techniques in LOWER BACK (Prone) and only Fascial is typically off
+- Completed: 2026-04-02T20:26:50
+
 - [ ] **#23** Auto-generate multi-character hint permutations from base hint characters for overflow assignment
   [D:55 C:58] When the base hint pool is smaller than the number of hints needed, generate 2-char (and if needed, 3-char+) permutations using n^r logic. Permutations adjacency-ordered; stored in `hint_permutations:` field on KeyBindings; regenerated at load time when hints list changes.
 - Completed: 2026-03-30T18:52:49
