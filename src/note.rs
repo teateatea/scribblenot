@@ -550,6 +550,21 @@ fn format_header_generic_export(
     }
 }
 
+/// Dispatch a non-header multi_field section to the appropriate renderer.
+/// Preview always returns Some (empty fields show "--" placeholders).
+/// Export returns None when all fields are empty.
+pub fn render_multifield_section(
+    _cfg: &SectionConfig,
+    hs: &crate::sections::header::HeaderState,
+    sticky_values: &HashMap<String, String>,
+    mode: NoteRenderMode,
+) -> Option<String> {
+    match mode {
+        NoteRenderMode::Preview => Some(format_header_generic_preview(hs, sticky_values)),
+        NoteRenderMode::Export => format_header_generic_export(hs, sticky_values),
+    }
+}
+
 fn format_header_date(date: &str) -> String {
     // Parse YYYY-MM-DD and format as "Thu Mar 19, 2026"
     if let Ok(d) = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d") {
@@ -1333,5 +1348,107 @@ mod tests {
             note_with_extra.contains("Fri Apr 3, 2026"),
             "note with extra section must still contain formatted date, got:\n{}", note_with_extra
         );
+    }
+
+    // --- render_multifield_section tests (task #48 sub-task 2) ---
+
+    /// Build a two-field HeaderState with arbitrary field ids and given values.
+    /// Both fields are non-repeatable (repeat_limit = None).
+    fn make_two_field_header(
+        id_a: &str, val_a: &str,
+        id_b: &str, val_b: &str,
+    ) -> (SectionConfig, crate::sections::header::HeaderState) {
+        let cfg_a = crate::data::HeaderFieldConfig {
+            id: id_a.to_string(),
+            name: id_a.to_string(),
+            options: vec![],
+            composite: None,
+            default: None,
+            repeat_limit: None,
+        };
+        let cfg_b = crate::data::HeaderFieldConfig {
+            id: id_b.to_string(),
+            name: id_b.to_string(),
+            options: vec![],
+            composite: None,
+            default: None,
+            repeat_limit: None,
+        };
+        let mut hs = crate::sections::header::HeaderState::new(vec![cfg_a, cfg_b]);
+        if !val_a.is_empty() {
+            hs.repeated_values[0].push(val_a.to_string());
+        }
+        if !val_b.is_empty() {
+            hs.repeated_values[1].push(val_b.to_string());
+        }
+        let sec_cfg = SectionConfig {
+            id: "test_section".to_string(),
+            name: "Test Section".to_string(),
+            map_label: "Test Section".to_string(),
+            section_type: "multi_field".to_string(),
+            data_file: None,
+            date_prefix: None,
+            options: vec![],
+            composite: None,
+            fields: None,
+        };
+        (sec_cfg, hs)
+    }
+
+    /// Preview mode: two fields with values must produce two lines joined by newline,
+    /// each formatted as "<field_id>: <value>". Returns Some(text).
+    #[test]
+    fn render_multifield_section_preview_two_fields_joined_by_newline() {
+        let (cfg, hs) = make_two_field_header("alpha", "hello", "beta", "world");
+        let sticky = HashMap::new();
+        let result = render_multifield_section(&cfg, &hs, &sticky, NoteRenderMode::Preview);
+        // Both fields resolved - preview returns the joined text (never None)
+        let text = result.expect("preview must return Some for non-empty fields");
+        assert_eq!(text, "alpha: hello\nbeta: world",
+            "expected two field lines joined by newline, got: {:?}", text);
+    }
+
+    /// Preview mode: a field with no confirmed value must show "--" as placeholder.
+    #[test]
+    fn render_multifield_section_preview_empty_field_shows_placeholder() {
+        let (cfg, hs) = make_two_field_header("alpha", "hello", "beta", "");
+        let sticky = HashMap::new();
+        let result = render_multifield_section(&cfg, &hs, &sticky, NoteRenderMode::Preview);
+        // beta has no value - generic preview shows "--"
+        let text = result.expect("preview must return Some even with partially empty fields");
+        assert!(text.contains("beta: --"),
+            "expected 'beta: --' placeholder for empty field, got: {:?}", text);
+    }
+
+    /// Export mode: two fields with values must produce their values only (no labels),
+    /// joined by newline.
+    #[test]
+    fn render_multifield_section_export_values_only_joined_by_newline() {
+        let (cfg, hs) = make_two_field_header("alpha", "hello", "beta", "world");
+        let sticky = HashMap::new();
+        let result = render_multifield_section(&cfg, &hs, &sticky, NoteRenderMode::Export);
+        // Both fields resolved - export returns Some("hello\nworld")
+        assert_eq!(result, Some("hello\nworld".to_string()),
+            "expected Some with two values joined by newline, got: {:?}", result);
+    }
+
+    /// Export mode: when all fields are empty, returns None.
+    #[test]
+    fn render_multifield_section_export_none_when_all_empty() {
+        let (cfg, hs) = make_two_field_header("alpha", "", "beta", "");
+        let sticky = HashMap::new();
+        let result = render_multifield_section(&cfg, &hs, &sticky, NoteRenderMode::Export);
+        assert_eq!(result, None,
+            "expected None when no fields have values, got: {:?}", result);
+    }
+
+    /// Export mode: one filled field returns Some with just that value.
+    #[test]
+    fn render_multifield_section_export_partial_returns_some() {
+        let (cfg, hs) = make_two_field_header("alpha", "only_this", "beta", "");
+        let sticky = HashMap::new();
+        let result = render_multifield_section(&cfg, &hs, &sticky, NoteRenderMode::Export);
+        assert_eq!(result, Some("only_this".to_string()),
+            "expected Some with only the non-empty value, got: {:?}", result);
     }
 }
