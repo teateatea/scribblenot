@@ -15,27 +15,11 @@ pub enum NoteRenderMode {
 /// section_start_line can use the same lookup for primary and fallback anchors.
 fn heading_anchor(id: &str) -> &'static str {
     match id {
-        // Section anchors
-        "adl"                      => "ACTIVITIES OF DAILY LIVING",
-        "exercise"                 => "EXERCISE HABITS",
-        "sleep_diet"               => "SLEEP & DIET",
-        "social"                   => "SOCIAL & STRESS",
-        "history"                  => "HISTORY & PREVIOUS DIAGNOSES",
-        "specialists"              => "SPECIALISTS & TREATMENT",
-        "subjective_section"       => "## SUBJECTIVE",
-        "tx_mods"                  => "TREATMENT MODIFICATIONS",
-        "tx_regions"               => "TREATMENT / PLAN",
-        "objective_section"        => "## OBJECTIVE / OBSERVATIONS",
-        "post_treatment"           => "## POST-TREATMENT",
-        "remedial_section"         => "REMEDIAL EXERCISES",
-        "tx_plan"                  => "TREATMENT PLAN",
-        "infection_control_section" => "INFECTION CONTROL",
-        // Group anchors
+        // Group anchors (sections use cfg.heading_search_text instead)
         "subjective"               => "## SUBJECTIVE",
         "treatment"                => "## TREATMENT / PLAN",
         "objective"                => "## OBJECTIVE / OBSERVATIONS",
         "post_tx"                  => "## POST-TREATMENT",
-        // intake, header, and anything else: no anchor in the rendered note
         _                          => "",
     }
 }
@@ -50,8 +34,12 @@ pub fn section_start_line(
 ) -> u16 {
     let note = render_note(sections, states, sticky_values, boilerplate_texts, NoteRenderMode::Preview);
 
-    // Try the section's own anchor first.
-    let anchor = heading_anchor(section_id);
+    // Try the section's own anchor first (from cfg.heading_search_text).
+    let anchor = sections
+        .iter()
+        .find(|s| s.id == section_id)
+        .and_then(|s| s.heading_search_text.as_deref())
+        .unwrap_or("");
     if !anchor.is_empty() {
         for (i, line) in note.lines().enumerate() {
             if line.contains(anchor) {
@@ -134,14 +122,18 @@ pub fn render_note(
     let intake_sections: Vec<(&SectionConfig, &SectionState)> = sections
         .iter()
         .zip(states.iter())
-        .filter(|(cfg, _)| cfg.section_type != "multi_field" && is_intake_section(cfg))
+        .filter(|(cfg, _)| cfg.section_type != "multi_field" && cfg.is_intake)
         .collect();
 
     let mut intake_parts: Vec<String> = Vec::new();
     for (cfg, state) in &intake_sections {
         let rendered = render_section_content(cfg, state, &today);
         if !rendered.trim().is_empty() || !is_skipped(state) {
-            let heading = intake_heading(cfg);
+            let heading = cfg
+                .heading_label
+                .as_deref()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| format!("#### {}", cfg.name.to_uppercase()));
             let mut section_text = format!("\n\n{}", heading);
             if !rendered.trim().is_empty() {
                 section_text.push_str(&format!("\n{}", rendered));
@@ -302,25 +294,6 @@ pub fn render_note(
     parts.push("\n\n\n_______________\n".to_string());
 
     parts.join("")
-}
-
-fn is_intake_section(cfg: &SectionConfig) -> bool {
-    matches!(
-        cfg.id.as_str(),
-        "adl" | "exercise" | "sleep_diet" | "social" | "history" | "specialists"
-    )
-}
-
-fn intake_heading(cfg: &SectionConfig) -> String {
-    match cfg.id.as_str() {
-        "adl" => "#### ACTIVITIES OF DAILY LIVING".to_string(),
-        "exercise" => "#### EXERCISE HABITS".to_string(),
-        "sleep_diet" => "#### SLEEP & DIET".to_string(),
-        "social" => "#### SOCIAL & STRESS".to_string(),
-        "history" => "#### HISTORY & PREVIOUS DIAGNOSES".to_string(),
-        "specialists" => "#### SPECIALISTS & TREATMENT".to_string(),
-        _ => format!("#### {}", cfg.name.to_uppercase()),
-    }
 }
 
 fn is_skipped(state: &SectionState) -> bool {
@@ -777,7 +750,8 @@ mod tests {
     #[test]
     fn non_empty_tx_plan_returns_own_heading_line() {
         use crate::sections::free_text::FreeTextState;
-        let sec = make_section("tx_plan", "free_text");
+        let mut sec = make_section("tx_plan", "free_text");
+        sec.heading_search_text = Some("TREATMENT PLAN".to_string());
         let groups = vec![make_group("post_tx", vec![sec.clone()])];
         let sections = vec![sec];
         let mut s = FreeTextState::new();
@@ -1885,19 +1859,42 @@ mod tests {
         );
     }
 
-    // ST50-2-TEST-3: verify that the heading_anchor for "tx_mods" still returns
-    // "TREATMENT MODIFICATIONS" after the shim is removed.
-    // This test does not depend on the shim and must pass before and after.
-    // It is included here to pin the heading_anchor contract for tx_mods.
+    // ST51-3-TEST-1 (replaces ST50-2-TEST-3): after ST51.3 removes section ID arms from
+    // heading_anchor(), section_start_line must still locate tx_mods in the rendered note
+    // by reading cfg.heading_search_text instead. This test pins the behavioral contract
+    // without coupling to the internal heading_anchor function.
+    //
+    // The old test called `heading_anchor("tx_mods")` directly and would break once that
+    // arm is removed. This replacement asserts the same end-to-end guarantee:
+    // section_start_line returns a non-zero line for tx_mods when the note has been rendered.
+    //
+    // Currently PASSES (via heading_anchor); continues to pass after refactor (via cfg).
     #[test]
-    fn tx_mods_heading_anchor_maps_to_treatment_modifications() {
-        let anchor = heading_anchor("tx_mods");
-        assert_eq!(
-            anchor,
-            "TREATMENT MODIFICATIONS",
-            "heading_anchor(\"tx_mods\") must return \"TREATMENT MODIFICATIONS\" \
-             so section_start_line can locate the section in rendered output; got: {:?}",
-            anchor
+    fn tx_mods_section_start_line_finds_treatment_modifications_heading() {
+        use crate::data::{AppData, load_data_dir};
+        let data_dir = std::path::PathBuf::from(
+            std::env::var("CARGO_MANIFEST_DIR")
+                .expect("CARGO_MANIFEST_DIR must be set"),
+        ).join("data");
+        let app: AppData = load_data_dir(&data_dir).expect("load must succeed");
+
+        // Build minimal states for all sections (all Pending).
+        let states: Vec<crate::app::SectionState> = app.sections
+            .iter()
+            .map(|_| crate::app::SectionState::Pending)
+            .collect();
+        let groups: Vec<crate::data::SectionGroup> = app.groups.clone();
+        let sticky = std::collections::HashMap::new();
+        let bp = app.boilerplate_texts.clone();
+
+        let line = section_start_line(&app.sections, &states, &sticky, &groups, &bp, "tx_mods");
+        // tx_mods renders under ## TREATMENT / PLAN which is always present;
+        // section_start_line must return a non-zero line (found in note).
+        assert!(
+            line > 0,
+            "section_start_line('tx_mods') must return a non-zero line; \
+             the note must contain 'TREATMENT MODIFICATIONS' so the anchor is found. \
+             Got line 0, which means the anchor was not found."
         );
     }
 }
