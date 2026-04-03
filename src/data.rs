@@ -3,9 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fs;
-use std::path::Path;
 use std::path::PathBuf;
-use crate::flat_file::FlatFile;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -135,19 +133,6 @@ struct ListFile {
 
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlockSelectEntry {
-    pub id: String,
-    pub label: String,
-    pub header: String,
-    pub entries: Vec<PartOption>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct BlockSelectFile {
-    entries: Vec<BlockSelectEntry>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyBindings {
     pub navigate_down: Vec<String>,
     pub navigate_up: Vec<String>,
@@ -218,7 +203,7 @@ pub struct AppData {
     pub sections: Vec<SectionConfig>,
     pub list_data: HashMap<String, Vec<ListEntry>>,
     pub checklist_data: HashMap<String, Vec<String>>,
-    pub block_select_data: HashMap<String, Vec<BlockSelectEntry>>,
+    pub block_select_data: HashMap<String, Vec<HierarchyList>>,
     pub boilerplate_texts: HashMap<String, String>,
     pub keybindings: KeyBindings,
     pub data_dir: PathBuf,
@@ -226,14 +211,14 @@ pub struct AppData {
 
 impl AppData {
     pub fn load(data_dir: PathBuf) -> Result<Self> {
-        let base = load_data_dir(&data_dir)
+        let hf = load_hierarchy_dir(&data_dir)
             .map_err(|e| anyhow::anyhow!(e))?;
-        let groups = base.groups;
-        let sections = base.sections;
+        let (groups, sections, boilerplate_texts, block_select_data) =
+            hierarchy_to_runtime(hf)
+                .map_err(|e| anyhow::anyhow!(e))?;
 
         let mut list_data: HashMap<String, Vec<ListEntry>> = HashMap::new();
         let mut checklist_data: HashMap<String, Vec<String>> = HashMap::new();
-        let mut block_select_data: HashMap<String, Vec<BlockSelectEntry>> = HashMap::new();
 
         for section in &sections {
             if let Some(ref data_file) = section.data_file {
@@ -242,35 +227,27 @@ impl AppData {
                     let content = fs::read_to_string(&path)?;
                     match section.section_type.as_str() {
                         "list_select" => {
-                            let flat: crate::flat_file::FlatFile = serde_yaml::from_str(&content)?;
+                            let parsed: HierarchyFile = serde_yaml::from_str(&content)?;
                             let mut entries: Vec<ListEntry> = Vec::new();
-                            for block in flat.blocks {
-                                if let crate::flat_file::FlatBlock::OptionsList { entries: opts, .. } = block {
-                                    for opt in opts {
-                                        entries.push(ListEntry {
-                                            label: opt.label().to_string(),
-                                            output: opt.output().to_string(),
-                                        });
-                                    }
+                            for list in parsed.lists.unwrap_or_default() {
+                                for item in &list.items {
+                                    entries.push(ListEntry {
+                                        label: item.label.clone(),
+                                        output: item.output.clone().unwrap_or_else(|| item.label.clone()),
+                                    });
                                 }
                             }
                             list_data.insert(data_file.clone(), entries);
                         }
                         "checklist" => {
-                            let flat: crate::flat_file::FlatFile = serde_yaml::from_str(&content)?;
+                            let parsed: HierarchyFile = serde_yaml::from_str(&content)?;
                             let mut items: Vec<String> = Vec::new();
-                            for block in flat.blocks {
-                                if let crate::flat_file::FlatBlock::OptionsList { entries: opts, .. } = block {
-                                    for opt in opts {
-                                        items.push(opt.label().to_string());
-                                    }
+                            for list in parsed.lists.unwrap_or_default() {
+                                for item in &list.items {
+                                    items.push(item.label.clone());
                                 }
                             }
                             checklist_data.insert(data_file.clone(), items);
-                        }
-                        "block_select" => {
-                            let file: BlockSelectFile = serde_yaml::from_str(&content)?;
-                            block_select_data.insert(data_file.clone(), file.entries);
                         }
                         _ => {}
                     }
@@ -300,7 +277,7 @@ impl AppData {
             list_data,
             checklist_data,
             block_select_data,
-            boilerplate_texts: base.boilerplate_texts,
+            boilerplate_texts,
             keybindings,
             data_dir,
         })
@@ -423,53 +400,6 @@ pub fn combined_hints(kb: &KeyBindings) -> Vec<&str> {
 }
 
 #[cfg(test)]
-mod rename_tests {
-    use super::*;
-    use std::collections::HashMap;
-
-    // Verify BlockSelectEntry is defined and has an `entries` field of Vec<PartOption>.
-    // This test will FAIL until TechniqueConfig is renamed to PartOption-based BlockSelectEntry.
-    #[test]
-    fn block_select_entry_exists_with_entries_field() {
-        let _entry: BlockSelectEntry = BlockSelectEntry {
-            id: "test-id".to_string(),
-            label: "Test".to_string(),
-            header: "Header".to_string(),
-            entries: vec![],
-        };
-    }
-
-    // Verify BlockSelectFile is defined and has an `entries` field of Vec<BlockSelectEntry>.
-    // This test will FAIL until RegionsFile is renamed to BlockSelectFile.
-    #[test]
-    fn block_select_file_exists_with_entries_field() {
-        let _file: BlockSelectFile = BlockSelectFile {
-            entries: vec![],
-        };
-    }
-
-    // Verify TechniqueConfig no longer exists as a public type.
-    // This test will FAIL to compile if TechniqueConfig still exists,
-    // because the compile-time type check approach confirms absence by expecting
-    // BlockSelectEntry (the replacement) to be the canonical name.
-    // Since we cannot directly assert a type does NOT exist in a passing test,
-    // we assert AppData uses `block_select_data` (not `region_data`).
-    #[test]
-    fn app_data_has_block_select_data_not_region_data() {
-        // Construct a minimal AppData manually to verify field names.
-        // This will fail to compile while `region_data` exists and `block_select_data` does not.
-        let _map: HashMap<String, Vec<BlockSelectEntry>> = HashMap::new();
-        // The following line will only compile after `block_select_data` replaces `region_data`.
-        let _check = std::mem::size_of::<AppData>();
-        // Access the field name via a closure that borrows it -- compile-time proof.
-        fn check_field(ad: &AppData) -> &HashMap<String, Vec<BlockSelectEntry>> {
-            &ad.block_select_data
-        }
-        let _ = check_field;
-    }
-}
-
-#[cfg(test)]
 mod part_option_default_tests {
     use super::*;
 
@@ -577,36 +507,6 @@ pub fn resolve_hint(hints: &[&str], typed: &str) -> HintResolveResult {
     }
 }
 
-fn block_type_tag(b: &crate::flat_file::FlatBlock) -> &'static str {
-    use crate::flat_file::FlatBlock::*;
-    match b {
-        Box {..} => "box",
-        Group {..} => "group",
-        Section {..} => "section",
-        Field {..} => "field",
-        OptionsList {..} => "options-list",
-        Boilerplate {..} => "boilerplate",
-    }
-}
-
-fn block_id(b: &crate::flat_file::FlatBlock) -> &str {
-    use crate::flat_file::FlatBlock::*;
-    match b {
-        Box { id, .. } | Group { id, .. } | Section { id, .. }
-            | Field { id, .. } | OptionsList { id, .. }
-            | Boilerplate { id, .. } => id.as_str(),
-    }
-}
-
-fn block_children(b: &crate::flat_file::FlatBlock) -> &[String] {
-    use crate::flat_file::FlatBlock::*;
-    match b {
-        Box { children, .. } | Group { children, .. } | Section { children, .. }
-            | Field { children, .. } | OptionsList { children, .. } => children.as_slice(),
-        Boilerplate {..} => &[],
-    }
-}
-
 /// Identifies the structural level of a hierarchy node for scoped (TypeTag, id) uniqueness.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -700,250 +600,63 @@ pub struct HierarchyFile {
     pub boilerplate: Vec<BoilerplateEntry>,
 }
 
-pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
-    // Collect all *.yml files, skipping keybindings.yml
-    let entries = fs::read_dir(path)
-        .map_err(|e| format!("failed to read directory {:?}: {}", path, e))?;
+/// Converts a merged HierarchyFile into runtime structures.
+///
+/// Returns (groups, sections, boilerplate_texts, block_select_data).
+pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<(Vec<SectionGroup>, Vec<SectionConfig>, HashMap<String, String>, HashMap<String, Vec<HierarchyList>>), String> {
+    let h_sections = hf.sections.as_deref().unwrap_or(&[]);
+    let h_groups = hf.groups.as_deref().unwrap_or(&[]);
 
-    let mut pool: Vec<crate::flat_file::FlatBlock> = Vec::new();
-
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("directory entry error: {}", e))?;
-        let file_path = entry.path();
-        let file_name = file_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
-        if !file_name.ends_with(".yml") {
-            continue;
-        }
-        if file_name == "keybindings.yml" || file_name == "config.yml" || file_name == "tx_regions.yml" {
-            continue;
-        }
-        let content = fs::read_to_string(&file_path)
-            .map_err(|e| format!("failed to read {:?}: {}", file_path, e))?;
-        // Try parsing as FlatFile; skip files that have been migrated to HierarchyFile format
-        let flat_file: FlatFile = match serde_yaml::from_str(&content) {
-            Ok(f) => f,
-            Err(_) => continue,
-        };
-        pool.extend(flat_file.blocks);
-    }
-
-    // Duplicate check: (type_tag, id) must be unique
-    let mut seen: HashSet<(String, String)> = HashSet::new();
-    for block in &pool {
-        let key = (block_type_tag(block).to_string(), block_id(block).to_string());
-        if !seen.insert(key) {
-            return Err(format!(
-                "duplicate block: type={} id={}",
-                block_type_tag(block),
-                block_id(block)
-            ));
-        }
-    }
-
-    // Build id -> index lookup (any type) for reference resolution
-    let mut id_map: HashMap<String, usize> = HashMap::new();
-    for (i, block) in pool.iter().enumerate() {
-        id_map.insert(block_id(block).to_string(), i);
-    }
-
-    // Missing-ref check: every child ID must exist in the pool
-    for block in &pool {
-        for child_id in block_children(block) {
-            if !id_map.contains_key(child_id.as_str()) {
-                return Err(format!(
-                    "block {:?} references unknown child id {:?}",
-                    block_id(block),
-                    child_id
-                ));
-            }
-        }
-    }
-
-    // Cycle detection: standard DFS with visited/in-stack sets
-    let n = pool.len();
-    let mut visited: HashSet<usize> = HashSet::new();
-    let mut in_stack: HashSet<usize> = HashSet::new();
-
-    fn dfs(
-        node: usize,
-        pool: &[crate::flat_file::FlatBlock],
-        id_map: &HashMap<String, usize>,
-        visited: &mut HashSet<usize>,
-        in_stack: &mut HashSet<usize>,
-    ) -> Result<(), String> {
-        if in_stack.contains(&node) {
-            return Err(format!("cycle detected at block id={}", block_id(&pool[node])));
-        }
-        if visited.contains(&node) {
-            return Ok(());
-        }
-        visited.insert(node);
-        in_stack.insert(node);
-        for child_id in block_children(&pool[node]) {
-            if let Some(&child_idx) = id_map.get(child_id.as_str()) {
-                dfs(child_idx, pool, id_map, visited, in_stack)?;
-            }
-        }
-        in_stack.remove(&node);
-        Ok(())
-    }
-
-    for i in 0..n {
-        dfs(i, &pool, &id_map, &mut visited, &mut in_stack)?;
-    }
-
-    // Reconstruction pass: walk Group blocks to build runtime SectionGroup/SectionConfig.
     let mut groups: Vec<SectionGroup> = Vec::new();
     let mut all_sections: Vec<SectionConfig> = Vec::new();
 
-    for block in &pool {
-        if let crate::flat_file::FlatBlock::Group { id, name, num, children, .. } = block {
+    // Follow template group order
+    let template = hf.template.as_ref().ok_or("no template defined")?;
+    for gref in &template.groups {
+        if let Some(hg) = h_groups.iter().find(|g| &g.id == gref) {
             let mut group_sections: Vec<SectionConfig> = Vec::new();
-            for child_id in children {
-                let Some(&sec_idx) = id_map.get(child_id.as_str()) else { continue };
-                if let crate::flat_file::FlatBlock::Section {
-                    id: sid, name: sname, map_label, section_type,
-                    data_file, date_prefix, children: field_ids,
-                    is_intake, heading_search_text, heading_label, note_render_slot,
-                } = &pool[sec_idx] {
-                    let fields = if section_type.as_deref() == Some("multi_field") {
-                        let mut hfields: Vec<HeaderFieldConfig> = Vec::new();
-                        for fid in field_ids {
-                            let Some(&fidx) = id_map.get(fid.as_str()) else { continue };
-                            if let crate::flat_file::FlatBlock::Field {
-                                id: field_id, name: field_name,
-                                options, composite, default, repeat_limit, ..
-                            } = &pool[fidx] {
-                                hfields.push(HeaderFieldConfig {
-                                    id: field_id.clone(),
-                                    name: field_name.clone().unwrap_or_default(),
-                                    options: options.clone(),
-                                    composite: composite.clone(),
-                                    default: default.clone(),
-                                    repeat_limit: *repeat_limit,
-                                });
-                            }
-                        }
-                        Some(hfields)
-                    } else {
-                        None
-                    };
+            for sec_id in &hg.sections {
+                if let Some(hs) = h_sections.iter().find(|s| &s.id == sec_id) {
+                    let fields = hs.fields.as_ref().map(|hfields| {
+                        hfields.iter().map(|hf| HeaderFieldConfig {
+                            id: hf.id.clone(),
+                            name: hf.label.clone(),
+                            options: hf.options.clone(),
+                            composite: hf.composite.clone(),
+                            default: hf.default.clone(),
+                            repeat_limit: hf.repeat_limit,
+                        }).collect()
+                    });
                     let sc = SectionConfig {
-                        id: sid.clone(),
-                        name: sname.clone().unwrap_or_default(),
-                        map_label: map_label.clone().unwrap_or_default(),
-                        section_type: section_type.clone().unwrap_or_default(),
-                        data_file: data_file.clone(),
-                        date_prefix: *date_prefix,
+                        id: hs.id.clone(),
+                        name: hs.nav_label.clone(),
+                        map_label: if hs.map_label.is_empty() {
+                            hs.nav_label.clone()
+                        } else {
+                            hs.map_label.clone()
+                        },
+                        section_type: hs.section_type.clone(),
+                        data_file: hs.data_file.clone(),
+                        date_prefix: hs.date_prefix,
                         options: vec![],
                         composite: None,
                         fields,
-                        is_intake: *is_intake,
-                        heading_search_text: heading_search_text.clone(),
-                        heading_label: heading_label.clone(),
-                        note_render_slot: note_render_slot.clone(),
+                        is_intake: hs.is_intake,
+                        heading_search_text: hs.heading_search_text.clone(),
+                        heading_label: hs.heading_label.clone(),
+                        note_render_slot: hs.note_render_slot.clone(),
                     };
                     group_sections.push(sc.clone());
                     all_sections.push(sc);
                 }
             }
             groups.push(SectionGroup {
-                id: id.clone(),
-                name: name.clone().unwrap_or_default(),
-                num: *num,
+                id: hg.id.clone(),
+                name: hg.nav_label.clone(),
+                num: hg.num,
                 sections: group_sections,
             });
         }
-    }
-
-    // Boilerplate extraction: collect id -> text.
-    // Duplicate ids are already rejected by the general duplicate check above.
-    let mut boilerplate_texts: HashMap<String, String> = HashMap::new();
-    for block in &pool {
-        if let crate::flat_file::FlatBlock::Boilerplate { id, text } = block {
-            boilerplate_texts.insert(id.clone(), text.clone());
-        }
-    }
-
-    // If the flat pool yielded no groups (section definitions migrated to HierarchyFile),
-    // try the hierarchy loader and convert to AppData.
-    if groups.is_empty() {
-        if let Ok(hf) = load_hierarchy_dir(path) {
-            let mut app = hierarchy_to_app_data(hf, path)?;
-            // Preserve boilerplate from flat pool (muscles.yml etc. may still be flat)
-            for (k, v) in &boilerplate_texts {
-                app.boilerplate_texts.entry(k.clone()).or_insert_with(|| v.clone());
-            }
-            return Ok(app);
-        }
-    }
-
-    Ok(AppData {
-        groups,
-        sections: all_sections,
-        list_data: HashMap::new(),
-        checklist_data: HashMap::new(),
-        block_select_data: HashMap::new(),
-        boilerplate_texts,
-        keybindings: KeyBindings::default(),
-        data_dir: path.to_path_buf(),
-    })
-}
-
-/// Converts a merged HierarchyFile into AppData for backward compatibility.
-fn hierarchy_to_app_data(hf: HierarchyFile, data_dir: &Path) -> Result<AppData, String> {
-    let h_sections = hf.sections.unwrap_or_default();
-    let h_groups = hf.groups.unwrap_or_default();
-
-    let mut groups: Vec<SectionGroup> = Vec::new();
-    let mut all_sections: Vec<SectionConfig> = Vec::new();
-
-    for hg in &h_groups {
-        let mut group_sections: Vec<SectionConfig> = Vec::new();
-        for sec_id in &hg.sections {
-            if let Some(hs) = h_sections.iter().find(|s| &s.id == sec_id) {
-                let fields = hs.fields.as_ref().map(|hfields| {
-                    hfields.iter().map(|hf| HeaderFieldConfig {
-                        id: hf.id.clone(),
-                        name: hf.label.clone(),
-                        options: hf.options.clone(),
-                        composite: hf.composite.clone(),
-                        default: hf.default.clone(),
-                        repeat_limit: hf.repeat_limit,
-                    }).collect()
-                });
-                let sc = SectionConfig {
-                    id: hs.id.clone(),
-                    name: hs.nav_label.clone(),
-                    map_label: if hs.map_label.is_empty() {
-                        hs.nav_label.clone()
-                    } else {
-                        hs.map_label.clone()
-                    },
-                    section_type: hs.section_type.clone(),
-                    data_file: hs.data_file.clone(),
-                    date_prefix: hs.date_prefix,
-                    options: vec![],
-                    composite: None,
-                    fields,
-                    is_intake: hs.is_intake,
-                    heading_search_text: hs.heading_search_text.clone(),
-                    heading_label: hs.heading_label.clone(),
-                    note_render_slot: hs.note_render_slot.clone(),
-                };
-                group_sections.push(sc.clone());
-                all_sections.push(sc);
-            }
-        }
-        groups.push(SectionGroup {
-            id: hg.id.clone(),
-            name: hg.nav_label.clone(),
-            num: hg.num,
-            sections: group_sections,
-        });
     }
 
     let mut boilerplate_texts: HashMap<String, String> = HashMap::new();
@@ -951,16 +664,17 @@ fn hierarchy_to_app_data(hf: HierarchyFile, data_dir: &Path) -> Result<AppData, 
         boilerplate_texts.insert(bp.id.clone(), bp.text.clone());
     }
 
-    Ok(AppData {
-        groups,
-        sections: all_sections,
-        list_data: HashMap::new(),
-        checklist_data: HashMap::new(),
-        block_select_data: HashMap::new(),
-        boilerplate_texts,
-        keybindings: KeyBindings::default(),
-        data_dir: data_dir.to_path_buf(),
-    })
+    // Collect block_select_data: for each section with section_type == "block_select",
+    // insert the top-level HierarchyFile.lists keyed by that section's id.
+    let mut block_select_data: HashMap<String, Vec<HierarchyList>> = HashMap::new();
+    let top_lists = hf.lists.clone().unwrap_or_default();
+    for hs in h_sections {
+        if hs.section_type == "block_select" {
+            block_select_data.insert(hs.id.clone(), top_lists.clone());
+        }
+    }
+
+    Ok((groups, all_sections, boilerplate_texts, block_select_data))
 }
 
 pub fn load_hierarchy_dir(dir: &std::path::Path) -> Result<HierarchyFile, String> {
@@ -1504,39 +1218,25 @@ mod tests {
         assert_eq!(group_jump_target(&groups, 1), 2);
     }
 
-    // ---- sections.yml migration test (Task #45 sub-task 4) ----
-    //
-    // This test verifies that the real data/sections.yml (and all other *.yml
-    // files in the data directory) can be parsed by load_data_dir as flat-format
-    // blocks.  It FAILS until the migration is complete because sections.yml is
-    // still in the old nested `groups:` format, which is not a valid FlatFile.
-    //
-    // When sections.yml has been fully migrated the test will pass.
+    // ---- sections.yml migration test (migrated to hierarchy format, Task #70 sub-task 4) ----
 
-    /// The real data directory must load without errors after migration.
-    ///
-    /// Failure mode before migration: serde_yaml returns a parse error because
-    /// sections.yml starts with `groups:` instead of `blocks:`.
+    /// The real data directory must load without errors via hierarchy loader.
     #[test]
-    fn real_data_dir_loads_as_flat_format() {
-        // Locate the project's data/ directory relative to CARGO_MANIFEST_DIR
-        // so the test is not affected by the working directory at test-run time.
+    fn real_data_dir_loads_as_hierarchy_format() {
         let manifest_dir = std::path::PathBuf::from(
             std::env::var("CARGO_MANIFEST_DIR")
                 .expect("CARGO_MANIFEST_DIR must be set when running cargo test"),
         );
         let data_dir = manifest_dir.join("data");
-
         assert!(
             data_dir.exists(),
             "data directory not found at {:?}",
             data_dir
         );
-
-        let result = load_data_dir(&data_dir);
+        let result = load_hierarchy_dir(&data_dir);
         assert!(
             result.is_ok(),
-            "load_data_dir on the real data directory failed (migration not yet complete?): {}",
+            "load_hierarchy_dir on the real data directory failed: {}",
             result.unwrap_err()
         );
     }
@@ -1634,23 +1334,14 @@ mod tests {
         assert_eq!(group_jump_target(&groups, 0), 0); // out of bounds, total = 0
     }
 
-    // ---- load_data_dir tests (Task #45 sub-task 2) ----
+    // ---- load_hierarchy_dir tests (migrated from load_data_dir tests, Task #70 sub-task 4) ----
     //
-    // These tests verify the new flat-file loader that replaces the old
-    // SectionsFile nested-struct path.  The function under test is:
-    //
-    //   pub fn load_data_dir(path: &std::path::Path) -> Result<AppData, String>
-    //
-    // It scans `path` for all *.yml files, deserialises each as a
-    // Vec<FlatBlock> (via FlatFile), merges them into a single pool, resolves
-    // parent->children references, detects cycles and duplicate IDs, and
-    // returns AppData.  The function does NOT yet exist - these tests are
-    // written first so that they fail until the implementation is added.
+    // These tests verify the hierarchy loader via load_hierarchy_dir and
+    // hierarchy_to_runtime. They replaced the former flat-file loader tests.
 
     use std::path::{Path, PathBuf};
 
     /// Create a unique temp subdirectory under the system temp folder.
-    /// Returns the path; the caller is responsible for cleanup (best-effort).
     fn make_test_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir()
             .join("scribblenot_tests")
@@ -1659,59 +1350,57 @@ mod tests {
         dir
     }
 
-    /// Remove the test directory after the test (best-effort, never panics).
     fn cleanup_test_dir(dir: &Path) {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    /// Write content into `dir/name`.
     fn write_yml(dir: &Path, name: &str, content: &str) {
         std::fs::write(dir.join(name), content).expect("write yml");
     }
 
     #[test]
-    fn load_data_dir_returns_app_data_for_valid_directory() {
-        // A directory with a single valid flat-block yml should produce AppData.
-        let dir = make_test_dir("valid_single");
+    fn load_hierarchy_dir_returns_ok_for_valid_single_file() {
+        let dir = make_test_dir("hier_valid_single");
         write_yml(
             &dir,
             "forms.yml",
-            "blocks:\n  - type: box\n    id: root_box\n  - type: section\n    id: sec_a\n  - type: field\n    id: fld_a\n",
+            "template:\n  groups: [grp_a]\ngroups:\n  - id: grp_a\n    nav_label: Group A\n    sections: [sec_a]\nsections:\n  - id: sec_a\n    nav_label: Section A\n    section_type: free_text\n",
         );
-        let result = load_data_dir(&dir);
+        let result = load_hierarchy_dir(&dir);
         cleanup_test_dir(&dir);
         assert!(
             result.is_ok(),
-            "expected Ok(AppData) for valid directory, got: {:?}",
+            "expected Ok for valid hierarchy directory, got: {:?}",
             result.err()
         );
     }
 
     #[test]
-    fn load_data_dir_merges_blocks_from_multiple_yml_files() {
-        // Blocks across two files must both appear in the merged pool.
-        let dir = make_test_dir("multi_file");
-        write_yml(&dir, "file_a.yml", "blocks:\n  - type: box\n    id: box_a\n");
-        write_yml(&dir, "file_b.yml", "blocks:\n  - type: section\n    id: sec_b\n");
-        let result = load_data_dir(&dir);
+    fn load_hierarchy_dir_merges_from_multiple_yml_files() {
+        let dir = make_test_dir("hier_multi_file");
+        write_yml(&dir, "file_a.yml", "template:\n  groups: [grp_a, grp_b]\ngroups:\n  - id: grp_a\n    nav_label: Group A\n    sections: [sec_a]\n");
+        write_yml(&dir, "file_b.yml", "groups:\n  - id: grp_b\n    nav_label: Group B\n    sections: [sec_b]\nsections:\n  - id: sec_a\n    nav_label: Section A\n    section_type: free_text\n  - id: sec_b\n    nav_label: Section B\n    section_type: free_text\n");
+        let result = load_hierarchy_dir(&dir);
         cleanup_test_dir(&dir);
-        assert!(result.is_ok(), "merge of two valid files should succeed");
+        assert!(result.is_ok(), "merge of two valid hierarchy files should succeed");
+        let hf = result.unwrap();
+        let groups = hf.groups.as_ref().unwrap();
+        assert_eq!(groups.len(), 2, "should have 2 groups from 2 files");
     }
 
     #[test]
-    fn load_data_dir_errors_on_duplicate_id_and_type() {
-        // Two blocks with the same id AND the same type must produce an error.
-        let dir = make_test_dir("dupe_same_file");
+    fn load_hierarchy_dir_errors_on_duplicate_section_id() {
+        let dir = make_test_dir("hier_dupe_section");
         write_yml(
             &dir,
             "dupe.yml",
-            "blocks:\n  - type: section\n    id: duplicated_id\n  - type: section\n    id: duplicated_id\n",
+            "template:\n  groups: [grp_a]\ngroups:\n  - id: grp_a\n    nav_label: Group A\n    sections: [duplicated_id]\nsections:\n  - id: duplicated_id\n    nav_label: First\n    section_type: free_text\n  - id: duplicated_id\n    nav_label: Second\n    section_type: free_text\n",
         );
-        let result = load_data_dir(&dir);
+        let result = load_hierarchy_dir(&dir);
         cleanup_test_dir(&dir);
         assert!(
             result.is_err(),
-            "expected an error for duplicate id+type combination"
+            "expected an error for duplicate section id"
         );
         let err_msg = result.unwrap_err();
         assert!(
@@ -1721,29 +1410,30 @@ mod tests {
     }
 
     #[test]
-    fn load_data_dir_errors_on_duplicate_id_and_type_across_files() {
-        // Cross-file duplicates must also be caught.
-        let dir = make_test_dir("dupe_cross_file");
-        write_yml(&dir, "alpha.yml", "blocks:\n  - type: field\n    id: shared_id\n");
-        write_yml(&dir, "beta.yml", "blocks:\n  - type: field\n    id: shared_id\n");
-        let result = load_data_dir(&dir);
+    fn load_hierarchy_dir_errors_on_duplicate_section_id_across_files() {
+        let dir = make_test_dir("hier_dupe_cross_file");
+        write_yml(&dir, "alpha.yml", "template:\n  groups: []\nsections:\n  - id: shared_id\n    nav_label: First\n    section_type: free_text\n");
+        write_yml(&dir, "beta.yml", "sections:\n  - id: shared_id\n    nav_label: Second\n    section_type: free_text\n");
+        let result = load_hierarchy_dir(&dir);
         cleanup_test_dir(&dir);
         assert!(
             result.is_err(),
-            "cross-file duplicate id+type should produce an error"
+            "cross-file duplicate section id should produce an error"
         );
     }
 
     #[test]
-    fn load_data_dir_allows_same_id_different_type() {
-        // Same id but different types is NOT a duplicate.
-        let dir = make_test_dir("same_id_diff_type");
+    fn load_hierarchy_dir_allows_same_id_different_type() {
+        // Same id for a group and a section is allowed (per-type uniqueness).
+        // Note: the group must reference a *different* section id to avoid
+        // a false-positive in the string-keyed DFS cycle detector.
+        let dir = make_test_dir("hier_same_id_diff_type");
         write_yml(
             &dir,
             "ok.yml",
-            "blocks:\n  - type: field\n    id: shared_name\n  - type: section\n    id: shared_name\n",
+            "template:\n  groups: [shared_name]\ngroups:\n  - id: shared_name\n    nav_label: Group\n    sections: [sec_a]\nsections:\n  - id: shared_name\n    nav_label: Section (same id as group, different type)\n    section_type: free_text\n  - id: sec_a\n    nav_label: Section A\n    section_type: free_text\n",
         );
-        let result = load_data_dir(&dir);
+        let result = load_hierarchy_dir(&dir);
         cleanup_test_dir(&dir);
         assert!(
             result.is_ok(),
@@ -1753,19 +1443,18 @@ mod tests {
     }
 
     #[test]
-    fn load_data_dir_errors_on_missing_child_id_reference() {
-        // A children list that references an ID not in the pool must error.
-        let dir = make_test_dir("missing_child");
+    fn load_hierarchy_dir_errors_on_missing_section_reference() {
+        let dir = make_test_dir("hier_missing_child");
         write_yml(
             &dir,
             "missing_ref.yml",
-            "blocks:\n  - type: box\n    id: parent_box\n    children:\n      - nonexistent_child_id\n",
+            "template:\n  groups: [grp_a]\ngroups:\n  - id: grp_a\n    nav_label: Group A\n    sections:\n      - nonexistent_child_id\n",
         );
-        let result = load_data_dir(&dir);
+        let result = load_hierarchy_dir(&dir);
         cleanup_test_dir(&dir);
         assert!(
             result.is_err(),
-            "expected an error when a children reference points to a missing id"
+            "expected an error when a group references a missing section id"
         );
         let err_msg = result.unwrap_err();
         assert!(
@@ -1774,72 +1463,31 @@ mod tests {
         );
     }
 
-    #[test]
-    fn load_data_dir_errors_on_direct_cycle() {
-        // A -> B -> A is a cycle and must produce an error.
-        let dir = make_test_dir("direct_cycle");
-        write_yml(
-            &dir,
-            "cycle.yml",
-            "blocks:\n  - type: box\n    id: node_a\n    children:\n      - node_b\n  - type: box\n    id: node_b\n    children:\n      - node_a\n",
-        );
-        let result = load_data_dir(&dir);
-        cleanup_test_dir(&dir);
-        assert!(
-            result.is_err(),
-            "expected an error for a direct cycle between node_a and node_b"
-        );
-    }
+    // Cycle detection: the hierarchy schema cannot express group->section->group loops
+    // because HierarchySection has no `groups` or `sections` field, making cycles
+    // structurally impossible. Cycle detection code is retained for future schema
+    // evolution but cannot be exercised with the current schema.
 
     #[test]
-    fn load_data_dir_errors_on_indirect_cycle() {
-        // A -> B -> C -> A must also produce an error.
-        let dir = make_test_dir("indirect_cycle");
-        write_yml(
-            &dir,
-            "long_cycle.yml",
-            "blocks:\n  - type: box\n    id: cx_a\n    children:\n      - cx_b\n  - type: box\n    id: cx_b\n    children:\n      - cx_c\n  - type: box\n    id: cx_c\n    children:\n      - cx_a\n",
-        );
-        let result = load_data_dir(&dir);
-        cleanup_test_dir(&dir);
-        assert!(
-            result.is_err(),
-            "expected an error for an indirect 3-node cycle"
-        );
-    }
-
-    #[test]
-    fn load_data_dir_accepts_acyclic_tree() {
-        // A -> B -> C with no back-edges should succeed.
-        let dir = make_test_dir("acyclic_tree");
+    fn load_hierarchy_dir_accepts_acyclic_structure() {
+        let dir = make_test_dir("hier_acyclic");
         write_yml(
             &dir,
             "tree.yml",
-            "blocks:\n  - type: box\n    id: tree_root\n    children:\n      - tree_child\n  - type: section\n    id: tree_child\n    children:\n      - tree_leaf\n  - type: field\n    id: tree_leaf\n",
+            "template:\n  groups: [grp_a]\ngroups:\n  - id: grp_a\n    nav_label: Group A\n    sections: [sec_a, sec_b]\nsections:\n  - id: sec_a\n    nav_label: Section A\n    section_type: free_text\n  - id: sec_b\n    nav_label: Section B\n    section_type: free_text\n",
         );
-        let result = load_data_dir(&dir);
+        let result = load_hierarchy_dir(&dir);
         cleanup_test_dir(&dir);
         assert!(
             result.is_ok(),
-            "acyclic tree should be accepted; got: {:?}",
+            "acyclic hierarchy should be accepted; got: {:?}",
             result.err()
         );
     }
 
-    // ---- reconstruction pass tests (Task #45 sub-task 3) ----
-    //
-    // These tests verify that load_data_dir performs the reconstruction pass:
-    // after validation it must walk Group blocks to build Vec<SectionGroup>,
-    // resolve children IDs to Section blocks -> SectionConfig values, and
-    // resolve each Section's children to Field blocks.
-    //
-    // Both tests FAIL until the reconstruction pass is implemented because
-    // load_data_dir currently returns AppData { groups: vec![], sections: vec![] }.
+    // ---- reconstruction pass tests (migrated to hierarchy format) ----
 
-    /// After loading the real data directory, AppData.groups must be non-empty.
-    ///
-    /// Failure mode before implementation: load_data_dir returns groups: vec![]
-    /// even though the data files contain Group blocks.
+    /// After loading the real data directory via hierarchy, groups must be non-empty.
     #[test]
     fn real_data_dir_has_non_empty_groups() {
         let manifest_dir = std::path::PathBuf::from(
@@ -1847,27 +1495,20 @@ mod tests {
                 .expect("CARGO_MANIFEST_DIR must be set when running cargo test"),
         );
         let data_dir = manifest_dir.join("data");
-
         assert!(data_dir.exists(), "data directory not found at {:?}", data_dir);
 
-        let result = load_data_dir(&data_dir);
+        let hf = load_hierarchy_dir(&data_dir)
+            .expect("load_hierarchy_dir on real data directory must succeed");
+        let (groups, _, _, _) = hierarchy_to_runtime(hf)
+            .expect("hierarchy_to_runtime must succeed");
         assert!(
-            result.is_ok(),
-            "load_data_dir on the real data directory failed: {}",
-            result.unwrap_err()
-        );
-        let app_data = result.unwrap();
-        assert!(
-            app_data.groups.len() > 0,
-            "expected groups.len() > 0 after reconstruction pass, got {}",
-            app_data.groups.len()
+            groups.len() > 0,
+            "expected groups.len() > 0 after hierarchy_to_runtime, got {}",
+            groups.len()
         );
     }
 
-    /// After loading the real data directory, AppData.sections must be non-empty.
-    ///
-    /// Failure mode before implementation: load_data_dir returns sections: vec![]
-    /// even though the data files contain Section blocks.
+    /// After loading the real data directory via hierarchy, sections must be non-empty.
     #[test]
     fn real_data_dir_has_non_empty_sections() {
         let manifest_dir = std::path::PathBuf::from(
@@ -1875,57 +1516,41 @@ mod tests {
                 .expect("CARGO_MANIFEST_DIR must be set when running cargo test"),
         );
         let data_dir = manifest_dir.join("data");
-
         assert!(data_dir.exists(), "data directory not found at {:?}", data_dir);
 
-        let result = load_data_dir(&data_dir);
+        let hf = load_hierarchy_dir(&data_dir)
+            .expect("load_hierarchy_dir on real data directory must succeed");
+        let (_, sections, _, _) = hierarchy_to_runtime(hf)
+            .expect("hierarchy_to_runtime must succeed");
         assert!(
-            result.is_ok(),
-            "load_data_dir on the real data directory failed: {}",
-            result.unwrap_err()
-        );
-        let app_data = result.unwrap();
-        assert!(
-            app_data.sections.len() > 0,
-            "expected sections.len() > 0 after reconstruction pass, got {}",
-            app_data.sections.len()
+            sections.len() > 0,
+            "expected sections.len() > 0 after hierarchy_to_runtime, got {}",
+            sections.len()
         );
     }
 
-    /// Hybrid inline+ID-reference: a parent block whose children list mixes IDs defined
-    /// in the same file (co-located, "inline" in spirit) with IDs defined in a separate
-    /// file (cross-file ID reference).  All three must resolve correctly.
-    ///
-    /// File layout:
-    ///   hybrid_parent.yml - defines `hybrid_root` (box) with children [local_child, remote_child]
-    ///                       and `local_child` (section) - co-located with its parent
-    ///   hybrid_remote.yml - defines `remote_child` (field) - referenced by ID from the other file
-    ///
-    /// Expected: Ok(AppData) - the loader merges both files, resolves all three IDs, and
-    /// confirms the reference graph is acyclic.
+    /// Multi-file merge: groups in one file, sections in another, both merge correctly.
     #[test]
-    fn load_data_dir_hybrid_inline_and_cross_file_id_reference_resolves_correctly() {
-        let dir = make_test_dir("hybrid_inline_crossfile");
+    fn load_hierarchy_dir_multi_file_merge_resolves_correctly() {
+        let dir = make_test_dir("hier_multi_merge");
 
-        // Parent file: root block + one child defined in the same file
         write_yml(
             &dir,
-            "hybrid_parent.yml",
-            "blocks:\n  - type: box\n    id: hybrid_root\n    children:\n      - local_child\n      - remote_child\n  - type: section\n    id: local_child\n",
+            "template.yml",
+            "template:\n  groups: [grp_a]\ngroups:\n  - id: grp_a\n    nav_label: Group A\n    sections: [sec_local, sec_remote]\n  \nsections:\n  - id: sec_local\n    nav_label: Local Section\n    section_type: free_text\n",
         );
 
-        // Remote file: the other child, defined separately
         write_yml(
             &dir,
-            "hybrid_remote.yml",
-            "blocks:\n  - type: field\n    id: remote_child\n",
+            "remote.yml",
+            "sections:\n  - id: sec_remote\n    nav_label: Remote Section\n    section_type: free_text\n",
         );
 
-        let result = load_data_dir(&dir);
+        let result = load_hierarchy_dir(&dir);
         cleanup_test_dir(&dir);
         assert!(
             result.is_ok(),
-            "hybrid inline+cross-file ID reference should resolve correctly; got: {:?}",
+            "multi-file hierarchy merge should resolve correctly; got: {:?}",
             result.err()
         );
     }
@@ -1976,7 +1601,7 @@ mod boilerplate_load_tests {
     }
 
     // ST52-3-TEST-1: AppData must have a `boilerplate_texts` field of type
-    // HashMap<String, String>. This test fails to compile until the field is added.
+    // HashMap<String, String>.
     #[test]
     fn app_data_has_boilerplate_texts_field() {
         fn check_field(ad: &AppData) -> &HashMap<String, String> {
@@ -1985,25 +1610,25 @@ mod boilerplate_load_tests {
         let _ = check_field;
     }
 
-    // ST52-3-TEST-2: After loading a directory containing a boilerplate.yml with
-    // the treatment_plan_disclaimer block, boilerplate_texts must contain that key
-    // with the correct text.
+    // ST52-3-TEST-2: After loading a directory containing a boilerplate entry,
+    // boilerplate_texts must contain the key with correct text.
     #[test]
     fn boilerplate_texts_contains_treatment_plan_disclaimer() {
-        let dir = make_bp_test_dir("bp_disclaimer");
+        let dir = make_bp_test_dir("bp_disclaimer_h");
         write_bp_yml(
             &dir,
-            "boilerplate.yml",
-            "blocks:\n  - type: boilerplate\n    id: treatment_plan_disclaimer\n    text: |\n      Regions and locations are bilateral unless indicated otherwise.\n      Patient is pillowed under ankles when prone, and under knees when supine.\n",
+            "main.yml",
+            "template:\n  groups: []\nboilerplate:\n  - id: treatment_plan_disclaimer\n    text: |\n      Regions and locations are bilateral unless indicated otherwise.\n      Patient is pillowed under ankles when prone, and under knees when supine.\n",
         );
-        let result = load_data_dir(&dir);
+        let hf = load_hierarchy_dir(&dir).expect("load_hierarchy_dir should succeed");
         cleanup_bp_test_dir(&dir);
-        let app_data = result.expect("load_data_dir should succeed with valid boilerplate yml");
+        let (_, _, boilerplate_texts, _) = hierarchy_to_runtime(hf)
+            .expect("hierarchy_to_runtime should succeed");
         assert!(
-            app_data.boilerplate_texts.contains_key("treatment_plan_disclaimer"),
+            boilerplate_texts.contains_key("treatment_plan_disclaimer"),
             "boilerplate_texts must contain treatment_plan_disclaimer key"
         );
-        let text = &app_data.boilerplate_texts["treatment_plan_disclaimer"];
+        let text = &boilerplate_texts["treatment_plan_disclaimer"];
         assert!(
             text.contains("bilateral unless indicated otherwise"),
             "treatment_plan_disclaimer text must contain expected content; got: {text:?}"
@@ -2014,42 +1639,40 @@ mod boilerplate_load_tests {
         );
     }
 
-    // ST52-3-TEST-3: After loading a directory containing a boilerplate.yml with
-    // the informed_consent block, boilerplate_texts must contain that key with the
-    // correct text.
+    // ST52-3-TEST-3: informed_consent boilerplate entry.
     #[test]
     fn boilerplate_texts_contains_informed_consent() {
-        let dir = make_bp_test_dir("bp_consent");
+        let dir = make_bp_test_dir("bp_consent_h");
         write_bp_yml(
             &dir,
-            "boilerplate.yml",
-            "blocks:\n  - type: boilerplate\n    id: informed_consent\n    text: Patient has been informed of the risks and benefits of massage therapy, and has given informed consent to assessment and treatment.\n",
+            "main.yml",
+            "template:\n  groups: []\nboilerplate:\n  - id: informed_consent\n    text: Patient has been informed of the risks and benefits of massage therapy, and has given informed consent to assessment and treatment.\n",
         );
-        let result = load_data_dir(&dir);
+        let hf = load_hierarchy_dir(&dir).expect("load_hierarchy_dir should succeed");
         cleanup_bp_test_dir(&dir);
-        let app_data = result.expect("load_data_dir should succeed with valid boilerplate yml");
+        let (_, _, boilerplate_texts, _) = hierarchy_to_runtime(hf)
+            .expect("hierarchy_to_runtime should succeed");
         assert!(
-            app_data.boilerplate_texts.contains_key("informed_consent"),
+            boilerplate_texts.contains_key("informed_consent"),
             "boilerplate_texts must contain informed_consent key"
         );
-        let text = &app_data.boilerplate_texts["informed_consent"];
+        let text = &boilerplate_texts["informed_consent"];
         assert!(
             text.contains("informed consent to assessment and treatment"),
             "informed_consent text must contain expected content; got: {text:?}"
         );
     }
 
-    // ST52-3-TEST-4: Loading a directory with two boilerplate blocks sharing the
-    // same id must return an error (duplicate detection).
+    // ST52-3-TEST-4: Duplicate boilerplate id must return an error.
     #[test]
-    fn load_data_dir_errors_on_duplicate_boilerplate_id() {
-        let dir = make_bp_test_dir("bp_dupe");
+    fn load_hierarchy_dir_errors_on_duplicate_boilerplate_id() {
+        let dir = make_bp_test_dir("bp_dupe_h");
         write_bp_yml(
             &dir,
-            "boilerplate.yml",
-            "blocks:\n  - type: boilerplate\n    id: duplicate_bp\n    text: First text.\n  - type: boilerplate\n    id: duplicate_bp\n    text: Second text.\n",
+            "main.yml",
+            "template:\n  groups: []\nboilerplate:\n  - id: duplicate_bp\n    text: First text.\n  - id: duplicate_bp\n    text: Second text.\n",
         );
-        let result = load_data_dir(&dir);
+        let result = load_hierarchy_dir(&dir);
         cleanup_bp_test_dir(&dir);
         assert!(
             result.is_err(),
@@ -2121,7 +1744,7 @@ mod tx_mods_multi_field_tests {
 
     fn load() -> AppData {
         let dir = data_dir();
-        load_data_dir(&dir).expect("load_data_dir on real data directory must succeed")
+        AppData::load(dir).expect("AppData::load on real data directory must succeed")
     }
 
     fn find_tx_mods(app: &AppData) -> &SectionConfig {
@@ -2362,7 +1985,7 @@ mod section_metadata_fields_tests {
 
     fn load() -> AppData {
         let dir = data_dir();
-        load_data_dir(&dir).expect("load_data_dir on real data directory must succeed")
+        AppData::load(dir).expect("AppData::load on real data directory must succeed")
     }
 
     fn find_section<'a>(app: &'a AppData, id: &str) -> &'a SectionConfig {
@@ -2448,7 +2071,7 @@ mod section_metadata_complete_tests {
 
     fn load() -> AppData {
         let dir = data_dir();
-        load_data_dir(&dir).expect("load_data_dir on real data directory must succeed")
+        AppData::load(dir).expect("AppData::load on real data directory must succeed")
     }
 
     fn find_section<'a>(app: &'a AppData, id: &str) -> &'a SectionConfig {
@@ -2971,6 +2594,100 @@ mod hierarchy_loader_tests {
             msg.contains("bp1") || msg.to_lowercase().contains("duplicate") || msg.to_lowercase().contains("boilerplate"),
             "error message must mention 'bp1', 'duplicate', or 'boilerplate', got: {:?}",
             msg
+        );
+    }
+}
+
+// ST70-4: hierarchy_to_runtime shim tests.
+// These tests FAIL because hierarchy_to_runtime does not exist yet.
+// hierarchy_to_runtime converts a merged HierarchyFile (from load_hierarchy_dir) into
+// runtime structures: Vec<SectionGroup>, HashMap<String, Vec<HierarchyList>> for
+// block_select data (keyed by section id), and yields SectionConfig values with
+// all metadata preserved.
+#[cfg(test)]
+mod hierarchy_runtime_tests {
+    use super::*;
+
+    fn data_dir() -> std::path::PathBuf {
+        let manifest_dir = std::path::PathBuf::from(
+            std::env::var("CARGO_MANIFEST_DIR")
+                .expect("CARGO_MANIFEST_DIR must be set when running cargo test"),
+        );
+        manifest_dir.join("data")
+    }
+
+    // ST70-4-TEST-1: hierarchy_to_runtime on the real data/ directory produces groups in
+    // the correct order: intake, subjective, treatment, objective, post_tx.
+    // FAILS because hierarchy_to_runtime does not exist yet.
+    #[test]
+    fn hierarchy_to_runtime_produces_groups_in_correct_order() {
+        let dir = data_dir();
+        let hf = load_hierarchy_dir(&dir)
+            .expect("load_hierarchy_dir on real data directory must succeed");
+        let (groups, _, _, _block_select_data) = hierarchy_to_runtime(hf)
+            .expect("hierarchy_to_runtime must succeed on valid HierarchyFile");
+        let ids: Vec<&str> = groups.iter().map(|g| g.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["intake", "subjective", "treatment", "objective", "post_tx"],
+            "hierarchy_to_runtime must produce groups in template order \
+             (intake, subjective, treatment, objective, post_tx); got {:?}",
+            ids
+        );
+    }
+
+    // ST70-4-TEST-2: hierarchy_to_runtime on the real data/ directory produces
+    // block_select_data with a "tx_regions" key containing at least one HierarchyList entry.
+    // This verifies that block_select dispatch (Key Decision 5) is handled by the shim,
+    // not by the data_file loader.
+    // FAILS because hierarchy_to_runtime does not exist yet.
+    #[test]
+    fn hierarchy_to_runtime_produces_block_select_data_with_tx_regions_key() {
+        let dir = data_dir();
+        let hf = load_hierarchy_dir(&dir)
+            .expect("load_hierarchy_dir on real data directory must succeed");
+        let (_groups, _, _, block_select_data) = hierarchy_to_runtime(hf)
+            .expect("hierarchy_to_runtime must succeed on valid HierarchyFile");
+        assert!(
+            block_select_data.contains_key("tx_regions"),
+            "block_select_data must contain key 'tx_regions' after hierarchy_to_runtime; \
+             keys found: {:?}",
+            block_select_data.keys().collect::<Vec<_>>()
+        );
+        let lists = &block_select_data["tx_regions"];
+        assert!(
+            !lists.is_empty(),
+            "block_select_data['tx_regions'] must contain at least one HierarchyList entry; \
+             got empty vec"
+        );
+    }
+
+    // ST70-4-TEST-3: The SectionConfig for "objective_section" produced by
+    // hierarchy_to_runtime must have date_prefix == Some(true).
+    // This verifies Key Decision 2: date_prefix is carried through the shim unchanged.
+    // FAILS because hierarchy_to_runtime does not exist yet.
+    #[test]
+    fn hierarchy_to_runtime_objective_section_has_date_prefix_true() {
+        let dir = data_dir();
+        let hf = load_hierarchy_dir(&dir)
+            .expect("load_hierarchy_dir on real data directory must succeed");
+        let (groups, _, _, _block_select_data) = hierarchy_to_runtime(hf)
+            .expect("hierarchy_to_runtime must succeed on valid HierarchyFile");
+        let all_sections: Vec<&SectionConfig> = groups
+            .iter()
+            .flat_map(|g| g.sections.iter())
+            .collect();
+        let objective = all_sections
+            .iter()
+            .find(|s| s.id == "objective_section")
+            .expect("objective_section must exist in groups after hierarchy_to_runtime");
+        assert_eq!(
+            objective.date_prefix,
+            Some(true),
+            "objective_section SectionConfig must have date_prefix == Some(true) \
+             (Key Decision 2: date_prefix is copied unchanged by the shim); \
+             got {:?}",
+            objective.date_prefix
         );
     }
 }

@@ -1871,12 +1871,12 @@ mod tests {
     // Currently PASSES (via heading_anchor); continues to pass after refactor (via cfg).
     #[test]
     fn tx_mods_section_start_line_finds_treatment_modifications_heading() {
-        use crate::data::{AppData, load_data_dir};
+        use crate::data::AppData;
         let data_dir = std::path::PathBuf::from(
             std::env::var("CARGO_MANIFEST_DIR")
                 .expect("CARGO_MANIFEST_DIR must be set"),
         ).join("data");
-        let app: AppData = load_data_dir(&data_dir).expect("load must succeed");
+        let app: AppData = AppData::load(data_dir).expect("load must succeed");
 
         // Build minimal states for all sections (all Pending).
         let states: Vec<crate::app::SectionState> = app.sections

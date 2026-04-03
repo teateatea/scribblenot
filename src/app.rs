@@ -145,10 +145,7 @@ impl App {
                     SectionState::ListSelect(ListSelectState::new(entries))
                 }
                 "block_select" => {
-                    let regions = cfg
-                        .data_file
-                        .as_ref()
-                        .and_then(|f| data.block_select_data.get(f))
+                    let regions = data.block_select_data.get(&cfg.id)
                         .cloned()
                         .unwrap_or_default();
                     SectionState::BlockSelect(BlockSelectState::new(regions))

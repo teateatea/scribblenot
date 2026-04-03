@@ -1,4 +1,4 @@
-use crate::data::{BlockSelectEntry, PartOption};
+use crate::data::{HierarchyList, PartOption};
 
 #[derive(Debug, Clone)]
 pub struct BlockSelectGroup {
@@ -9,12 +9,17 @@ pub struct BlockSelectGroup {
 }
 
 impl BlockSelectGroup {
-    pub fn from_config(cfg: &BlockSelectEntry) -> Self {
-        let item_selected = cfg.entries.iter().map(|e| e.default_selected()).collect();
+    pub fn from_config(cfg: &HierarchyList) -> Self {
+        let item_selected = cfg.items.iter().map(|e| e.default.unwrap_or(true)).collect();
         Self {
-            label: cfg.label.clone(),
-            header: cfg.header.clone(),
-            entries: cfg.entries.clone(),
+            label: cfg.label.clone().unwrap_or_default(),
+            header: cfg.label.clone().unwrap_or_default(),
+            entries: cfg.items.iter().map(|item| PartOption::Full {
+                id: item.id.clone(),
+                label: item.label.clone(),
+                output: item.output.clone().unwrap_or_else(|| item.label.clone()),
+                default: item.default.unwrap_or(true),
+            }).collect(),
             item_selected,
         }
     }
@@ -47,7 +52,7 @@ pub struct BlockSelectState {
 }
 
 impl BlockSelectState {
-    pub fn new(regions: Vec<BlockSelectEntry>) -> Self {
+    pub fn new(regions: Vec<HierarchyList>) -> Self {
         let region_states = regions.iter().map(BlockSelectGroup::from_config).collect();
         Self {
             groups: region_states,
@@ -127,29 +132,46 @@ impl BlockSelectState {
 #[cfg(test)]
 mod tests_st3_default_selected {
     use super::*;
-    use crate::data::{BlockSelectEntry, PartOption};
+    use crate::data::{HierarchyItem, HierarchyList, PartOption};
 
-    fn make_full_entry(id: &str, label: &str, default: bool) -> PartOption {
-        PartOption::Full {
+    fn make_hier_item(id: &str, label: &str, default: Option<bool>) -> HierarchyItem {
+        HierarchyItem {
             id: id.to_string(),
             label: label.to_string(),
-            output: label.to_lowercase(),
             default,
+            output: Some(label.to_lowercase()),
+            note: None,
+        }
+    }
+
+    fn make_hier_list(id: &str, label: &str, items: Vec<HierarchyItem>) -> HierarchyList {
+        HierarchyList {
+            id: id.to_string(),
+            label: Some(label.to_string()),
+            items,
         }
     }
 
     // ST3-TEST-1: PartOption must expose a default_selected() -> bool method.
-    // For Full variants, it returns the `default` field value.
-    // For Simple and Labeled variants, it returns true (no default field = always selected).
     #[test]
     fn part_option_default_selected_full_true() {
-        let opt = make_full_entry("a", "Alpha", true);
+        let opt = PartOption::Full {
+            id: "a".to_string(),
+            label: "Alpha".to_string(),
+            output: "alpha".to_string(),
+            default: true,
+        };
         assert!(opt.default_selected(), "Full with default=true should return true from default_selected()");
     }
 
     #[test]
     fn part_option_default_selected_full_false() {
-        let opt = make_full_entry("b", "Beta", false);
+        let opt = PartOption::Full {
+            id: "b".to_string(),
+            label: "Beta".to_string(),
+            output: "beta".to_string(),
+            default: false,
+        };
         assert!(!opt.default_selected(), "Full with default=false should return false from default_selected()");
     }
 
@@ -163,17 +185,12 @@ mod tests_st3_default_selected {
     // should initialize item_selected to all true.
     #[test]
     fn region_state_all_default_true_starts_all_selected() {
-        let entry = BlockSelectEntry {
-            id: "region_a".to_string(),
-            label: "Region A".to_string(),
-            header: "Region A Header".to_string(),
-            entries: vec![
-                make_full_entry("opt1", "Option 1", true),
-                make_full_entry("opt2", "Option 2", true),
-                make_full_entry("opt3", "Option 3", true),
-            ],
-        };
-        let state = BlockSelectGroup::from_config(&entry);
+        let list = make_hier_list("region_a", "Region A", vec![
+            make_hier_item("opt1", "Option 1", Some(true)),
+            make_hier_item("opt2", "Option 2", Some(true)),
+            make_hier_item("opt3", "Option 3", Some(true)),
+        ]);
+        let state = BlockSelectGroup::from_config(&list);
         assert_eq!(state.item_selected.len(), 3);
         assert!(state.item_selected[0], "entry 0 with default=true should start selected");
         assert!(state.item_selected[1], "entry 1 with default=true should start selected");
@@ -184,17 +201,12 @@ mod tests_st3_default_selected {
     // should initialize that entry's slot as false, others as true.
     #[test]
     fn region_state_one_default_false_starts_unselected() {
-        let entry = BlockSelectEntry {
-            id: "region_b".to_string(),
-            label: "Region B".to_string(),
-            header: "Region B Header".to_string(),
-            entries: vec![
-                make_full_entry("opt1", "Option 1", true),
-                make_full_entry("opt2", "Option 2", false),
-                make_full_entry("opt3", "Option 3", true),
-            ],
-        };
-        let state = BlockSelectGroup::from_config(&entry);
+        let list = make_hier_list("region_b", "Region B", vec![
+            make_hier_item("opt1", "Option 1", Some(true)),
+            make_hier_item("opt2", "Option 2", Some(false)),
+            make_hier_item("opt3", "Option 3", Some(true)),
+        ]);
+        let state = BlockSelectGroup::from_config(&list);
         assert_eq!(state.item_selected.len(), 3);
         assert!(state.item_selected[0], "entry 0 with default=true should start selected");
         assert!(!state.item_selected[1], "entry 1 with default=false should start unselected");
@@ -202,19 +214,13 @@ mod tests_st3_default_selected {
     }
 
     // ST3-TEST-4: BlockSelectState::new propagates default selection through from_config.
-    // All entries default=true => all selected; one default=false => that one unselected.
     #[test]
     fn block_select_state_new_propagates_defaults() {
         let regions = vec![
-            BlockSelectEntry {
-                id: "r1".to_string(),
-                label: "R1".to_string(),
-                header: "R1 Header".to_string(),
-                entries: vec![
-                    make_full_entry("a", "A", true),
-                    make_full_entry("b", "B", false),
-                ],
-            },
+            make_hier_list("r1", "R1", vec![
+                make_hier_item("a", "A", Some(true)),
+                make_hier_item("b", "B", Some(false)),
+            ]),
         ];
         let state = BlockSelectState::new(regions);
         assert!(state.groups[0].item_selected[0], "A (default=true) should start selected");
@@ -225,14 +231,19 @@ mod tests_st3_default_selected {
 #[cfg(test)]
 mod tests_t46_st1_rename {
     use super::*;
-    use crate::data::{BlockSelectEntry, PartOption};
+    use crate::data::{HierarchyItem, HierarchyList};
 
-    fn make_entry(label: &str, opts: Vec<&str>) -> BlockSelectEntry {
-        BlockSelectEntry {
+    fn make_entry(label: &str, opts: Vec<&str>) -> HierarchyList {
+        HierarchyList {
             id: label.to_lowercase().replace(' ', "_"),
-            label: label.to_string(),
-            header: format!("{} header", label),
-            entries: opts.iter().map(|s| PartOption::Simple(s.to_string())).collect(),
+            label: Some(label.to_string()),
+            items: opts.iter().map(|s| HierarchyItem {
+                id: s.to_lowercase(),
+                label: s.to_string(),
+                default: None,
+                output: Some(s.to_string()),
+                note: None,
+            }).collect(),
         }
     }
 
@@ -336,32 +347,33 @@ mod tests_t46_st1_rename {
 #[cfg(test)]
 mod tests_st2_region_state_entries_field {
     use super::*;
-    use crate::data::{BlockSelectEntry, PartOption};
+    use crate::data::{HierarchyItem, HierarchyList};
 
-    fn make_entry(label: &str, opts: Vec<&str>) -> BlockSelectEntry {
-        BlockSelectEntry {
+    fn make_entry(label: &str, opts: Vec<&str>) -> HierarchyList {
+        HierarchyList {
             id: label.to_lowercase().replace(' ', "_"),
-            label: label.to_string(),
-            header: format!("{} header", label),
-            entries: opts.iter().map(|s| PartOption::Simple(s.to_string())).collect(),
+            label: Some(label.to_string()),
+            items: opts.iter().map(|s| HierarchyItem {
+                id: s.to_lowercase(),
+                label: s.to_string(),
+                default: None,
+                output: Some(s.to_string()),
+                note: None,
+            }).collect(),
         }
     }
 
     // ST2-TEST-1: BlockSelectGroup must expose an `entries` field of type Vec<PartOption>
-    // This test accesses .entries directly; if the field is still named `techniques` it fails to compile.
     #[test]
     fn region_state_has_entries_field() {
         let entry = make_entry("Body", vec!["Option A", "Option B"]);
         let state = BlockSelectGroup::from_config(&entry);
-        // Access the `entries` field - must compile only when field is named `entries`
         assert_eq!(state.entries.len(), 2);
         assert_eq!(state.entries[0].label(), "Option A");
         assert_eq!(state.entries[1].label(), "Option B");
     }
 
-    // ST2-TEST-2: `techniques` field must NOT exist on BlockSelectGroup.
-    // Since Rust is structural, this test accesses `entries` to prove rename happened.
-    // navigate_down also references region.entries internally - call it to exercise that path.
+    // ST2-TEST-2: navigate_down uses entries internally.
     #[test]
     fn block_select_state_navigate_down_uses_entries() {
         let entries = vec![
@@ -370,19 +382,16 @@ mod tests_st2_region_state_entries_field {
         ];
         let mut state = BlockSelectState::new(entries);
         state.enter_group();
-        // navigate_down internally accesses region.entries (post-rename) - must compile
         state.navigate_down();
         assert_eq!(state.item_cursor, 1);
     }
 
-    // ST2-TEST-3: BlockSelectState::new accepts Vec<BlockSelectEntry> (already required by ST1,
-    // but verify the round-trip populates region.entries correctly end-to-end).
+    // ST2-TEST-3: BlockSelectState::new accepts Vec<HierarchyList> and populates entries.
     #[test]
     fn block_select_state_new_populates_region_entries() {
         let entry = make_entry("Torso", vec!["X", "Y"]);
         let state = BlockSelectState::new(vec![entry]);
         assert_eq!(state.groups.len(), 1);
-        // .entries must exist and be populated
         assert_eq!(state.groups[0].entries.len(), 2);
     }
 }

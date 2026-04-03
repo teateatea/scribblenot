@@ -6,7 +6,7 @@ mod note;
 mod sections;
 mod theme;
 mod ui;
-mod flat_file;
+
 
 use anyhow::Result;
 use app::App;
