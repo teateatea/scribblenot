@@ -1,5 +1,10 @@
 # Closed Tasks
 
+- [ ] **#52** Extract hard-coded boilerplate strings from note.rs into editable YML data files *(implemented)*
+  [D:62 C:72]
+  Claude: Added FlatBlock::Boilerplate variant to flat_file.rs; created data/boilerplate.yml with treatment_plan_disclaimer and informed_consent blocks; added boilerplate_texts: HashMap<String,String> to AppData populated from loader; threaded &HashMap through render_note() and section_start_line() signatures; replaced hard-coded literals in note.rs with runtime lookups. 122 tests pass, zero warnings.
+- Completed: 2026-04-03T00:06:03
+
 - [ ] **#46** Neutralise block_select struct and key names so they aren't tied to treatment-region vocabulary *(implemented)*
   [D:20 C:90]
   Claude: Renamed RegionConfig->BlockSelectEntry, RegionsFile->BlockSelectFile (TechniqueConfig deleted; entries reuse Vec<PartOption>), YAML keys regions:/techniques:->entries:. Runtime renames: RegionState->BlockSelectGroup, technique_selected->item_selected, toggle_technique->toggle_item, BlockSelectFocus::Regions/Techniques->Groups/Items, BlockSelectState fields regions->groups/region_cursor->group_cursor/technique_cursor->item_cursor, methods enter_region->enter_group/exit_techniques->exit_items/in_techniques->in_items/current_region_idx->current_group_idx. Updated app.rs, ui.rs, note.rs call sites. Zero warnings; 111 tests pass.
