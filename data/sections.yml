@@ -1,305 +1,293 @@
-blocks:
-  # Groups
-  - type: group
-    id: intake
-    name: "INTAKE"
-    num: 1
-    children: [header, adl, exercise, sleep_diet, social, history, specialists]
-  - type: group
-    id: subjective
-    name: "SUBJECTIVE"
-    num: 2
-    children: [subjective_section]
-  - type: group
-    id: treatment
-    name: "TREATMENT"
-    num: 3
-    children: [tx_mods, tx_regions]
-  - type: group
-    id: objective
-    name: "OBJECTIVE"
-    num: 4
-    children: [objective_section]
-  - type: group
-    id: post_tx
-    name: "POST-TX"
-    num: 5
-    children: [post_treatment, remedial_section, tx_plan, infection_control_section]
+template:
+  groups:
+    - intake
+    - subjective
+    - treatment
+    - objective
+    - post_tx
 
-  # ------
-  # Sections
-  ## INTAKE
-  - type: section
-    id: header
-    name: "Header"
-    map_label: "Header"
+groups:
+  - id: intake
+    nav_label: "INTAKE"
+    num: 1
+    sections:
+      - header
+      - adl
+      - exercise
+      - sleep_diet
+      - social
+      - history
+      - specialists
+
+  - id: subjective
+    nav_label: "SUBJECTIVE"
+    num: 2
+    sections:
+      - subjective_section
+
+  - id: treatment
+    nav_label: "TREATMENT"
+    num: 3
+    sections:
+      - tx_mods
+      - tx_regions
+
+  - id: objective
+    nav_label: "OBJECTIVE"
+    num: 4
+    sections:
+      - objective_section
+
+  - id: post_tx
+    nav_label: "POST-TX"
+    num: 5
+    sections:
+      - post_treatment
+      - remedial_section
+      - tx_plan
+      - infection_control_section
+
+sections:
+  - id: header
+    nav_label: "Header"
     section_type: multi_field
     note_render_slot: "header"
-    children: [date, start_time, appointment_duration, appointment_type]
-  - type: section
-    id: adl
-    name: "Activities of Daily Living"
-    map_label: "ADL"
+    fields:
+      - id: date
+        label: "Date"
+        field_type: composite
+        composite:
+          format: "{year}-{month}-{day}"
+          parts:
+            - id: day
+              label: "Day"
+              preview: "DD"
+              sticky: true
+              options: ["01","02","03","04","05","06","07","08","09","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31"]
+            - id: month
+              label: "Month"
+              preview: "MM"
+              sticky: true
+              options: ["01","02","03","04","05","06","07","08","09","10","11","12"]
+            - id: year
+              label: "Year"
+              preview: "YYYY"
+              sticky: true
+              options: ["2025","2026"]
+      - id: start_time
+        label: "Start Time"
+        field_type: composite
+        composite:
+          format: "{hour}:{minute}"
+          parts:
+            - id: hour
+              label: "Hour"
+              preview: "H"
+              default: "1"
+              options: ["9","10","11","12","1","2","3","4","5","6","7","8"]
+            - id: minute
+              label: "Minute"
+              preview: "MM"
+              default: 00-2
+              options:
+                - id: 00-1
+                  label: "00"
+                  output: "00"
+                - id: 15-1
+                  label: "15"
+                  output: "15"
+                - id: 30-1
+                  label: "30"
+                  output: "30"
+                - id: 45-1
+                  label: "45"
+                  output: "45"
+                - id: 00-2
+                  label: "00"
+                  output: "00"
+                - id: 15-2
+                  label: "15"
+                  output: "15"
+                - id: 30-2
+                  label: "30"
+                  output: "30"
+                - id: 45-2
+                  label: "45"
+                  output: "45"
+                - id: 00-3
+                  label: "00"
+                  output: "00"
+      - id: appointment_duration
+        label: "Duration (min)"
+        field_type: select
+        options: ["30","45","60","75","90"]
+        default: "60"
+      - id: appointment_type
+        label: "Appointment Type"
+        field_type: composite
+        composite:
+          format: "{treatment}"
+          parts:
+            - id: treatment
+              label: "Appointment Type"
+              default: "Treatment"
+              options:
+                - label: "Treatment"
+                  output: "Treatment focused massage"
+                - label: "Relaxation"
+                  output: "Relaxation"
+                - label: "General"
+                  output: "General massage"
+
+  - id: adl
+    nav_label: "ADL"
     section_type: free_text
     is_intake: true
     heading_label: "#### ACTIVITIES OF DAILY LIVING"
     heading_search_text: "ACTIVITIES OF DAILY LIVING"
-  - type: section
-    id: exercise
-    name: "Exercise Habits"
-    map_label: "Exer"
+
+  - id: exercise
+    nav_label: "Exer"
     section_type: free_text
     is_intake: true
     heading_label: "#### EXERCISE HABITS"
     heading_search_text: "EXERCISE HABITS"
-  - type: section
-    id: sleep_diet
-    name: "Sleep & Diet"
-    map_label: "Slp/Dt"
+
+  - id: sleep_diet
+    nav_label: "Slp/Dt"
     section_type: free_text
     is_intake: true
     heading_label: "#### SLEEP & DIET"
     heading_search_text: "SLEEP & DIET"
-  - type: section
-    id: social
-    name: "Social & Stress"
-    map_label: "Social"
+
+  - id: social
+    nav_label: "Social"
     section_type: free_text
     is_intake: true
     heading_label: "#### SOCIAL & STRESS"
     heading_search_text: "SOCIAL & STRESS"
-  - type: section
-    id: history
-    name: "History & Previous Diagnoses"
-    map_label: "History"
+
+  - id: history
+    nav_label: "History"
     section_type: free_text
     is_intake: true
     heading_label: "#### HISTORY & PREVIOUS DIAGNOSES"
     heading_search_text: "HISTORY & PREVIOUS DIAGNOSES"
-  - type: section
-    id: specialists
-    name: "Specialists & Treatment"
-    map_label: "Specialists"
+
+  - id: specialists
+    nav_label: "Specialists"
     section_type: free_text
     is_intake: true
     heading_label: "#### SPECIALISTS & TREATMENT"
     heading_search_text: "SPECIALISTS & TREATMENT"
-  ## SUBJECTIVE
-  - type: section
-    id: subjective_section
-    name: "Subjective"
-    map_label: "Subjective"
+
+  - id: subjective_section
+    nav_label: "Subjective"
     section_type: free_text
     heading_search_text: "## SUBJECTIVE"
     note_render_slot: "subjective_section"
-  ## TREATMENT
-  - type: section
-    id: tx_mods
-    name: "Treatment Modifications & Preferences"
-    map_label: "Tx Mods"
+
+  - id: tx_mods
+    nav_label: "Tx Mods"
     section_type: multi_field
     heading_search_text: "TREATMENT MODIFICATIONS"
     note_render_slot: "tx_mods"
-    children: [pressure, challenge, mood, communication, modifications]
-  - type: section
-    id: tx_regions
-    name: "Treatment Regions"
-    map_label: "Regions"
+    fields:
+      - id: pressure
+        label: "Pressure"
+        field_type: select
+        options:
+          - "- LIGHT PRESSURE: Pt prefers much less than Mr. Gormley's usual working pressure."
+          - "- MODERATE PRESSURE: Pt prefers slightly less than Mr. Gormley's usual working pressure."
+          - "- REGULAR PRESSURE: Pt is comfortable with Mr. Gormley's usual working pressure."
+          - "- FIRM PRESSURE: Pt prefers slightly more than Mr. Gormley's usual working pressure."
+          - "- HEAVY PRESSURE: Pt prefers much more than Mr. Gormley's usual pressure."
+          - "- FULL PRESSURE: Pt prefers the maximum pressure that Mr. Gormley can apply safely. Consider lowering the massage table."
+      - id: challenge
+        label: "Challenge"
+        field_type: select
+        options:
+          - "- VERY GENTLE TREATMENT: Pt prefers a gentle treatment: Avoid all challenging techniques."
+          - "- GENTLE TREATMENT: Pt prefers a gentle treatment: Avoid challenging techniques."
+          - "- RELAXED TREATMENT: Pt prefers a relaxed treatment, but may tolerate some challenge."
+          - "- COMFORTABLE TREATMENT: Pt prefers a challenge only when necessary for treatment."
+          - "- STRONG TREATMENT: Pt prefers a strong treatment, with some challenge expected."
+          - "- CHALLENGING TREATMENT: Pt prefers a challenging treatment, with pressure that approaches discomfort."
+      - id: mood
+        label: "Mood"
+        field_type: select
+        options:
+          - "- CALMING: Pt responds well to slow-paced techniques with limited conversation.\n- - Give time to breathe and feel muscles relax, without distraction!"
+          - "- RELAXING: Pt responds well to limited or casual conversation."
+          - "- CONVERSATIONAL: Pt responds well to a social atmosphere during treatment.\n- - Remember to interrupt conversation for check ins; allow time for quiet."
+          - "- SOCIAL: Pt responds well to ongoing sociable conversation during treatment.\n- - If necessary, interrupt conversation to check in!"
+      - id: communication
+        label: "Communication"
+        field_type: select
+        options:
+          - "- CONCISE: Pt responds well to clear, direct language, with limited conversation."
+          - "- INTROSPECTIVE: Pt responds well to limited conversation.\n- - Give space for slowing down without distraction."
+          - "- STOIC: Pt may suppress their responses to pain or discomfort. Check in as needed."
+          - "- STOIC: Pt responds well to frequent verbal check ins.\n- - Pt may suppress their responses to pain or discomfort."
+          - "- CONTROLLED: Pt prefers a very specific amount of pressure.\n- - Check in frequently, even with each muscle change."
+          - "- COMMUNICATIVE: Pt speaks up about their needs or discomfort. Check in regularly anyways!"
+          - "- RESTFUL: Pt prefers resting during appointment. Limit conversation, focus on recovery."
+      - id: modifications
+        label: "Modifications"
+        field_type: select
+        repeat_limit: 10
+        options:
+          - "- PREGNANCY: Patient is treated in sidelying whenever possible, and pillowed under the head, in front of the chest, and between the knees.\n- - Patient may be treated in supine for up to 5 minutes.\n- - Lower table at the beginning and end of treatment."
+          - "- POST-CONCUSSION: Patient is treated supine only, and pillowed under head and knees.\n- - Avoid using prone position.\n- - Avoid the neck.\n- - Dim lighting when possible.\n- - No music.\n- - No air filter fan."
+          - "- VERTIGO: Encourage taking time to turn over slowly.\n- - Allow extra time to settle after changing positions before continuing treatment.\n- - Encourage pausing at each step when sitting up from the massage table."
+          - "- LOW LIGHT: Pt prefers as lights as dimmed as possible."
+          - "- NO PRONE: Do not put Pt in prone position."
+          - "- SUPINE ONLY: Treat Pt only in supine position."
+          - "- HEAD PILLOW: Pt accepts pillow for head while supine."
+          - "- HEAD PILLOW REQUIRED: Pillow must be immediately available when supine."
+          - "- LOWER TABLE: Lower massage table before & after treatment."
+          - "- TALL: Recommend using height extender on massage table."
+          - "- CLOTHED: Patient prefers to be clothed, using no oil during treatment."
+          - "- RAYNAUD'S: Pt may be sensitive to cold."
+          - "- TIMELY: Patient prefers finishing treatment strictly on schedule."
+
+  - id: tx_regions
+    nav_label: "Regions"
     section_type: block_select
-    data_file: "tx_regions.yml"
     heading_search_text: "TREATMENT / PLAN"
     note_render_slot: "tx_regions"
-  ## OBJECTIVE
-  - type: section
-    id: objective_section
-    name: "Objective / Observations"
-    map_label: "Objective"
+
+  - id: objective_section
+    nav_label: "Objective"
     section_type: list_select
     data_file: "objective_findings.yml"
     date_prefix: true
     heading_search_text: "## OBJECTIVE / OBSERVATIONS"
     note_render_slot: "objective_section"
-  ## POST-TX
-  - type: section
-    id: post_treatment
-    name: "Post-Treatment"
-    map_label: "Post-Tx"
+
+  - id: post_treatment
+    nav_label: "Post-Tx"
     section_type: free_text
     heading_search_text: "## POST-TREATMENT"
     note_render_slot: "post_treatment"
-  - type: section
-    id: remedial_section
-    name: "Remedial Exercises & Self-Care"
-    map_label: "Remedial"
+
+  - id: remedial_section
+    nav_label: "Remedial"
     section_type: list_select
     data_file: "remedial.yml"
     date_prefix: true
     heading_search_text: "REMEDIAL EXERCISES"
     note_render_slot: "remedial_section"
-  - type: section
-    id: tx_plan
-    name: "Treatment Plan / Therapist Notes"
-    map_label: "Tx Plan"
+
+  - id: tx_plan
+    nav_label: "Tx Plan"
     section_type: free_text
     heading_search_text: "TREATMENT PLAN"
     note_render_slot: "tx_plan"
-  - type: section
-    id: infection_control_section
-    name: "Infection Control"
-    map_label: "Infection Ctrl"
+
+  - id: infection_control_section
+    nav_label: "Infection Ctrl"
     section_type: checklist
     data_file: "infection_control.yml"
     heading_search_text: "INFECTION CONTROL"
     note_render_slot: "infection_control_section"
-
-  # ------
-  # Header fields
-  ## INTAKE
-  - type: field
-    id: date
-    name: "Date"
-    composite:
-      format: "{year}-{month}-{day}"
-      parts:
-        - id: day
-          label: "Day"
-          preview: "DD"
-          sticky: true
-          options: ["01","02","03","04","05","06","07","08","09","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31"]
-        - id: month
-          label: "Month"
-          preview: "MM"
-          sticky: true
-          options: ["01","02","03","04","05","06","07","08","09","10","11","12"]
-        - id: year
-          label: "Year"
-          preview: "YYYY"
-          sticky: true
-          options: ["2025","2026"]
-  - type: field
-    id: start_time
-    name: "Start Time"
-    composite:
-      format: "{hour}:{minute}"
-      parts:
-        - id: hour
-          label: "Hour"
-          preview: "H"
-          default: "1"
-          options: ["9","10","11","12","1","2","3","4","5","6","7","8"]
-        - id: minute
-          label: "Minute"
-          preview: "MM"
-          default: 00-2
-          options:
-            - id: 00-1
-              label: "00"
-              output: "00"
-            - id: 15-1
-              label: "15"
-              output: "15"
-            - id: 30-1
-              label: "30"
-              output: "30"
-            - id: 45-1
-              label: "45"
-              output: "45"
-            - id: 00-2
-              label: "00"
-              output: "00"
-            - id: 15-2
-              label: "15"
-              output: "15"
-            - id: 30-2
-              label: "30"
-              output: "30"
-            - id: 45-2
-              label: "45"
-              output: "45"
-            - id: 00-3
-              label: "00"
-              output: "00"
-  - type: field
-    id: appointment_duration
-    name: "Duration (min)"
-    options: ["30","45","60","75","90"]
-    default: "60"
-  - type: field
-    id: appointment_type
-    name: "Appointment Type"
-    composite:
-      format: "{treatment}"
-      parts:
-        - id: treatment
-          label: "Appointment Type"
-          default: "Treatment"
-          options:
-            - label: "Treatment"
-              output: "Treatment focused massage"
-            - label: "Relaxation"
-              output: "Relaxation"
-            - label: "General"
-              output: "General massage"
-
-# Tx Mods fields
-  - type: field
-    id: pressure
-    name: "Pressure"
-    options:
-      - "- LIGHT PRESSURE: Pt prefers much less than Mr. Gormley's usual working pressure."
-      - "- MODERATE PRESSURE: Pt prefers slightly less than Mr. Gormley's usual working pressure."
-      - "- REGULAR PRESSURE: Pt is comfortable with Mr. Gormley's usual working pressure."
-      - "- FIRM PRESSURE: Pt prefers slightly more than Mr. Gormley's usual working pressure."
-      - "- HEAVY PRESSURE: Pt prefers much more than Mr. Gormley's usual pressure."
-      - "- FULL PRESSURE: Pt prefers the maximum pressure that Mr. Gormley can apply safely. Consider lowering the massage table."
-
-  - type: field
-    id: challenge
-    name: "Challenge"
-    options:
-      - "- VERY GENTLE TREATMENT: Pt prefers a gentle treatment: Avoid all challenging techniques."
-      - "- GENTLE TREATMENT: Pt prefers a gentle treatment: Avoid challenging techniques."
-      - "- RELAXED TREATMENT: Pt prefers a relaxed treatment, but may tolerate some challenge."
-      - "- COMFORTABLE TREATMENT: Pt prefers a challenge only when necessary for treatment."
-      - "- STRONG TREATMENT: Pt prefers a strong treatment, with some challenge expected."
-      - "- CHALLENGING TREATMENT: Pt prefers a challenging treatment, with pressure that approaches discomfort."
-
-  - type: field
-    id: mood
-    name: "Mood"
-    options:
-      - "- CALMING: Pt responds well to slow-paced techniques with limited conversation.\n- - Give time to breathe and feel muscles relax, without distraction!"
-      - "- RELAXING: Pt responds well to limited or casual conversation."
-      - "- CONVERSATIONAL: Pt responds well to a social atmosphere during treatment.\n- - Remember to interrupt conversation for check ins; allow time for quiet."
-      - "- SOCIAL: Pt responds well to ongoing sociable conversation during treatment.\n- - If necessary, interrupt conversation to check in!"
-
-  - type: field
-    id: communication
-    name: "Communication"
-    options:
-      - "- CONCISE: Pt responds well to clear, direct language, with limited conversation."
-      - "- INTROSPECTIVE: Pt responds well to limited conversation.\n- - Give space for slowing down without distraction."
-      - "- STOIC: Pt may suppress their responses to pain or discomfort. Check in as needed."
-      - "- STOIC: Pt responds well to frequent verbal check ins.\n- - Pt may suppress their responses to pain or discomfort."
-      - "- CONTROLLED: Pt prefers a very specific amount of pressure.\n- - Check in frequently, even with each muscle change."
-      - "- COMMUNICATIVE: Pt speaks up about their needs or discomfort. Check in regularly anyways!"
-      - "- RESTFUL: Pt prefers resting during appointment. Limit conversation, focus on recovery."
-
-  - type: field
-    id: modifications
-    name: "Modifications"
-    repeat_limit: 10
-    options:
-      - "- PREGNANCY: Patient is treated in sidelying whenever possible, and pillowed under the head, in front of the chest, and between the knees.\n- - Patient may be treated in supine for up to 5 minutes.\n- - Lower table at the beginning and end of treatment."
-      - "- POST-CONCUSSION: Patient is treated supine only, and pillowed under head and knees.\n- - Avoid using prone position.\n- - Avoid the neck.\n- - Dim lighting when possible.\n- - No music.\n- - No air filter fan."
-      - "- VERTIGO: Encourage taking time to turn over slowly.\n- - Allow extra time to settle after changing positions before continuing treatment.\n- - Encourage pausing at each step when sitting up from the massage table."
-      - "- LOW LIGHT: Pt prefers as lights as dimmed as possible."
-      - "- NO PRONE: Do not put Pt in prone position."
-      - "- SUPINE ONLY: Treat Pt only in supine position."
-      - "- HEAD PILLOW: Pt accepts pillow for head while supine."
-      - "- HEAD PILLOW REQUIRED: Pillow must be immediately available when supine."
-      - "- LOWER TABLE: Lower massage table before & after treatment."
-      - "- TALL: Recommend using height extender on massage table."
-      - "- CLOTHED: Patient prefers to be clothed, using no oil during treatment."
-      - "- RAYNAUD'S: Pt may be sensitive to cold."
-      - "- TIMELY: Patient prefers finishing treatment strictly on schedule."

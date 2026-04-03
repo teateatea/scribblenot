@@ -509,25 +509,25 @@ mod tx_regions_default_tests {
     #[test]
     fn lower_back_prone_fascial_l4l5_starts_unselected() {
         let yaml_content = include_str!("../data/tx_regions.yml");
-        let file: BlockSelectFile =
-            serde_yaml::from_str(yaml_content).expect("tx_regions.yml must parse as BlockSelectFile");
+        let file: HierarchyFile =
+            serde_yaml::from_str(yaml_content).expect("tx_regions.yml must parse as HierarchyFile");
 
-        let region = file
-            .entries
+        let lists = file.lists.as_deref().unwrap_or(&[]);
+        let region = lists
             .iter()
-            .find(|e| e.id == "back_lower_prone")
-            .expect("back_lower_prone region must exist in tx_regions.yml");
+            .find(|l| l.id == "back_lower_prone")
+            .expect("back_lower_prone list must exist in tx_regions.yml");
 
-        // Entries order: swedish(0), spec_comp_ql(1), muscle_strip_es(2), fascial_l4l5(3)
         let fascial_entry = region
-            .entries
+            .items
             .iter()
-            .find(|e| e.option_id() == Some("fascial_l4l5"))
-            .expect("fascial_l4l5 entry must exist in back_lower_prone");
+            .find(|i| i.id == "fascial_l4l5")
+            .expect("fascial_l4l5 item must exist in back_lower_prone");
 
-        assert!(
-            !fascial_entry.default_selected(),
-            "fascial_l4l5 in LOWER BACK (Prone) must have default: false and start unselected"
+        assert_eq!(
+            fascial_entry.default,
+            Some(false),
+            "fascial_l4l5 in LOWER BACK (Prone) must have default: Some(false)"
         );
     }
 }
@@ -645,17 +645,27 @@ pub struct HierarchyField {
     pub options: Vec<String>,
     pub list_id: Option<String>,
     pub data_file: Option<String>,
+    pub composite: Option<CompositeConfig>,
+    pub default: Option<String>,
+    pub repeat_limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HierarchySection {
     pub id: String,
     pub nav_label: String,
+    #[serde(default)]
     pub map_label: String,
     pub section_type: String,
     pub fields: Option<Vec<HierarchyField>>,
     pub lists: Option<Vec<HierarchyList>>,
     pub date_prefix: Option<bool>,
+    pub data_file: Option<String>,
+    pub heading_search_text: Option<String>,
+    pub heading_label: Option<String>,
+    pub note_render_slot: Option<String>,
+    #[serde(default)]
+    pub is_intake: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -663,6 +673,7 @@ pub struct HierarchyGroup {
     pub id: String,
     pub nav_label: String,
     pub sections: Vec<String>,
+    pub num: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -711,8 +722,11 @@ pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
         }
         let content = fs::read_to_string(&file_path)
             .map_err(|e| format!("failed to read {:?}: {}", file_path, e))?;
-        let flat_file: FlatFile = serde_yaml::from_str(&content)
-            .map_err(|e| format!("parse error in {:?}: {}", file_path, e))?;
+        // Try parsing as FlatFile; skip files that have been migrated to HierarchyFile format
+        let flat_file: FlatFile = match serde_yaml::from_str(&content) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
         pool.extend(flat_file.blocks);
     }
 
@@ -854,6 +868,19 @@ pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
         }
     }
 
+    // If the flat pool yielded no groups (section definitions migrated to HierarchyFile),
+    // try the hierarchy loader and convert to AppData.
+    if groups.is_empty() {
+        if let Ok(hf) = load_hierarchy_dir(path) {
+            let mut app = hierarchy_to_app_data(hf, path)?;
+            // Preserve boilerplate from flat pool (muscles.yml etc. may still be flat)
+            for (k, v) in &boilerplate_texts {
+                app.boilerplate_texts.entry(k.clone()).or_insert_with(|| v.clone());
+            }
+            return Ok(app);
+        }
+    }
+
     Ok(AppData {
         groups,
         sections: all_sections,
@@ -863,6 +890,76 @@ pub fn load_data_dir(path: &Path) -> Result<AppData, String> {
         boilerplate_texts,
         keybindings: KeyBindings::default(),
         data_dir: path.to_path_buf(),
+    })
+}
+
+/// Converts a merged HierarchyFile into AppData for backward compatibility.
+fn hierarchy_to_app_data(hf: HierarchyFile, data_dir: &Path) -> Result<AppData, String> {
+    let h_sections = hf.sections.unwrap_or_default();
+    let h_groups = hf.groups.unwrap_or_default();
+
+    let mut groups: Vec<SectionGroup> = Vec::new();
+    let mut all_sections: Vec<SectionConfig> = Vec::new();
+
+    for hg in &h_groups {
+        let mut group_sections: Vec<SectionConfig> = Vec::new();
+        for sec_id in &hg.sections {
+            if let Some(hs) = h_sections.iter().find(|s| &s.id == sec_id) {
+                let fields = hs.fields.as_ref().map(|hfields| {
+                    hfields.iter().map(|hf| HeaderFieldConfig {
+                        id: hf.id.clone(),
+                        name: hf.label.clone(),
+                        options: hf.options.clone(),
+                        composite: hf.composite.clone(),
+                        default: hf.default.clone(),
+                        repeat_limit: hf.repeat_limit,
+                    }).collect()
+                });
+                let sc = SectionConfig {
+                    id: hs.id.clone(),
+                    name: hs.nav_label.clone(),
+                    map_label: if hs.map_label.is_empty() {
+                        hs.nav_label.clone()
+                    } else {
+                        hs.map_label.clone()
+                    },
+                    section_type: hs.section_type.clone(),
+                    data_file: hs.data_file.clone(),
+                    date_prefix: hs.date_prefix,
+                    options: vec![],
+                    composite: None,
+                    fields,
+                    is_intake: hs.is_intake,
+                    heading_search_text: hs.heading_search_text.clone(),
+                    heading_label: hs.heading_label.clone(),
+                    note_render_slot: hs.note_render_slot.clone(),
+                };
+                group_sections.push(sc.clone());
+                all_sections.push(sc);
+            }
+        }
+        groups.push(SectionGroup {
+            id: hg.id.clone(),
+            name: hg.nav_label.clone(),
+            num: hg.num,
+            sections: group_sections,
+        });
+    }
+
+    let mut boilerplate_texts: HashMap<String, String> = HashMap::new();
+    for bp in &hf.boilerplate {
+        boilerplate_texts.insert(bp.id.clone(), bp.text.clone());
+    }
+
+    Ok(AppData {
+        groups,
+        sections: all_sections,
+        list_data: HashMap::new(),
+        checklist_data: HashMap::new(),
+        block_select_data: HashMap::new(),
+        boilerplate_texts,
+        keybindings: KeyBindings::default(),
+        data_dir: data_dir.to_path_buf(),
     })
 }
 
