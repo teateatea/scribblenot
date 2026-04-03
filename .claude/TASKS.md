@@ -24,7 +24,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph-Raw: So, Tx Mods should probably actually be a multi_field. Can you split the list up into fields: Pressure, Challenge, Mood, Communication, and Modifications? Try to categorize them correctly, I'll adjust any that are confusing.
   Context: tx_mods restructuring discussion
 
-- [ ] **#51** Move hard-coded section metadata into sections.yml to enable config-driven section definitions
+- [x] **#51** Move hard-coded section metadata into sections.yml to enable config-driven section definitions
   [D:65 C:72]
   Claude: Currently, section-specific logic is scattered across source code: heading_search_text(), is_intake_section(), intake_heading(), and cfg.id == "..." comparisons in note.rs. This task centralises all that metadata into sections.yml with fields like heading_search_text, is_intake, heading_label, and render behavior flags. The goal is that adding a new section requires only a yml change, not source edits in multiple places. This is a meaningful refactor touching note.rs and likely the section config loading path, but it is well-scoped and the intent is clear. Requires identifying all scattered hardcoded section checks, designing the yml schema to cover them, updating the loader/structs to expose the new fields, and replacing all scattered code references. No new user-facing behaviour -- purely a configuration-driven architecture improvement.
   Context: Code audit of hard-coded one-off functions
@@ -37,7 +37,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Claude: Currently app.rs init_states() and data.rs load() both hard-code five section type string literals ("multi_field", "free_text", "list_select", "block_select", "checklist") in match arms. Unlike purely cosmetic or metadata tasks, these strings are load-bearing: they determine which rendering/state logic runs. Making them YML-extensible is a non-trivial architectural decision -- it requires deciding what "registerable section type" means (static enum, trait object, plugin map, etc.) before any plan can be written. A /discuss-idea session is explicitly recommended to resolve the design question first. High d_score because it touches the core dispatch spine of the app; moderate c_score because the problem is well-described but the solution space is deliberately left open.
   Context: Code audit of hard-coded one-off functions
 
-- [ ] **#70** Propose a plan to implement the canonical 6-level YAML data hierarchy from the discuss-idea session
+- [ ] **#70** Propose a plan to implement the canonical 6-level YAML data hierarchy from the discuss-idea session *(sub-task 5 regression verification implemented)*
   [D:75 C:72]
   Claude: The /discuss-idea session produced DISCUSSION-yaml-data-hierarchy.md, which defines a canonical 6-level hierarchy: Template > Group > Section > Field > List > Item. Each level has mandatory and optional fields fully specified. The natural next step is /propose-plan referencing this discussion file. The plan will need to address: (1) schema/validation layer for the hierarchy, (2) migration of existing data YMLs to conform to the new structure (renaming fields like map_label to nav_label), (3) app-side ID resolution via directory scan rather than a root config, and (4) authoring new sections against the spec. Key constraints: no file name requirements, inline or cross-file ID referencing, free_text is not a special type, Boxes (UI layer) are out of scope. Open questions about repeat_limit at Section/Group level and skip-level referencing are deferred.
   Context: /discuss-idea session producing DISCUSSION-yaml-data-hierarchy.md
@@ -47,6 +47,18 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Claude: After /propose-plan produces a plan from DISCUSSION-yaml-data-hierarchy.md (task #70), run /pathfinder-premission referencing that discussion and resulting plan. The premission step sets up MISSION-BRIEF, MISSION-PERMISSIONS.json, and PROJECT-TESTS before handing off to pathfinder-mission-team for autonomous implementation. The discussion file is the primary input/reference for the premission session.
   Joseph-Raw: /pathfinder-premission DISCUSSION-yaml-data-hierarchy.md
   Context: /discuss-idea session producing DISCUSSION-yaml-data-hierarchy.md
+
+- [ ] **#72** Completed discussion document: scribblenot desktop app conversion
+  [D:5 C:40]
+  Claude: DISCUSSION-scribblenot-desktop-app.md exists at operations/plans/ and is marked "Discussion Complete" (dated 2026-04-03). It covers converting scribblenot from a terminal tool to a distributable tray desktop app with global hotkey invocation, chord shortcuts for section expansion, clipboard-only output (HIPAA: no disk writes), near-instant startup, and optional pre-population from highlighted text. This entry captures the discussion as a reference artifact before the planning phase. No action required -- the discussion is already complete.
+  Joseph-Raw: DISCUSSION-scribblenot-desktop-app.md
+  Context: not specified
+
+- [ ] **#73** Run /plan-review-team on DISCUSSION-scribblenot-desktop-app.md to produce a reviewed plan
+  [D:65 C:80]
+  Claude: Use the completed discussion file as input for /plan-review-team, which runs propose-plan then review-plan in a coordinated multi-agent pipeline. The plan will need to cover: tray app architecture, global hotkeys, chord shortcuts for section expansion, HIPAA constraints (no disk writes, no logging, clipboard-only output), cross-platform binary distribution, migration of existing terminal UI code, and near-instant startup. Natural next step after the discussion is complete and before /pathfinder-premission.
+  Joseph-Raw: /plan-review-team DISCUSSION-scribblenot-desktop-app.md
+  Context: not specified
 
 ---
 
