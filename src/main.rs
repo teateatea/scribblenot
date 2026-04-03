@@ -63,33 +63,41 @@ fn run_app<B: ratatui::backend::Backend>(
         }
 
         if app.note_completed && !app.quit {
-            // Try to copy note to clipboard
-            let note_text = note::render_note(&app.sections, &app.section_states);
+            // Auto-copy on completion: no success status (the note_complete bar handles display);
+            // only surface errors so the user knows if something went wrong.
+            let note_text = note::render_note(&app.sections, &app.section_states, &app.config.sticky_values, &app.data.boilerplate_texts, note::NoteRenderMode::Export);
             match arboard::Clipboard::new() {
                 Ok(mut clipboard) => {
-                    match clipboard.set_text(note_text.clone()) {
+                    if let Err(e) = clipboard.set_text(note_text) {
+                        app.status = Some(app::StatusMsg::error(format!("Clipboard error: {}", e)));
+                    }
+                }
+                Err(e) => {
+                    app.status = Some(app::StatusMsg::error(format!("Clipboard unavailable: {}", e)));
+                }
+            }
+            app.note_completed = false;
+        }
+
+        if app.copy_requested && !app.quit {
+            // Manual copy: show brief confirmation.
+            let note_text = note::render_note(&app.sections, &app.section_states, &app.config.sticky_values, &app.data.boilerplate_texts, note::NoteRenderMode::Export);
+            match arboard::Clipboard::new() {
+                Ok(mut clipboard) => {
+                    match clipboard.set_text(note_text) {
                         Ok(_) => {
-                            app.status = Some(app::StatusMsg::success(
-                                "Note copied to clipboard! Press [q] to quit.",
-                            ));
+                            app.status = Some(app::StatusMsg::success("Copied!"));
                         }
                         Err(e) => {
-                            app.status = Some(app::StatusMsg::error(format!(
-                                "Clipboard error: {}. Press [q] to quit.",
-                                e
-                            )));
+                            app.status = Some(app::StatusMsg::error(format!("Clipboard error: {}", e)));
                         }
                     }
                 }
                 Err(e) => {
-                    app.status = Some(app::StatusMsg::error(format!(
-                        "Clipboard unavailable: {}. Press [q] to quit.",
-                        e
-                    )));
+                    app.status = Some(app::StatusMsg::error(format!("Clipboard unavailable: {}", e)));
                 }
             }
-            // Reset so we don't keep re-copying
-            app.note_completed = false;
+            app.copy_requested = false;
         }
 
         if event::poll(Duration::from_millis(100))? {

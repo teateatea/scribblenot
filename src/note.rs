@@ -44,9 +44,10 @@ pub fn section_start_line(
     states: &[SectionState],
     sticky_values: &HashMap<String, String>,
     groups: &[SectionGroup],
+    boilerplate_texts: &HashMap<String, String>,
     section_id: &str,
 ) -> u16 {
-    let note = render_note(sections, states, sticky_values, NoteRenderMode::Preview);
+    let note = render_note(sections, states, sticky_values, boilerplate_texts, NoteRenderMode::Preview);
 
     // Try the section's own anchor first.
     let anchor = heading_anchor(section_id);
@@ -82,6 +83,7 @@ pub fn render_note(
     sections: &[SectionConfig],
     states: &[SectionState],
     sticky_values: &HashMap<String, String>,
+    boilerplate_texts: &HashMap<String, String>,
     mode: NoteRenderMode,
 ) -> String {
     let mut parts: Vec<String> = Vec::new();
@@ -614,11 +616,12 @@ mod tests {
         let sections = vec![sec];
         let states = vec![SectionState::FreeText(FreeTextState::new())]; // empty
         let sticky = HashMap::new();
-        let line = section_start_line(&sections, &states, &sticky, &groups, "tx_plan");
+        let bp = HashMap::new();
+        let line = section_start_line(&sections, &states, &sticky, &groups, &bp, "tx_plan");
         // ## POST-TREATMENT is always rendered; must not return 0
         assert!(line > 0, "expected fallback to ## POST-TREATMENT, got 0");
         // Verify it actually landed on that heading
-        let note = render_note(&sections, &states, &sticky, NoteRenderMode::Preview);
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
         let target: Vec<(usize, &str)> = note.lines().enumerate()
             .filter(|(_, l)| l.contains("## POST-TREATMENT"))
             .collect();
@@ -636,8 +639,9 @@ mod tests {
         s.entries.push("some content".to_string());
         let states = vec![SectionState::FreeText(s)];
         let sticky = HashMap::new();
-        let line = section_start_line(&sections, &states, &sticky, &groups, "tx_plan");
-        let note = render_note(&sections, &states, &sticky, NoteRenderMode::Preview);
+        let bp = HashMap::new();
+        let line = section_start_line(&sections, &states, &sticky, &groups, &bp, "tx_plan");
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
         let target: Vec<(usize, &str)> = note.lines().enumerate()
             .filter(|(_, l)| l.contains("TREATMENT PLAN"))
             .collect();
@@ -655,7 +659,8 @@ mod tests {
         s.skipped = true; // skipped, no content -> heading not rendered
         let states = vec![SectionState::FreeText(s)];
         let sticky = HashMap::new();
-        let line = section_start_line(&sections, &states, &sticky, &groups, "adl");
+        let bp = HashMap::new();
+        let line = section_start_line(&sections, &states, &sticky, &groups, &bp, "adl");
         // intake group has no ## heading -> fallback is 0
         assert_eq!(line, 0);
     }
@@ -669,9 +674,10 @@ mod tests {
         // checklist with no items -> renders nothing for the section
         let states = vec![SectionState::Checklist(ChecklistState::new(vec![]))];
         let sticky = HashMap::new();
-        let line = section_start_line(&sections, &states, &sticky, &groups, "infection_control_section");
+        let bp = HashMap::new();
+        let line = section_start_line(&sections, &states, &sticky, &groups, &bp, "infection_control_section");
         assert!(line > 0, "expected fallback to ## POST-TREATMENT, got 0");
-        let note = render_note(&sections, &states, &sticky, NoteRenderMode::Preview);
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
         let target: Vec<(usize, &str)> = note.lines().enumerate()
             .filter(|(_, l)| l.contains("## POST-TREATMENT"))
             .collect();

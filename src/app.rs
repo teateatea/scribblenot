@@ -381,7 +381,7 @@ impl App {
 
     fn update_note_scroll(&mut self) {
         let section_id = self.sections.get(self.map_cursor).map(|s| s.id.clone()).unwrap_or_default();
-        self.note_scroll = crate::note::section_start_line(&self.sections, &self.section_states, &self.config.sticky_values, &self.data.groups, &section_id);
+        self.note_scroll = crate::note::section_start_line(&self.sections, &self.section_states, &self.config.sticky_values, &self.data.groups, &self.data.boilerplate_texts, &section_id);
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {

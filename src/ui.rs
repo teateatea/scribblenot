@@ -906,7 +906,7 @@ fn resolve_part_default(part: &crate::data::CompositePart) -> Option<String> {
 }
 
 fn render_note_pane(f: &mut Frame, app: &App, area: Rect) {
-    let note_text = render_note(&app.sections, &app.section_states, &app.config.sticky_values, NoteRenderMode::Preview);
+    let note_text = render_note(&app.sections, &app.section_states, &app.config.sticky_values, &app.data.boilerplate_texts, NoteRenderMode::Preview);
 
     let block = Block::default()
         .borders(Borders::ALL)
