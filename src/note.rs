@@ -1806,4 +1806,82 @@ mod tests {
              got:\n{}", note
         );
     }
+
+    // --- ST50-2: known_ids shim single-occurrence tests ---
+    //
+    // The known_ids shim in the catch-all multi_field block prevents tx_mods from
+    // rendering twice (once from the dedicated TREATMENT / PLAN block and again from
+    // the catch-all). These tests verify that the shim keeps tx_mods rendering to
+    // exactly one occurrence in the correct section.
+
+    // ST50-2-TEST-1: tx_mods multi_field with a confirmed value must appear exactly
+    // once in preview output. The known_ids shim in the catch-all block prevents
+    // duplication; tx_mods renders only from the dedicated TREATMENT / PLAN block.
+    #[test]
+    fn tx_mods_rendered_exactly_once_in_preview() {
+        let sec = make_multi_field_section_with_id("tx_mods");
+        let hs = make_header_state_with_confirmed(
+            "pressure",
+            "Pressure",
+            "ST50_2_CATCHALL_SENTINEL",
+        );
+
+        let sections = vec![sec];
+        let states = vec![SectionState::Header(hs)];
+        let sticky = HashMap::new();
+        let bp = HashMap::new();
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
+
+        let occurrences = note.matches("ST50_2_CATCHALL_SENTINEL").count();
+        assert_eq!(
+            occurrences, 1,
+            "ST50_2_CATCHALL_SENTINEL must appear exactly once in preview output; \
+             the known_ids shim must prevent the catch-all block from duplicating tx_mods. \
+             Found {} occurrence(s).\nNote output:\n{}", occurrences, note
+        );
+    }
+
+    // ST50-2-TEST-2: same as TEST-1 but in export mode. The sentinel must appear
+    // exactly once; the known_ids shim prevents catch-all duplication.
+    #[test]
+    fn tx_mods_rendered_exactly_once_in_export() {
+        let sec = make_multi_field_section_with_id("tx_mods");
+        let hs = make_header_state_with_confirmed(
+            "pressure",
+            "Pressure",
+            "ST50_2_EXPORT_CATCHALL_SENTINEL",
+        );
+
+        let sections = vec![sec];
+        let states = vec![SectionState::Header(hs)];
+        let sticky = HashMap::new();
+        let bp = HashMap::new();
+
+        let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Export);
+
+        let occurrences = note.matches("ST50_2_EXPORT_CATCHALL_SENTINEL").count();
+        assert_eq!(
+            occurrences, 1,
+            "ST50_2_EXPORT_CATCHALL_SENTINEL must appear exactly once in export output; \
+             the known_ids shim must prevent the catch-all block from duplicating tx_mods. \
+             Found {} occurrence(s).\nNote output:\n{}", occurrences, note
+        );
+    }
+
+    // ST50-2-TEST-3: verify that the heading_anchor for "tx_mods" still returns
+    // "TREATMENT MODIFICATIONS" after the shim is removed.
+    // This test does not depend on the shim and must pass before and after.
+    // It is included here to pin the heading_anchor contract for tx_mods.
+    #[test]
+    fn tx_mods_heading_anchor_maps_to_treatment_modifications() {
+        let anchor = heading_anchor("tx_mods");
+        assert_eq!(
+            anchor,
+            "TREATMENT MODIFICATIONS",
+            "heading_anchor(\"tx_mods\") must return \"TREATMENT MODIFICATIONS\" \
+             so section_start_line can locate the section in rendered output; got: {:?}",
+            anchor
+        );
+    }
 }
