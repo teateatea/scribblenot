@@ -80,7 +80,7 @@ pub fn render_note(
 
     // Pass 1: render the appointment header section (cfg.id == "header") first.
     for (cfg, state) in sections.iter().zip(states.iter()) {
-        if cfg.section_type == "multi_field" && cfg.id == "header" {
+        if cfg.section_type == "multi_field" && cfg.note_render_slot.as_deref() == Some("header") {
             if let SectionState::Header(hs) = state {
                 let has_repeatable = hs.field_configs.iter().any(|c| c.repeat_limit.is_some());
                 let rendered = match &mode {
@@ -152,7 +152,7 @@ pub fn render_note(
     let mut subj_parts: Vec<String> = Vec::new();
     subj_parts.push("\n\n## SUBJECTIVE".to_string());
     for (cfg, state) in sections.iter().zip(states.iter()) {
-        if cfg.id == "subjective_section" {
+        if cfg.note_render_slot.as_deref() == Some("subjective_section") {
             let rendered = render_section_content(cfg, state, &today);
             if !rendered.trim().is_empty() {
                 subj_parts.push(format!("\n{}", rendered));
@@ -180,7 +180,7 @@ pub fn render_note(
 
     // tx_mods
     for (cfg, state) in sections.iter().zip(states.iter()) {
-        if cfg.id == "tx_mods" {
+        if cfg.note_render_slot.as_deref() == Some("tx_mods") {
             if cfg.section_type == "multi_field" {
                 if let SectionState::Header(hs) = state {
                     if let Some(rendered) = render_multifield_section(cfg, hs, sticky_values, mode.clone()) {
@@ -200,7 +200,7 @@ pub fn render_note(
 
     // tx_regions
     for (cfg, state) in sections.iter().zip(states.iter()) {
-        if cfg.id == "tx_regions" {
+        if cfg.note_render_slot.as_deref() == Some("tx_regions") {
             let rendered = render_block_select(state);
             if !rendered.trim().is_empty() {
                 tx_parts.push(format!("\n\n{}", rendered));
@@ -217,7 +217,7 @@ pub fn render_note(
     let mut obj_parts: Vec<String> = Vec::new();
     obj_parts.push("\n\n## OBJECTIVE / OBSERVATIONS".to_string());
     for (cfg, state) in sections.iter().zip(states.iter()) {
-        if cfg.id == "objective_section" {
+        if cfg.note_render_slot.as_deref() == Some("objective_section") {
             let rendered = render_section_content(cfg, state, &today);
             if !rendered.trim().is_empty() {
                 obj_parts.push(format!("\n\n{}", rendered));
@@ -234,7 +234,7 @@ pub fn render_note(
     post_parts.push("\n\n## POST-TREATMENT".to_string());
 
     for (cfg, state) in sections.iter().zip(states.iter()) {
-        if cfg.id == "post_treatment" {
+        if cfg.note_render_slot.as_deref() == Some("post_treatment") {
             let rendered = render_section_content(cfg, state, &today);
             if !rendered.trim().is_empty() {
                 post_parts.push(format!("\n{}", rendered));
@@ -243,7 +243,7 @@ pub fn render_note(
     }
 
     for (cfg, state) in sections.iter().zip(states.iter()) {
-        if cfg.id == "remedial_section" {
+        if cfg.note_render_slot.as_deref() == Some("remedial_section") {
             let rendered = render_section_content(cfg, state, &today);
             if !rendered.trim().is_empty() {
                 post_parts.push(format!("\n\n\n#### REMEDIAL EXERCISES & SELF-CARE\n{}", rendered));
@@ -252,7 +252,7 @@ pub fn render_note(
     }
 
     for (cfg, state) in sections.iter().zip(states.iter()) {
-        if cfg.id == "tx_plan" {
+        if cfg.note_render_slot.as_deref() == Some("tx_plan") {
             let rendered = render_section_content(cfg, state, &today);
             if !rendered.trim().is_empty() {
                 post_parts.push(format!("\n\n\n#### TREATMENT PLAN / THERAPIST NOTES\n{}", rendered));
@@ -267,7 +267,7 @@ pub fn render_note(
 
     // INFECTION CONTROL
     for (cfg, state) in sections.iter().zip(states.iter()) {
-        if cfg.id == "infection_control_section" {
+        if cfg.note_render_slot.as_deref() == Some("infection_control_section") {
             let rendered = render_section_content(cfg, state, &today);
             if !rendered.trim().is_empty() {
                 parts.push(format!("\n\n\n#### STANDARD INFECTION CONTROL PRECAUTIONS\n{}", rendered));
@@ -275,16 +275,16 @@ pub fn render_note(
         }
     }
 
-    // Catch-all: non-header multi_field sections with unrecognized ids
+    // Catch-all: multi_field sections not handled by a named slot above
     for (cfg, state) in sections.iter().zip(states.iter()) {
-        if cfg.section_type == "multi_field" && cfg.id != "header" {
-            let known_ids = ["tx_mods"];
-            if !known_ids.contains(&cfg.id.as_str()) {
-                if let SectionState::Header(hs) = state {
-                    if let Some(rendered) = render_multifield_section(cfg, hs, sticky_values, mode.clone()) {
-                        if !rendered.trim().is_empty() {
-                            parts.push(format!("\n\n\n#### {}\n{}", cfg.name.to_uppercase(), rendered));
-                        }
+        if cfg.section_type == "multi_field"
+            && cfg.note_render_slot.as_deref() != Some("header")
+            && cfg.note_render_slot.as_deref() != Some("tx_mods")
+        {
+            if let SectionState::Header(hs) = state {
+                if let Some(rendered) = render_multifield_section(cfg, hs, sticky_values, mode.clone()) {
+                    if !rendered.trim().is_empty() {
+                        parts.push(format!("\n\n\n#### {}\n{}", cfg.name.to_uppercase(), rendered));
                     }
                 }
             }
@@ -713,7 +713,7 @@ mod tests {
             is_intake: false,
             heading_search_text: None,
             heading_label: None,
-            note_render_slot: None,
+            note_render_slot: Some(id.to_string()),
         }
     }
 
@@ -1070,7 +1070,7 @@ mod tests {
             is_intake: false,
             heading_search_text: None,
             heading_label: None,
-            note_render_slot: None,
+            note_render_slot: Some(id.to_string()),
         }
     }
 
@@ -1465,7 +1465,7 @@ mod tests {
             is_intake: false,
             heading_search_text: None,
             heading_label: None,
-            note_render_slot: None,
+            note_render_slot: Some(id.to_string()),
         }
     }
 
