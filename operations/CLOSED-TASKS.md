@@ -57,3 +57,10 @@
   Context: not specified
 - Completed: 2026-03-30T12:05:11
 
+
+- [ ] **#70** Propose a plan to implement the canonical 6-level YAML data hierarchy from the discuss-idea session
+  [D:75 C:72]
+  Claude: The /discuss-idea session produced DISCUSSION-yaml-data-hierarchy.md, which defines a canonical 6-level hierarchy: Template > Group > Section > Field > List > Item. Each level has mandatory and optional fields fully specified. The natural next step is /propose-plan referencing this discussion file. The plan will need to address: (1) schema/validation layer for the hierarchy, (2) migration of existing data YMLs to conform to the new structure (renaming fields like map_label to nav_label), (3) app-side ID resolution via directory scan rather than a root config, and (4) authoring new sections against the spec. Key constraints: no file name requirements, inline or cross-file ID referencing, free_text is not a special type, Boxes (UI layer) are out of scope. Open questions about repeat_limit at Section/Group level and skip-level referencing are deferred.
+  Context: /discuss-idea session producing DISCUSSION-yaml-data-hierarchy.md
+- Completed: 2026-04-03T17:13:32
+
