@@ -9,8 +9,55 @@ use crate::sections::{
     header::HeaderState,
     list_select::{ListSelectMode, ListSelectState},
 };
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use iced::keyboard::{key::Named, Key, Modifiers};
 use std::path::PathBuf;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AppKey {
+    Char(char),
+    CtrlChar(char),
+    CtrlC,
+    Enter,
+    ShiftEnter,
+    Esc,
+    Up,
+    Down,
+    Left,
+    Right,
+    Backspace,
+    Tab,
+    Space,
+}
+
+pub fn appkey_from_iced(key: Key, modifiers: Modifiers) -> AppKey {
+    match key {
+        Key::Named(Named::Enter) => {
+            if modifiers.contains(Modifiers::SHIFT) {
+                AppKey::ShiftEnter
+            } else {
+                AppKey::Enter
+            }
+        }
+        Key::Named(Named::Escape) => AppKey::Esc,
+        Key::Named(Named::Backspace) => AppKey::Backspace,
+        Key::Named(Named::Tab) => AppKey::Tab,
+        Key::Named(Named::ArrowDown) => AppKey::Down,
+        Key::Named(Named::ArrowUp) => AppKey::Up,
+        Key::Named(Named::ArrowLeft) => AppKey::Left,
+        Key::Named(Named::ArrowRight) => AppKey::Right,
+        Key::Character(ref s) => {
+            let c = s.chars().next().unwrap_or('\0');
+            if modifiers.contains(Modifiers::CTRL) {
+                if c == 'c' { AppKey::CtrlC } else { AppKey::CtrlChar(c) }
+            } else if c == ' ' {
+                AppKey::Space
+            } else {
+                AppKey::Char(c)
+            }
+        }
+        _ => AppKey::Char('\0'),
+    }
+}
 use std::time::Instant;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,20 +132,20 @@ pub struct App {
     pub clipboard_import: Option<String>,
 }
 
-pub fn match_binding_str(binding: &str, key: &KeyEvent) -> bool {
+pub fn match_binding_str(binding: &str, key: &AppKey) -> bool {
     match binding {
-        "down" => key.code == KeyCode::Down,
-        "up" => key.code == KeyCode::Up,
-        "left" => key.code == KeyCode::Left,
-        "right" => key.code == KeyCode::Right,
-        "enter" => key.code == KeyCode::Enter && key.modifiers == KeyModifiers::NONE,
-        "esc" => key.code == KeyCode::Esc,
-        "space" => key.code == KeyCode::Char(' '),
-        "backspace" => key.code == KeyCode::Backspace,
-        "shift+enter" => key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::SHIFT),
+        "down" => matches!(key, AppKey::Down),
+        "up" => matches!(key, AppKey::Up),
+        "left" => matches!(key, AppKey::Left),
+        "right" => matches!(key, AppKey::Right),
+        "enter" => matches!(key, AppKey::Enter),
+        "esc" => matches!(key, AppKey::Esc),
+        "space" => matches!(key, AppKey::Space),
+        "backspace" => matches!(key, AppKey::Backspace),
+        "shift+enter" => matches!(key, AppKey::ShiftEnter),
         s if s.len() == 1 => {
             let c = s.chars().next().unwrap();
-            key.code == KeyCode::Char(c)
+            matches!(key, AppKey::Char(k) if *k == c)
         }
         _ => false,
     }
@@ -188,7 +235,7 @@ impl App {
         }
     }
 
-    fn matches_key(&self, key: &KeyEvent, action: &[String]) -> bool {
+    fn matches_key(&self, key: &AppKey, action: &[String]) -> bool {
         for binding in action {
             let matched = match_binding_str(binding, key);
             if matched {
@@ -198,55 +245,55 @@ impl App {
         false
     }
 
-    fn is_navigate_down(&self, key: &KeyEvent) -> bool {
+    fn is_navigate_down(&self, key: &AppKey) -> bool {
         self.matches_key(key, &self.data.keybindings.navigate_down)
     }
 
-    fn is_navigate_up(&self, key: &KeyEvent) -> bool {
+    fn is_navigate_up(&self, key: &AppKey) -> bool {
         self.matches_key(key, &self.data.keybindings.navigate_up)
     }
 
-    fn is_select(&self, key: &KeyEvent) -> bool {
+    fn is_select(&self, key: &AppKey) -> bool {
         self.matches_key(key, &self.data.keybindings.select)
     }
 
-    fn is_confirm(&self, key: &KeyEvent) -> bool {
+    fn is_confirm(&self, key: &AppKey) -> bool {
         self.matches_key(key, &self.data.keybindings.confirm)
     }
 
-    fn is_add_entry(&self, key: &KeyEvent) -> bool {
+    fn is_add_entry(&self, key: &AppKey) -> bool {
         self.matches_key(key, &self.data.keybindings.add_entry)
     }
 
-    fn is_back(&self, key: &KeyEvent) -> bool {
+    fn is_back(&self, key: &AppKey) -> bool {
         self.matches_key(key, &self.data.keybindings.back)
     }
 
-    fn is_swap_panes(&self, key: &KeyEvent) -> bool {
+    fn is_swap_panes(&self, key: &AppKey) -> bool {
         self.matches_key(key, &self.data.keybindings.swap_panes)
     }
 
-    fn is_help(&self, key: &KeyEvent) -> bool {
+    fn is_help(&self, key: &AppKey) -> bool {
         self.matches_key(key, &self.data.keybindings.help)
     }
 
-    fn is_quit(&self, key: &KeyEvent) -> bool {
+    fn is_quit(&self, key: &AppKey) -> bool {
         self.matches_key(key, &self.data.keybindings.quit)
     }
 
-    fn is_copy_note(&self, key: &KeyEvent) -> bool {
+    fn is_copy_note(&self, key: &AppKey) -> bool {
         self.matches_key(key, &self.data.keybindings.copy_note)
     }
 
-    fn is_focus_left(&self, key: &KeyEvent) -> bool {
+    fn is_focus_left(&self, key: &AppKey) -> bool {
         self.matches_key(key, &self.data.keybindings.focus_left)
     }
 
-    fn is_focus_right(&self, key: &KeyEvent) -> bool {
+    fn is_focus_right(&self, key: &AppKey) -> bool {
         self.matches_key(key, &self.data.keybindings.focus_right)
     }
 
-    fn is_super_confirm(&self, key: &KeyEvent) -> bool {
+    fn is_super_confirm(&self, key: &AppKey) -> bool {
         self.matches_key(key, &self.data.keybindings.super_confirm)
     }
 
@@ -260,7 +307,7 @@ impl App {
         }
     }
 
-    fn handle_map_key(&mut self, key: KeyEvent) {
+    fn handle_map_key(&mut self, key: AppKey) {
         if self.is_navigate_down(&key) {
             self.hint_buffer.clear();
             if self.map_cursor + 1 < self.sections.len() {
@@ -296,7 +343,7 @@ impl App {
         }
 
         // Hint key navigation
-        if let KeyCode::Char(c) = key.code {
+        if let AppKey::Char(c) = key {
             let case_sensitive = self.config.hint_labels_case_sensitive;
             let ch_str: String = if case_sensitive {
                 c.to_string()
@@ -397,9 +444,9 @@ impl App {
         self.note_scroll = crate::note::section_start_line(&self.sections, &self.section_states, &self.config.sticky_values, &self.data.groups, &self.data.boilerplate_texts, &section_id);
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent) {
+    pub fn handle_key(&mut self, key: AppKey) {
         // Ctrl+C always quits
-        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+        if matches!(key, AppKey::CtrlC) {
             self.quit = true;
             return;
         }
@@ -424,7 +471,7 @@ impl App {
         }
 
         if self.is_quit(&key) && self.focus != Focus::Map {
-            let is_hint_key = if let KeyCode::Char(c) = key.code {
+            let is_hint_key = if let AppKey::Char(c) = key {
                 let c_str = c.to_ascii_lowercase().to_string();
                 crate::data::combined_hints(&self.data.keybindings).iter().any(|h| h.to_ascii_lowercase() == c_str)
             } else {
@@ -536,9 +583,9 @@ impl App {
         }
     }
 
-    fn handle_header_key(&mut self, key: KeyEvent) {
-        // Hint key handling: group/section hint → return to map, field hints → jump to field
-        if let KeyCode::Char(c) = key.code {
+    fn handle_header_key(&mut self, key: AppKey) {
+        // Hint key handling: group/section hint -> return to map, field hints -> jump to field
+        if let AppKey::Char(c) = key {
             let hints = crate::data::combined_hints(&self.data.keybindings);
             let case_sensitive = self.config.hint_labels_case_sensitive;
             let ch_str: String = if case_sensitive { c.to_string() } else { c.to_ascii_lowercase().to_string() };
@@ -683,7 +730,7 @@ impl App {
             return;
         }
 
-        if key.code == KeyCode::Enter {
+        if matches!(key, AppKey::Enter) {
             self.open_header_modal();
         }
     }
@@ -721,10 +768,10 @@ impl App {
         }
     }
 
-    fn handle_modal_key(&mut self, key: KeyEvent) {
+    fn handle_modal_key(&mut self, key: AppKey) {
         let hints = crate::data::combined_hints(&self.data.keybindings);
 
-        if key.code == KeyCode::Esc {
+        if matches!(key, AppKey::Esc) {
             self.modal = None;
             return;
         }
@@ -752,19 +799,19 @@ impl App {
         };
 
         match focus {
-            ModalFocus::SearchBar => match key.code {
-                KeyCode::Tab => {
+            ModalFocus::SearchBar => match key {
+                AppKey::Tab => {
                     let query = self.modal.as_ref().unwrap().query.trim().to_string();
                     if !query.is_empty() {
                         self.confirm_modal_value(query);
                     }
                 }
-                KeyCode::Enter => {
+                AppKey::Enter => {
                     if !self.modal.as_ref().unwrap().filtered.is_empty() {
                         self.modal.as_mut().unwrap().focus = ModalFocus::List;
                     }
                 }
-                KeyCode::Backspace => {
+                AppKey::Backspace => {
                     let modal = self.modal.as_mut().unwrap();
                     modal.query.pop();
                     modal.update_filter();
@@ -772,15 +819,15 @@ impl App {
                         modal.center_scroll();
                     }
                 }
-                KeyCode::Char(c) => {
+                AppKey::Char(c) => {
                     let modal = self.modal.as_mut().unwrap();
                     modal.query.push(c);
                     modal.update_filter();
                 }
                 _ => {}
             },
-            ModalFocus::List => match key.code {
-                KeyCode::Backspace => {
+            ModalFocus::List => match key {
+                AppKey::Backspace => {
                     let can_go_back = self.modal.as_ref().map(|m| {
                         m.composite.as_ref().map(|c| c.part_idx > 0).unwrap_or(false)
                     }).unwrap_or(false);
@@ -791,29 +838,29 @@ impl App {
                         self.modal = None;
                     }
                 }
-                KeyCode::Char(' ') => {
+                AppKey::Space => {
                     self.modal.as_mut().unwrap().focus = ModalFocus::SearchBar;
                 }
-                KeyCode::Enter => {
+                AppKey::Enter => {
                     if let Some(val) = self.modal.as_ref().unwrap().selected_value().map(String::from) {
                         self.confirm_modal_value(val);
                     }
                 }
-                KeyCode::Up => {
+                AppKey::Up => {
                     let modal = self.modal.as_mut().unwrap();
                     if modal.list_cursor > 0 {
                         modal.list_cursor -= 1;
                         modal.update_scroll();
                     }
                 }
-                KeyCode::Down => {
+                AppKey::Down => {
                     let modal = self.modal.as_mut().unwrap();
                     if modal.list_cursor + 1 < modal.filtered.len() {
                         modal.list_cursor += 1;
                         modal.update_scroll();
                     }
                 }
-                KeyCode::Char(c) => {
+                AppKey::Char(c) => {
                     if let Some(hint_pos) = hints.iter().position(|h| *h == c.to_string().as_str()) {
                         if let Some(val) = self.modal.as_ref().unwrap().hint_value(hint_pos).map(String::from) {
                             self.confirm_modal_value(val);
@@ -870,7 +917,7 @@ impl App {
         }
     }
 
-    fn handle_free_text_key(&mut self, key: KeyEvent) {
+    fn handle_free_text_key(&mut self, key: AppKey) {
         let idx = self.current_idx;
         let is_editing = match &self.section_states[idx] {
             SectionState::FreeText(s) => s.is_editing(),
@@ -885,19 +932,19 @@ impl App {
                 return;
             }
             // In text input: only Enter confirms, not letter aliases like 't'
-            if key.code == KeyCode::Enter {
+            if matches!(key, AppKey::Enter) {
                 if let SectionState::FreeText(s) = &mut self.section_states[idx] {
                     s.commit_entry();
                 }
                 return;
             }
-            if key.code == KeyCode::Backspace {
+            if matches!(key, AppKey::Backspace) {
                 if let SectionState::FreeText(s) = &mut self.section_states[idx] {
                     s.handle_backspace();
                 }
                 return;
             }
-            if let KeyCode::Char(c) = key.code {
+            if let AppKey::Char(c) = key {
                 if let SectionState::FreeText(s) = &mut self.section_states[idx] {
                     s.handle_char(c);
                 }
@@ -951,7 +998,7 @@ impl App {
         }
     }
 
-    fn handle_list_select_key(&mut self, key: KeyEvent) {
+    fn handle_list_select_key(&mut self, key: AppKey) {
         let idx = self.current_idx;
         let mode = match &self.section_states[idx] {
             SectionState::ListSelect(s) => {
@@ -974,7 +1021,7 @@ impl App {
                     return;
                 }
                 // In text input: only Enter confirms, not letter aliases like 't'
-                if key.code == KeyCode::Enter {
+                if matches!(key, AppKey::Enter) {
                     if mode == 1 {
                         if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
                             s.confirm_label();
@@ -1008,13 +1055,13 @@ impl App {
                     }
                     return;
                 }
-                if key.code == KeyCode::Backspace {
+                if matches!(key, AppKey::Backspace) {
                     if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
                         s.handle_backspace();
                     }
                     return;
                 }
-                if let KeyCode::Char(c) = key.code {
+                if let AppKey::Char(c) = key {
                     if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
                         s.handle_char(c);
                     }
@@ -1070,7 +1117,7 @@ impl App {
         }
     }
 
-    fn handle_block_select_key(&mut self, key: KeyEvent) {
+    fn handle_block_select_key(&mut self, key: AppKey) {
         let idx = self.current_idx;
         let in_items = match &self.section_states[idx] {
             SectionState::BlockSelect(s) => s.in_items(),
@@ -1172,7 +1219,7 @@ impl App {
         }
     }
 
-    fn handle_checklist_key(&mut self, key: KeyEvent) {
+    fn handle_checklist_key(&mut self, key: AppKey) {
         let idx = self.current_idx;
 
         if self.try_navigate_to_map_via_hint(&key) {
@@ -1228,8 +1275,8 @@ impl App {
 
     /// If the key matches the current section's hint key, switch focus to Map at Sections level.
     /// Returns true if navigation happened.
-    fn try_navigate_to_map_via_hint(&mut self, key: &KeyEvent) -> bool {
-        if let KeyCode::Char(c) = key.code {
+    fn try_navigate_to_map_via_hint(&mut self, key: &AppKey) -> bool {
+        if let AppKey::Char(c) = *key {
             let hints = crate::data::combined_hints(&self.data.keybindings);
             let case_sensitive = self.config.hint_labels_case_sensitive;
             let ch_str: String = if case_sensitive { c.to_string() } else { c.to_ascii_lowercase().to_string() };
@@ -1402,32 +1449,26 @@ fn compute_composite_preview(modal: &crate::modal::SearchModal) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
     fn matches_key_shift_enter_binding_recognized() {
-        // match_binding_str is the pub free-function extracted from matches_key in the implementation.
-        // This test will fail to compile until that function is added and handles "shift+enter".
-        let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT);
         assert!(
-            match_binding_str("shift+enter", &key),
-            "match_binding_str(\"shift+enter\", Enter+SHIFT) should return true"
+            match_binding_str("shift+enter", &AppKey::ShiftEnter),
+            "match_binding_str(\"shift+enter\", AppKey::ShiftEnter) should return true"
         );
     }
 
     #[test]
     fn matches_key_shift_enter_does_not_match_plain_enter() {
-        let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
         assert!(
-            !match_binding_str("shift+enter", &key),
-            "match_binding_str(\"shift+enter\", plain Enter) should return false"
+            !match_binding_str("shift+enter", &AppKey::Enter),
+            "match_binding_str(\"shift+enter\", AppKey::Enter) should return false"
         );
     }
 
     #[test]
     fn matches_key_super_confirm_binding_in_keybindings() {
         let kb = crate::data::KeyBindings::default();
-        // Verify that the default super_confirm binding contains "shift+enter"
         assert!(
             kb.super_confirm.iter().any(|b| b == "shift+enter"),
             "KeyBindings::default().super_confirm should contain \"shift+enter\""
@@ -1459,8 +1500,7 @@ mod tests {
             data_dir: PathBuf::new(),
         };
         let mut app = App::new(data, Config::default(), PathBuf::new());
-        let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT);
-        app.handle_header_key(key);
+        app.handle_header_key(AppKey::ShiftEnter);
         if let Some(SectionState::Header(s)) = app.section_states.get(0) {
             assert_eq!(s.repeated_values[0].last().map(|s| s.as_str()).unwrap_or(""), "hello", "field 0 should be filled with its default");
             assert_eq!(s.field_index, 1, "field_index should advance to 1");
@@ -1493,8 +1533,7 @@ mod tests {
             data_dir: PathBuf::new(),
         };
         let mut app = App::new(data, Config::default(), PathBuf::new());
-        let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT);
-        app.handle_header_key(key);
+        app.handle_header_key(AppKey::ShiftEnter);
         if let Some(SectionState::Header(s)) = app.section_states.get(0) {
             assert_eq!(s.field_index, 0, "field_index should stay at 0 when no default");
         } else {
