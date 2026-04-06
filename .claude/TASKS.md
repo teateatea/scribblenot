@@ -49,7 +49,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph-Raw: DISCUSSION-scribblenot-desktop-app.md
   Context: not specified
 
-- [ ] **#73** Run /plan-review-team on DISCUSSION-scribblenot-desktop-app.md to produce a reviewed plan
+- [ ] **#73** Run /plan-review-team on DISCUSSION-scribblenot-desktop-app.md to produce a reviewed plan *(sub-task 1 implemented)*
   [D:65 C:80]
   Claude: Use the completed discussion file as input for /plan-review-team, which runs propose-plan then review-plan in a coordinated multi-agent pipeline. The plan will need to cover: tray app architecture, global hotkeys, chord shortcuts for section expansion, HIPAA constraints (no disk writes, no logging, clipboard-only output), cross-platform binary distribution, migration of existing terminal UI code, and near-instant startup. Natural next step after the discussion is complete and before /pathfinder-premission.
   Joseph-Raw: /plan-review-team DISCUSSION-scribblenot-desktop-app.md
@@ -63,6 +63,11 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   [D:10 C:55] Delete or use the `pub fn current_value()` method in `src/sections/header.rs` that triggers a dead_code warning on every `cargo build`/`cargo run`.
   Joseph: about that dead code clean up, I don't like that it pops up when I cargo run.
   Context: not specified
+
+- [ ] **#74** Remove dead fields from hierarchy structs in src/data.rs
+  [D:15 C:90]
+  Claude: Several fields added to the hierarchy structs during Mission 13 are never consumed by hierarchy_to_runtime or any downstream runtime code and should be removed: HierarchyTemplate.id, HierarchyItem.note, HierarchyField.data_file, HierarchyField.list_id, HierarchySection.lists, HierarchyFile.items. Additionally HierarchyGroup.num and SectionGroup.num carry a value through the data pipeline but are never read in app.rs or ui.rs (the num: keys have already been removed from sections.yml). Removing these fields eliminates dead code, makes struct definitions match actual usage, reduces the YAML surface area for future authors, and may require updating a small number of test fixtures that reference these fields.
+  Context: post-Mission 13 review of hierarchy struct usage
 
 - [ ] **#54** Extract hard-coded layout strings from config.rs into a YML-backed enum
   [D:25 C:55]

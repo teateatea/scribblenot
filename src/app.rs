@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::data::{AppData, SectionConfig};
+use crate::document::build_initial_document;
 use crate::modal::{CompositeAdvance, ModalFocus, SearchModal};
 use crate::sections::{
     block_select::BlockSelectState,
@@ -78,6 +79,10 @@ pub struct App {
     pub note_scroll: u16,
     pub modal: Option<SearchModal>,
     pub hint_buffer: String,
+    pub editable_note: String,
+    pub note_headings_valid: bool,
+    pub show_window: bool,
+    pub clipboard_import: Option<String>,
 }
 
 pub fn match_binding_str(binding: &str, key: &KeyEvent) -> bool {
@@ -104,6 +109,13 @@ impl App {
         let sections = data.sections.clone();
         let section_states = Self::init_states(&sections, &data);
         let pane_swapped = config.is_swapped();
+        let editable_note = build_initial_document(
+            &sections,
+            &section_states,
+            &config.sticky_values,
+            &data.boilerplate_texts,
+        );
+        let note_headings_valid = crate::document::validate_canonical_headings(&editable_note);
         Self {
             sections,
             section_states,
@@ -123,6 +135,10 @@ impl App {
             note_scroll: 0,
             modal: None,
             hint_buffer: String::new(),
+            editable_note,
+            note_headings_valid,
+            show_window: false,
+            clipboard_import: None,
         }
     }
 
