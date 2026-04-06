@@ -49,7 +49,7 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph-Raw: DISCUSSION-scribblenot-desktop-app.md
   Context: not specified
 
-- [ ] **#73** Run /plan-review-team on DISCUSSION-scribblenot-desktop-app.md to produce a reviewed plan *(sub-task 1 implemented)* *(sub-task 2 implemented)* *(sub-task 3 implemented)*
+- [ ] **#73** Run /plan-review-team on DISCUSSION-scribblenot-desktop-app.md to produce a reviewed plan *(sub-task 1 implemented)* *(sub-task 2 implemented)* *(sub-task 3 implemented)* *(sub-task 4 implemented)*
   [D:65 C:80]
   Claude: Use the completed discussion file as input for /plan-review-team, which runs propose-plan then review-plan in a coordinated multi-agent pipeline. The plan will need to cover: tray app architecture, global hotkeys, chord shortcuts for section expansion, HIPAA constraints (no disk writes, no logging, clipboard-only output), cross-platform binary distribution, migration of existing terminal UI code, and near-instant startup. Natural next step after the discussion is complete and before /pathfinder-premission.
   Joseph-Raw: /plan-review-team DISCUSSION-scribblenot-desktop-app.md
