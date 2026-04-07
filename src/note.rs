@@ -4,6 +4,7 @@ use crate::sections::multi_field::resolve_multifield_value;
 use chrono::Local;
 use std::collections::HashMap;
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub enum NoteRenderMode {
     Preview,
@@ -13,17 +14,19 @@ pub enum NoteRenderMode {
 /// Returns the rendered heading text to search for when scrolling to a given
 /// section id or group id. Both section ids and group ids share this map so
 /// section_start_line can use the same lookup for primary and fallback anchors.
+#[allow(dead_code)]
 fn heading_anchor(id: &str) -> &'static str {
     match id {
         // Group anchors (sections use cfg.heading_search_text instead)
-        "subjective"               => "## SUBJECTIVE",
-        "treatment"                => "## TREATMENT / PLAN",
-        "objective"                => "## OBJECTIVE / OBSERVATIONS",
-        "post_tx"                  => "## POST-TREATMENT",
-        _                          => "",
+        "subjective" => "## SUBJECTIVE",
+        "treatment" => "## TREATMENT / PLAN",
+        "objective" => "## OBJECTIVE / OBSERVATIONS",
+        "post_tx" => "## POST-TREATMENT",
+        _ => "",
     }
 }
 
+#[allow(dead_code)]
 pub fn section_start_line(
     sections: &[SectionConfig],
     states: &[SectionState],
@@ -32,7 +35,13 @@ pub fn section_start_line(
     boilerplate_texts: &HashMap<String, String>,
     section_id: &str,
 ) -> u16 {
-    let note = render_note(sections, states, sticky_values, boilerplate_texts, NoteRenderMode::Preview);
+    let note = render_note(
+        sections,
+        states,
+        sticky_values,
+        boilerplate_texts,
+        NoteRenderMode::Preview,
+    );
 
     // Try the section's own anchor first (from cfg.heading_search_text).
     let anchor = sections
@@ -68,6 +77,7 @@ pub fn section_start_line(
     0
 }
 
+#[allow(dead_code)]
 pub fn render_note(
     sections: &[SectionConfig],
     states: &[SectionState],
@@ -86,11 +96,14 @@ pub fn render_note(
                 let rendered = match &mode {
                     NoteRenderMode::Preview => {
                         let has_any = hs.field_configs.iter().enumerate().any(|(i, fcfg)| {
-                            let confirmed = hs.repeated_values.get(i)
+                            let confirmed = hs
+                                .repeated_values
+                                .get(i)
                                 .and_then(|v| v.first())
                                 .map(|s| s.as_str())
                                 .unwrap_or("");
-                            !resolve_multifield_value(confirmed, fcfg, sticky_values).is_empty_variant()
+                            !resolve_multifield_value(confirmed, fcfg, sticky_values)
+                                .is_empty_variant()
                         });
                         if has_any {
                             if has_repeatable {
@@ -159,9 +172,15 @@ pub fn render_note(
             }
         }
     }
-    let informed_consent = boilerplate_texts.get("informed_consent").map(|s| s.as_str()).unwrap_or("");
+    let informed_consent = boilerplate_texts
+        .get("informed_consent")
+        .map(|s| s.as_str())
+        .unwrap_or("");
     if !informed_consent.is_empty() {
-        subj_parts.push(format!("\n\n\n#### INFORMED CONSENT\n- {}", informed_consent));
+        subj_parts.push(format!(
+            "\n\n\n#### INFORMED CONSENT\n- {}",
+            informed_consent
+        ));
     }
     parts.push(subj_parts.join(""));
 
@@ -170,7 +189,10 @@ pub fn render_note(
 
     // TREATMENT / PLAN
     let mut tx_parts: Vec<String> = Vec::new();
-    let tx_disclaimer = boilerplate_texts.get("treatment_plan_disclaimer").map(|s| s.as_str()).unwrap_or("");
+    let tx_disclaimer = boilerplate_texts
+        .get("treatment_plan_disclaimer")
+        .map(|s| s.as_str())
+        .unwrap_or("");
     let tx_header = if tx_disclaimer.is_empty() {
         "\n\n## TREATMENT / PLAN".to_string()
     } else {
@@ -183,16 +205,24 @@ pub fn render_note(
         if cfg.note_render_slot.as_deref() == Some("tx_mods") {
             if cfg.section_type == "multi_field" {
                 if let SectionState::Header(hs) = state {
-                    if let Some(rendered) = render_multifield_section(cfg, hs, sticky_values, mode.clone()) {
+                    if let Some(rendered) =
+                        render_multifield_section(cfg, hs, sticky_values, mode.clone())
+                    {
                         if !rendered.trim().is_empty() {
-                            tx_parts.push(format!("\n\n\n#### TREATMENT MODIFICATIONS & PREFERENCES\n{}", rendered));
+                            tx_parts.push(format!(
+                                "\n\n\n#### TREATMENT MODIFICATIONS & PREFERENCES\n{}",
+                                rendered
+                            ));
                         }
                     }
                 }
             } else {
                 let rendered = render_section_content(cfg, state, &today);
                 if !rendered.trim().is_empty() {
-                    tx_parts.push(format!("\n\n\n#### TREATMENT MODIFICATIONS & PREFERENCES\n{}", rendered));
+                    tx_parts.push(format!(
+                        "\n\n\n#### TREATMENT MODIFICATIONS & PREFERENCES\n{}",
+                        rendered
+                    ));
                 }
             }
         }
@@ -246,7 +276,10 @@ pub fn render_note(
         if cfg.note_render_slot.as_deref() == Some("remedial_section") {
             let rendered = render_section_content(cfg, state, &today);
             if !rendered.trim().is_empty() {
-                post_parts.push(format!("\n\n\n#### REMEDIAL EXERCISES & SELF-CARE\n{}", rendered));
+                post_parts.push(format!(
+                    "\n\n\n#### REMEDIAL EXERCISES & SELF-CARE\n{}",
+                    rendered
+                ));
             }
         }
     }
@@ -255,7 +288,10 @@ pub fn render_note(
         if cfg.note_render_slot.as_deref() == Some("tx_plan") {
             let rendered = render_section_content(cfg, state, &today);
             if !rendered.trim().is_empty() {
-                post_parts.push(format!("\n\n\n#### TREATMENT PLAN / THERAPIST NOTES\n{}", rendered));
+                post_parts.push(format!(
+                    "\n\n\n#### TREATMENT PLAN / THERAPIST NOTES\n{}",
+                    rendered
+                ));
             }
         }
     }
@@ -270,7 +306,10 @@ pub fn render_note(
         if cfg.note_render_slot.as_deref() == Some("infection_control_section") {
             let rendered = render_section_content(cfg, state, &today);
             if !rendered.trim().is_empty() {
-                parts.push(format!("\n\n\n#### STANDARD INFECTION CONTROL PRECAUTIONS\n{}", rendered));
+                parts.push(format!(
+                    "\n\n\n#### STANDARD INFECTION CONTROL PRECAUTIONS\n{}",
+                    rendered
+                ));
             }
         }
     }
@@ -282,9 +321,15 @@ pub fn render_note(
             && cfg.note_render_slot.as_deref() != Some("tx_mods")
         {
             if let SectionState::Header(hs) = state {
-                if let Some(rendered) = render_multifield_section(cfg, hs, sticky_values, mode.clone()) {
+                if let Some(rendered) =
+                    render_multifield_section(cfg, hs, sticky_values, mode.clone())
+                {
                     if !rendered.trim().is_empty() {
-                        parts.push(format!("\n\n\n#### {}\n{}", cfg.name.to_uppercase(), rendered));
+                        parts.push(format!(
+                            "\n\n\n#### {}\n{}",
+                            cfg.name.to_uppercase(),
+                            rendered
+                        ));
                     }
                 }
             }
@@ -296,6 +341,243 @@ pub fn render_note(
     parts.join("")
 }
 
+fn marker_start(section_id: &str) -> String {
+    format!("<!-- scribblenot:section id={section_id}:start -->")
+}
+
+fn marker_end(section_id: &str) -> String {
+    format!("<!-- scribblenot:section id={section_id}:end -->")
+}
+
+fn append_managed_section(
+    parts: &mut Vec<String>,
+    cfg: &SectionConfig,
+    visible_heading: Option<String>,
+    body: &str,
+) {
+    if let Some(heading) = visible_heading {
+        parts.push(format!("\n\n{heading}"));
+    }
+    parts.push(format!(
+        "\n{}\n{}\n{}",
+        marker_start(&cfg.id),
+        body,
+        marker_end(&cfg.id)
+    ));
+}
+
+pub fn managed_heading_for_section(cfg: &SectionConfig) -> Option<String> {
+    if cfg.is_intake {
+        return cfg
+            .heading_label
+            .clone()
+            .or_else(|| Some(format!("#### {}", cfg.name.to_uppercase())));
+    }
+
+    match cfg.note_render_slot.as_deref() {
+        Some("header") => Some("#### APPOINTMENT DETAILS".to_string()),
+        Some("subjective_section") => Some("#### SUBJECTIVE".to_string()),
+        Some("tx_mods") => Some("#### TREATMENT MODIFICATIONS & PREFERENCES".to_string()),
+        Some("tx_regions") => Some("#### TREATMENT REGIONS".to_string()),
+        Some("objective_section") => Some("#### OBJECTIVE".to_string()),
+        Some("post_treatment") => Some("#### POST-TREATMENT NOTES".to_string()),
+        Some("remedial_section") => Some("#### REMEDIAL EXERCISES & SELF-CARE".to_string()),
+        Some("tx_plan") => Some("#### TREATMENT PLAN / THERAPIST NOTES".to_string()),
+        Some("infection_control_section") => {
+            Some("#### STANDARD INFECTION CONTROL PRECAUTIONS".to_string())
+        }
+        _ if cfg.section_type == "multi_field" => Some(format!("#### {}", cfg.name.to_uppercase())),
+        _ => Some(format!("#### {}", cfg.name.to_uppercase())),
+    }
+}
+
+pub fn render_editable_section_body(
+    cfg: &SectionConfig,
+    state: &SectionState,
+    sticky_values: &HashMap<String, String>,
+    mode: NoteRenderMode,
+) -> String {
+    let today = Local::now().format("%Y-%m-%d").to_string();
+
+    match cfg.note_render_slot.as_deref() {
+        Some("header") => {
+            let SectionState::Header(hs) = state else {
+                return String::new();
+            };
+            let has_repeatable = hs.field_configs.iter().any(|c| c.repeat_limit.is_some());
+            match mode {
+                NoteRenderMode::Preview => {
+                    let has_any = hs.field_configs.iter().enumerate().any(|(i, fcfg)| {
+                        let confirmed = hs
+                            .repeated_values
+                            .get(i)
+                            .and_then(|v| v.first())
+                            .map(|s| s.as_str())
+                            .unwrap_or("");
+                        !resolve_multifield_value(confirmed, fcfg, sticky_values).is_empty_variant()
+                    });
+                    if !has_any {
+                        String::new()
+                    } else if has_repeatable {
+                        format_header_generic_preview(hs, sticky_values)
+                    } else {
+                        format_header_preview(hs, sticky_values)
+                    }
+                }
+                NoteRenderMode::Export => {
+                    if has_repeatable {
+                        format_header_generic_export(hs, sticky_values).unwrap_or_default()
+                    } else {
+                        format_header_export(hs, sticky_values).unwrap_or_default()
+                    }
+                }
+            }
+        }
+        Some("tx_mods") | None if cfg.section_type == "multi_field" => {
+            let SectionState::Header(hs) = state else {
+                return String::new();
+            };
+            render_multifield_section(cfg, hs, sticky_values, mode).unwrap_or_default()
+        }
+        Some("tx_regions") => render_block_select(state),
+        _ => render_section_content(cfg, state, &today),
+    }
+}
+
+pub fn render_editable_document(
+    sections: &[SectionConfig],
+    states: &[SectionState],
+    sticky_values: &HashMap<String, String>,
+    boilerplate_texts: &HashMap<String, String>,
+) -> String {
+    let mut parts: Vec<String> = Vec::new();
+
+    // Appointment header at top of note.
+    for (cfg, state) in sections.iter().zip(states.iter()) {
+        if cfg.note_render_slot.as_deref() == Some("header") {
+            let body =
+                render_editable_section_body(cfg, state, sticky_values, NoteRenderMode::Preview);
+            append_managed_section(&mut parts, cfg, managed_heading_for_section(cfg), &body);
+            break;
+        }
+    }
+
+    // Intake sections.
+    for (cfg, state) in sections.iter().zip(states.iter()) {
+        if cfg.section_type != "multi_field" && cfg.is_intake {
+            let body =
+                render_editable_section_body(cfg, state, sticky_values, NoteRenderMode::Preview);
+            append_managed_section(&mut parts, cfg, managed_heading_for_section(cfg), &body);
+        }
+    }
+
+    parts.push("\n\n\n_______________".to_string());
+
+    // Subjective.
+    parts.push("\n\n## SUBJECTIVE".to_string());
+    for (cfg, state) in sections.iter().zip(states.iter()) {
+        if cfg.note_render_slot.as_deref() == Some("subjective_section") {
+            let body =
+                render_editable_section_body(cfg, state, sticky_values, NoteRenderMode::Preview);
+            append_managed_section(&mut parts, cfg, managed_heading_for_section(cfg), &body);
+        }
+    }
+    if let Some(informed_consent) = boilerplate_texts.get("informed_consent") {
+        if !informed_consent.is_empty() {
+            parts.push(format!(
+                "\n\n\n#### INFORMED CONSENT\n- {}",
+                informed_consent
+            ));
+        }
+    }
+
+    parts.push("\n\n\n_______________".to_string());
+
+    // Treatment / plan.
+    if let Some(tx_disclaimer) = boilerplate_texts.get("treatment_plan_disclaimer") {
+        if tx_disclaimer.is_empty() {
+            parts.push("\n\n## TREATMENT / PLAN".to_string());
+        } else {
+            parts.push(format!("\n\n## TREATMENT / PLAN\n{}", tx_disclaimer));
+        }
+    } else {
+        parts.push("\n\n## TREATMENT / PLAN".to_string());
+    }
+
+    for (cfg, state) in sections.iter().zip(states.iter()) {
+        match cfg.note_render_slot.as_deref() {
+            Some("tx_mods") | Some("tx_regions") => {
+                let body = render_editable_section_body(
+                    cfg,
+                    state,
+                    sticky_values,
+                    NoteRenderMode::Preview,
+                );
+                append_managed_section(&mut parts, cfg, managed_heading_for_section(cfg), &body);
+            }
+            _ => {}
+        }
+    }
+
+    parts.push("\n\n\n_______________".to_string());
+
+    // Objective.
+    parts.push("\n\n## OBJECTIVE / OBSERVATIONS".to_string());
+    for (cfg, state) in sections.iter().zip(states.iter()) {
+        if cfg.note_render_slot.as_deref() == Some("objective_section") {
+            let body =
+                render_editable_section_body(cfg, state, sticky_values, NoteRenderMode::Preview);
+            append_managed_section(&mut parts, cfg, managed_heading_for_section(cfg), &body);
+        }
+    }
+
+    parts.push("\n\n\n_______________".to_string());
+
+    // Post-treatment.
+    parts.push("\n\n## POST-TREATMENT".to_string());
+    for (cfg, state) in sections.iter().zip(states.iter()) {
+        match cfg.note_render_slot.as_deref() {
+            Some("post_treatment") | Some("remedial_section") | Some("tx_plan") => {
+                let body = render_editable_section_body(
+                    cfg,
+                    state,
+                    sticky_values,
+                    NoteRenderMode::Preview,
+                );
+                append_managed_section(&mut parts, cfg, managed_heading_for_section(cfg), &body);
+            }
+            _ => {}
+        }
+    }
+
+    parts.push("\n\n\n_______________".to_string());
+
+    // Infection control remains outside the post-treatment heading in the current note layout.
+    for (cfg, state) in sections.iter().zip(states.iter()) {
+        if cfg.note_render_slot.as_deref() == Some("infection_control_section") {
+            let body =
+                render_editable_section_body(cfg, state, sticky_values, NoteRenderMode::Preview);
+            append_managed_section(&mut parts, cfg, managed_heading_for_section(cfg), &body);
+        }
+    }
+
+    // Catch-all non-header multi_field sections not handled above.
+    for (cfg, state) in sections.iter().zip(states.iter()) {
+        if cfg.section_type == "multi_field"
+            && cfg.note_render_slot.as_deref() != Some("header")
+            && cfg.note_render_slot.as_deref() != Some("tx_mods")
+        {
+            let body =
+                render_editable_section_body(cfg, state, sticky_values, NoteRenderMode::Preview);
+            append_managed_section(&mut parts, cfg, managed_heading_for_section(cfg), &body);
+        }
+    }
+
+    parts.push("\n\n\n_______________\n".to_string());
+    parts.join("")
+}
+
+#[allow(dead_code)]
 fn is_skipped(state: &SectionState) -> bool {
     match state {
         SectionState::FreeText(s) => s.skipped,
@@ -341,20 +623,19 @@ fn render_section_content(cfg: &SectionConfig, state: &SectionState, today: &str
             // Block select has its own renderer
             String::new()
         }
-        SectionState::Checklist(s) => {
-            s.items
-                .iter()
-                .enumerate()
-                .map(|(i, item)| {
-                    if s.checked.get(i).copied().unwrap_or(true) {
-                        format!("- [x] {}", item)
-                    } else {
-                        format!("- [ ] {}", item)
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        }
+        SectionState::Checklist(s) => s
+            .items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                if s.checked.get(i).copied().unwrap_or(true) {
+                    format!("- [x] {}", item)
+                } else {
+                    format!("- [ ] {}", item)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
         _ => String::new(),
     }
 }
@@ -397,7 +678,9 @@ fn format_header_preview(
             .enumerate()
             .find(|(_, cfg)| cfg.id == id)
             .map(|(i, cfg)| {
-                let confirmed = hs.repeated_values.get(i)
+                let confirmed = hs
+                    .repeated_values
+                    .get(i)
                     .and_then(|v| v.first())
                     .map(|s| s.as_str())
                     .unwrap_or("");
@@ -409,12 +692,23 @@ fn format_header_preview(
     };
 
     let date_raw = field_preview("date");
-    let date_str = if date_raw == "--" { "--".to_string() } else { format_header_date(&date_raw) };
+    let date_str = if date_raw == "--" {
+        "--".to_string()
+    } else {
+        format_header_date(&date_raw)
+    };
     let time_raw = field_preview("start_time");
-    let time_str = if time_raw == "--" { "--".to_string() } else { format_header_time(&time_raw) };
+    let time_str = if time_raw == "--" {
+        "--".to_string()
+    } else {
+        format_header_time(&time_raw)
+    };
     let dur_str = field_preview("appointment_duration");
     let appt_str = field_preview("appointment_type");
-    format!("{} at {} ({} min)\n{}", date_str, time_str, dur_str, appt_str)
+    format!(
+        "{} at {} ({} min)\n{}",
+        date_str, time_str, dur_str, appt_str
+    )
 }
 
 /// Format the header for clipboard export. Omits any unresolved fields cleanly.
@@ -429,7 +723,9 @@ fn format_header_export(
             .enumerate()
             .find(|(_, cfg)| cfg.id == id)
             .and_then(|(i, cfg)| {
-                let confirmed = hs.repeated_values.get(i)
+                let confirmed = hs
+                    .repeated_values
+                    .get(i)
                     .and_then(|v| v.first())
                     .map(|s| s.as_str())
                     .unwrap_or("");
@@ -456,7 +752,11 @@ fn format_header_export(
         line1_parts.push(format!("({} min)", dur));
     }
 
-    let line1 = if line1_parts.is_empty() { None } else { Some(line1_parts.join(" ")) };
+    let line1 = if line1_parts.is_empty() {
+        None
+    } else {
+        Some(line1_parts.join(" "))
+    };
     let line2 = appt_val;
 
     match (line1, line2) {
@@ -476,7 +776,11 @@ fn format_header_generic_preview(
 ) -> String {
     let mut lines: Vec<String> = Vec::new();
     for (i, cfg) in hs.field_configs.iter().enumerate() {
-        let slot = hs.repeated_values.get(i).map(|v| v.as_slice()).unwrap_or(&[]);
+        let slot = hs
+            .repeated_values
+            .get(i)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
         if cfg.repeat_limit.is_some() {
             // Emit one line per confirmed value in order
             if slot.is_empty() {
@@ -506,7 +810,11 @@ fn format_header_generic_export(
 ) -> Option<String> {
     let mut lines: Vec<String> = Vec::new();
     for (i, cfg) in hs.field_configs.iter().enumerate() {
-        let slot = hs.repeated_values.get(i).map(|v| v.as_slice()).unwrap_or(&[]);
+        let slot = hs
+            .repeated_values
+            .get(i)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
         if cfg.repeat_limit.is_some() {
             for entry in slot {
                 let resolved = resolve_multifield_value(entry.as_str(), cfg, sticky_values);
@@ -567,8 +875,8 @@ fn format_header_time(time: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sections::header::HeaderState;
     use crate::data::HeaderFieldConfig;
+    use crate::sections::header::HeaderState;
 
     fn make_header_state(field_ids: &[&str], values: &[&str]) -> HeaderState {
         let configs: Vec<HeaderFieldConfig> = field_ids
@@ -613,9 +921,33 @@ mod tests {
             composite: Some(CompositeConfig {
                 format: "{year}-{month}-{day}".to_string(),
                 parts: vec![
-                    CompositePart { id: "year".to_string(), label: "Year".to_string(), preview: None, options: vec![PartOption::Simple("2026".to_string())], data_file: None, sticky: true, default: None },
-                    CompositePart { id: "month".to_string(), label: "Month".to_string(), preview: None, options: vec![PartOption::Simple("04".to_string())], data_file: None, sticky: true, default: None },
-                    CompositePart { id: "day".to_string(), label: "Day".to_string(), preview: None, options: vec![PartOption::Simple("02".to_string())], data_file: None, sticky: true, default: None },
+                    CompositePart {
+                        id: "year".to_string(),
+                        label: "Year".to_string(),
+                        preview: None,
+                        options: vec![PartOption::Simple("2026".to_string())],
+                        data_file: None,
+                        sticky: true,
+                        default: None,
+                    },
+                    CompositePart {
+                        id: "month".to_string(),
+                        label: "Month".to_string(),
+                        preview: None,
+                        options: vec![PartOption::Simple("04".to_string())],
+                        data_file: None,
+                        sticky: true,
+                        default: None,
+                    },
+                    CompositePart {
+                        id: "day".to_string(),
+                        label: "Day".to_string(),
+                        preview: None,
+                        options: vec![PartOption::Simple("02".to_string())],
+                        data_file: None,
+                        sticky: true,
+                        default: None,
+                    },
                 ],
             }),
             repeat_limit: None,
@@ -673,7 +1005,10 @@ mod tests {
         let sticky = HashMap::new();
 
         let result = format_header_export(&hs, &sticky);
-        assert_eq!(result, Some("Thu Apr 2, 2026 at 1:00pm (60 min)\nTreatment focused massage".to_string()));
+        assert_eq!(
+            result,
+            Some("Thu Apr 2, 2026 at 1:00pm (60 min)\nTreatment focused massage".to_string())
+        );
     }
 
     #[test]
@@ -687,7 +1022,12 @@ mod tests {
     #[test]
     fn preview_shows_placeholder_for_unresolved() {
         let hs = make_header_state(
-            &["date", "start_time", "appointment_duration", "appointment_type"],
+            &[
+                "date",
+                "start_time",
+                "appointment_duration",
+                "appointment_type",
+            ],
             &["2026-04-02", "", "", ""],
         );
         let sticky = HashMap::new();
@@ -740,10 +1080,15 @@ mod tests {
         assert!(line > 0, "expected fallback to ## POST-TREATMENT, got 0");
         // Verify it actually landed on that heading
         let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
-        let target: Vec<(usize, &str)> = note.lines().enumerate()
+        let target: Vec<(usize, &str)> = note
+            .lines()
+            .enumerate()
             .filter(|(_, l)| l.contains("## POST-TREATMENT"))
             .collect();
-        assert!(!target.is_empty(), "## POST-TREATMENT not found in rendered note");
+        assert!(
+            !target.is_empty(),
+            "## POST-TREATMENT not found in rendered note"
+        );
         assert_eq!(line, target[0].0 as u16);
     }
 
@@ -761,10 +1106,15 @@ mod tests {
         let bp = HashMap::new();
         let line = section_start_line(&sections, &states, &sticky, &groups, &bp, "tx_plan");
         let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
-        let target: Vec<(usize, &str)> = note.lines().enumerate()
+        let target: Vec<(usize, &str)> = note
+            .lines()
+            .enumerate()
             .filter(|(_, l)| l.contains("TREATMENT PLAN"))
             .collect();
-        assert!(!target.is_empty(), "TREATMENT PLAN heading not found in rendered note");
+        assert!(
+            !target.is_empty(),
+            "TREATMENT PLAN heading not found in rendered note"
+        );
         assert_eq!(line, target[0].0 as u16);
     }
 
@@ -796,14 +1146,18 @@ mod tests {
         let (sections, states) = make_minimal_sections();
         let sticky = HashMap::new();
         let mut bp = HashMap::new();
-        bp.insert("informed_consent".to_string(), "CUSTOM CONSENT TEXT FOR TEST".to_string());
+        bp.insert(
+            "informed_consent".to_string(),
+            "CUSTOM CONSENT TEXT FOR TEST".to_string(),
+        );
 
         let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
 
         // The custom value must appear in the note
         assert!(
             note.contains("CUSTOM CONSENT TEXT FOR TEST"),
-            "expected custom informed_consent text in note, but got:\n{}", note
+            "expected custom informed_consent text in note, but got:\n{}",
+            note
         );
         // The hard-coded string must NOT appear
         assert!(
@@ -817,14 +1171,18 @@ mod tests {
         let (sections, states) = make_minimal_sections();
         let sticky = HashMap::new();
         let mut bp = HashMap::new();
-        bp.insert("treatment_plan_disclaimer".to_string(), "CUSTOM DISCLAIMER FOR TEST".to_string());
+        bp.insert(
+            "treatment_plan_disclaimer".to_string(),
+            "CUSTOM DISCLAIMER FOR TEST".to_string(),
+        );
 
         let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
 
         // The custom value must appear in the note
         assert!(
             note.contains("CUSTOM DISCLAIMER FOR TEST"),
-            "expected custom treatment_plan_disclaimer text in note, but got:\n{}", note
+            "expected custom treatment_plan_disclaimer text in note, but got:\n{}",
+            note
         );
         // The hard-coded string must NOT appear
         assert!(
@@ -856,7 +1214,10 @@ mod tests {
 
     // --- ST49-3: repeated field rendering tests ---
 
-    fn make_field_with_repeat_limit(id: &str, repeat_limit: Option<usize>) -> crate::data::HeaderFieldConfig {
+    fn make_field_with_repeat_limit(
+        id: &str,
+        repeat_limit: Option<usize>,
+    ) -> crate::data::HeaderFieldConfig {
         crate::data::HeaderFieldConfig {
             id: id.to_string(),
             name: id.to_string(),
@@ -871,9 +1232,7 @@ mod tests {
     // (no repeat_limit), not last. With two values pushed, export should use [0], not [1].
     #[test]
     fn export_uses_first_value_for_non_repeated_field() {
-        let configs = vec![
-            make_field_with_repeat_limit("appointment_duration", None),
-        ];
+        let configs = vec![make_field_with_repeat_limit("appointment_duration", None)];
         let mut hs = HeaderState::new(configs);
         // Push two values; the implementation should use the first (index 0)
         hs.repeated_values[0].push("30".to_string());
@@ -895,9 +1254,7 @@ mod tests {
     #[test]
     fn export_emits_all_values_for_repeated_field() {
         // A field with repeat_limit=3 holding 3 confirmed modifications
-        let configs = vec![
-            make_field_with_repeat_limit("modifications", Some(3)),
-        ];
+        let configs = vec![make_field_with_repeat_limit("modifications", Some(3))];
         let mut hs = HeaderState::new(configs);
         hs.repeated_values[0].push("No deep pressure on lower back".to_string());
         hs.repeated_values[0].push("Avoid prone positioning".to_string());
@@ -905,20 +1262,24 @@ mod tests {
         let sticky = HashMap::new();
 
         let result = format_header_generic_export(&hs, &sticky);
-        let output = result.expect("export should produce output for a repeated field with 3 values");
+        let output =
+            result.expect("export should produce output for a repeated field with 3 values");
 
         // All three values must appear in the output
         assert!(
             output.contains("No deep pressure on lower back"),
-            "first modification must appear in export output, got: {}", output
+            "first modification must appear in export output, got: {}",
+            output
         );
         assert!(
             output.contains("Avoid prone positioning"),
-            "second modification must appear in export output, got: {}", output
+            "second modification must appear in export output, got: {}",
+            output
         );
         assert!(
             output.contains("Use bolster under knees"),
-            "third modification must appear in export output, got: {}", output
+            "third modification must appear in export output, got: {}",
+            output
         );
         // Each value must be on its own line
         let lines: Vec<&str> = output.lines().collect();
@@ -953,20 +1314,20 @@ mod tests {
         // Must show "30" not "90"
         assert!(
             result.contains("30 min"),
-            "preview should use the FIRST confirmed duration value (30), got: {}", result
+            "preview should use the FIRST confirmed duration value (30), got: {}",
+            result
         );
         assert!(
             !result.contains("90 min"),
-            "preview must NOT show the second duration value (90), got: {}", result
+            "preview must NOT show the second duration value (90), got: {}",
+            result
         );
     }
 
     // ST49-3-TEST-4: preview shows all repeated values for a field with repeat_limit
     #[test]
     fn preview_emits_all_values_for_repeated_field() {
-        let configs = vec![
-            make_field_with_repeat_limit("modifications", Some(2)),
-        ];
+        let configs = vec![make_field_with_repeat_limit("modifications", Some(2))];
         let mut hs = HeaderState::new(configs);
         hs.repeated_values[0].push("Mod A".to_string());
         hs.repeated_values[0].push("Mod B".to_string());
@@ -975,38 +1336,38 @@ mod tests {
         let result = format_header_generic_preview(&hs, &sticky);
         assert!(
             result.contains("Mod A"),
-            "preview must show first repeated value 'Mod A', got: {}", result
+            "preview must show first repeated value 'Mod A', got: {}",
+            result
         );
         assert!(
             result.contains("Mod B"),
-            "preview must show second repeated value 'Mod B', got: {}", result
+            "preview must show second repeated value 'Mod B', got: {}",
+            result
         );
     }
 
     // ST49-3-TEST-5: export with repeat_limit field having only one value still emits that value
     #[test]
     fn export_emits_single_value_for_repeated_field_with_one_entry() {
-        let configs = vec![
-            make_field_with_repeat_limit("modifications", Some(3)),
-        ];
+        let configs = vec![make_field_with_repeat_limit("modifications", Some(3))];
         let mut hs = HeaderState::new(configs);
         hs.repeated_values[0].push("Only one mod".to_string());
         let sticky = HashMap::new();
 
         let result = format_header_generic_export(&hs, &sticky);
-        let output = result.expect("export should produce output for a repeated field with 1 value");
+        let output =
+            result.expect("export should produce output for a repeated field with 1 value");
         assert!(
             output.contains("Only one mod"),
-            "export must emit the single repeated value, got: {}", output
+            "export must emit the single repeated value, got: {}",
+            output
         );
     }
 
     // ST49-3-TEST-6: repeated values are emitted in confirmation order (first confirmed appears first)
     #[test]
     fn export_emits_repeated_values_in_confirmation_order() {
-        let configs = vec![
-            make_field_with_repeat_limit("modifications", Some(2)),
-        ];
+        let configs = vec![make_field_with_repeat_limit("modifications", Some(2))];
         let mut hs = HeaderState::new(configs);
         hs.repeated_values[0].push("First Confirmed".to_string());
         hs.repeated_values[0].push("Second Confirmed".to_string());
@@ -1017,15 +1378,18 @@ mod tests {
         let lines: Vec<&str> = output.lines().collect();
         assert!(
             lines.len() >= 2,
-            "expected at least 2 lines for 2 repeated values, got: {:?}", lines
+            "expected at least 2 lines for 2 repeated values, got: {:?}",
+            lines
         );
         assert_eq!(
             lines[0], "First Confirmed",
-            "first confirmed value must appear on first line, got: {:?}", lines
+            "first confirmed value must appear on first line, got: {:?}",
+            lines
         );
         assert_eq!(
             lines[1], "Second Confirmed",
-            "second confirmed value must appear on second line, got: {:?}", lines
+            "second confirmed value must appear on second line, got: {:?}",
+            lines
         );
     }
 
@@ -1039,10 +1403,19 @@ mod tests {
         let states = vec![SectionState::Checklist(ChecklistState::new(vec![]))];
         let sticky = HashMap::new();
         let bp = HashMap::new();
-        let line = section_start_line(&sections, &states, &sticky, &groups, &bp, "infection_control_section");
+        let line = section_start_line(
+            &sections,
+            &states,
+            &sticky,
+            &groups,
+            &bp,
+            "infection_control_section",
+        );
         assert!(line > 0, "expected fallback to ## POST-TREATMENT, got 0");
         let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
-        let target: Vec<(usize, &str)> = note.lines().enumerate()
+        let target: Vec<(usize, &str)> = note
+            .lines()
+            .enumerate()
             .filter(|(_, l)| l.contains("## POST-TREATMENT"))
             .collect();
         assert!(!target.is_empty());
@@ -1118,7 +1491,8 @@ mod tests {
         assert!(
             note.contains("HEADER_SENTINEL_VALUE"),
             "render_note must render the header multi_field section (id='header'); \
-             sentinel value 'HEADER_SENTINEL_VALUE' not found in:\n{}", note
+             sentinel value 'HEADER_SENTINEL_VALUE' not found in:\n{}",
+            note
         );
     }
 
@@ -1136,11 +1510,8 @@ mod tests {
             "Appointment Type",
             "HEADER_SECTION_VALUE",
         );
-        let test_hs = make_header_state_with_value(
-            "note_field",
-            "Note Field",
-            "TEST_SECTION_SENTINEL_VALUE",
-        );
+        let test_hs =
+            make_header_state_with_value("note_field", "Note Field", "TEST_SECTION_SENTINEL_VALUE");
 
         let sections = vec![header_sec, test_sec];
         let states = vec![
@@ -1155,7 +1526,8 @@ mod tests {
         assert!(
             note.contains("TEST_SECTION_SENTINEL_VALUE"),
             "render_note must render the second multi_field section (id='test_section'); \
-             sentinel value 'TEST_SECTION_SENTINEL_VALUE' not found in:\n{}", note
+             sentinel value 'TEST_SECTION_SENTINEL_VALUE' not found in:\n{}",
+            note
         );
     }
 
@@ -1172,11 +1544,8 @@ mod tests {
             "Appointment Type",
             "HEADER_SECTION_VALUE",
         );
-        let test_hs = make_header_state_with_value(
-            "note_field",
-            "Note Field",
-            "TEST_SECTION_SENTINEL_VALUE",
-        );
+        let test_hs =
+            make_header_state_with_value("note_field", "Note Field", "TEST_SECTION_SENTINEL_VALUE");
 
         let sections = vec![header_sec, test_sec];
         let states = vec![
@@ -1190,7 +1559,8 @@ mod tests {
 
         assert!(
             note.contains("HEADER_SECTION_VALUE"),
-            "header section (id='header') output must appear in rendered note, got:\n{}", note
+            "header section (id='header') output must appear in rendered note, got:\n{}",
+            note
         );
         assert!(
             note.contains("TEST_SECTION_SENTINEL_VALUE"),
@@ -1319,22 +1689,22 @@ mod tests {
         let extra_first_line = note_with_extra.lines().next().unwrap_or("");
 
         assert_eq!(
-            baseline_first_line,
-            extra_first_line,
+            baseline_first_line, extra_first_line,
             "first line of header output must be identical whether or not a second \
              multi_field section is present.\nbaseline: {:?}\nwith extra: {:?}",
-            baseline_first_line,
-            extra_first_line
+            baseline_first_line, extra_first_line
         );
 
         // Also verify the specific expected content is present in both
         assert!(
             note_baseline.contains("Fri Apr 3, 2026"),
-            "baseline note must contain formatted date, got:\n{}", note_baseline
+            "baseline note must contain formatted date, got:\n{}",
+            note_baseline
         );
         assert!(
             note_with_extra.contains("Fri Apr 3, 2026"),
-            "note with extra section must still contain formatted date, got:\n{}", note_with_extra
+            "note with extra section must still contain formatted date, got:\n{}",
+            note_with_extra
         );
     }
 
@@ -1343,8 +1713,10 @@ mod tests {
     /// Build a two-field HeaderState with arbitrary field ids and given values.
     /// Both fields are non-repeatable (repeat_limit = None).
     fn make_two_field_header(
-        id_a: &str, val_a: &str,
-        id_b: &str, val_b: &str,
+        id_a: &str,
+        val_a: &str,
+        id_b: &str,
+        val_b: &str,
     ) -> (SectionConfig, crate::sections::header::HeaderState) {
         let cfg_a = crate::data::HeaderFieldConfig {
             id: id_a.to_string(),
@@ -1396,8 +1768,11 @@ mod tests {
         let result = render_multifield_section(&cfg, &hs, &sticky, NoteRenderMode::Preview);
         // Both fields resolved - preview returns the joined text (never None)
         let text = result.expect("preview must return Some for non-empty fields");
-        assert_eq!(text, "alpha: hello\nbeta: world",
-            "expected two field lines joined by newline, got: {:?}", text);
+        assert_eq!(
+            text, "alpha: hello\nbeta: world",
+            "expected two field lines joined by newline, got: {:?}",
+            text
+        );
     }
 
     /// Preview mode: a field with no confirmed value must show "--" as placeholder.
@@ -1408,8 +1783,11 @@ mod tests {
         let result = render_multifield_section(&cfg, &hs, &sticky, NoteRenderMode::Preview);
         // beta has no value - generic preview shows "--"
         let text = result.expect("preview must return Some even with partially empty fields");
-        assert!(text.contains("beta: --"),
-            "expected 'beta: --' placeholder for empty field, got: {:?}", text);
+        assert!(
+            text.contains("beta: --"),
+            "expected 'beta: --' placeholder for empty field, got: {:?}",
+            text
+        );
     }
 
     /// Export mode: two fields with values must produce their values only (no labels),
@@ -1420,8 +1798,12 @@ mod tests {
         let sticky = HashMap::new();
         let result = render_multifield_section(&cfg, &hs, &sticky, NoteRenderMode::Export);
         // Both fields resolved - export returns Some("hello\nworld")
-        assert_eq!(result, Some("hello\nworld".to_string()),
-            "expected Some with two values joined by newline, got: {:?}", result);
+        assert_eq!(
+            result,
+            Some("hello\nworld".to_string()),
+            "expected Some with two values joined by newline, got: {:?}",
+            result
+        );
     }
 
     /// Export mode: when all fields are empty, returns None.
@@ -1430,8 +1812,11 @@ mod tests {
         let (cfg, hs) = make_two_field_header("alpha", "", "beta", "");
         let sticky = HashMap::new();
         let result = render_multifield_section(&cfg, &hs, &sticky, NoteRenderMode::Export);
-        assert_eq!(result, None,
-            "expected None when no fields have values, got: {:?}", result);
+        assert_eq!(
+            result, None,
+            "expected None when no fields have values, got: {:?}",
+            result
+        );
     }
 
     /// Export mode: one filled field returns Some with just that value.
@@ -1440,8 +1825,12 @@ mod tests {
         let (cfg, hs) = make_two_field_header("alpha", "only_this", "beta", "");
         let sticky = HashMap::new();
         let result = render_multifield_section(&cfg, &hs, &sticky, NoteRenderMode::Export);
-        assert_eq!(result, Some("only_this".to_string()),
-            "expected Some with only the non-empty value, got: {:?}", result);
+        assert_eq!(
+            result,
+            Some("only_this".to_string()),
+            "expected Some with only the non-empty value, got: {:?}",
+            result
+        );
     }
 
     // --- ST48-3: non-header multi_field sections rendered at correct position ---
@@ -1469,7 +1858,11 @@ mod tests {
         }
     }
 
-    fn make_header_state_with_confirmed(field_id: &str, field_name: &str, value: &str) -> HeaderState {
+    fn make_header_state_with_confirmed(
+        field_id: &str,
+        field_name: &str,
+        value: &str,
+    ) -> HeaderState {
         let cfg = crate::data::HeaderFieldConfig {
             id: field_id.to_string(),
             name: field_name.to_string(),
@@ -1491,11 +1884,8 @@ mod tests {
     #[test]
     fn non_header_multi_field_section_appears_after_treatment_heading() {
         let tx_mods_sec = make_multi_field_section_with_id("tx_mods");
-        let tx_mods_hs = make_header_state_with_confirmed(
-            "mod_field",
-            "Modification",
-            "TX_MODS_SENTINEL_VALUE",
-        );
+        let tx_mods_hs =
+            make_header_state_with_confirmed("mod_field", "Modification", "TX_MODS_SENTINEL_VALUE");
 
         let sections = vec![tx_mods_sec];
         let states = vec![SectionState::Header(tx_mods_hs)];
@@ -1507,15 +1897,20 @@ mod tests {
         // The sentinel value must appear somewhere in the note
         assert!(
             note.contains("TX_MODS_SENTINEL_VALUE"),
-            "TX_MODS_SENTINEL_VALUE must appear in rendered note, got:\n{}", note
+            "TX_MODS_SENTINEL_VALUE must appear in rendered note, got:\n{}",
+            note
         );
 
         // Find the line index of "## TREATMENT / PLAN" and the sentinel value.
         // The sentinel must appear AFTER the treatment heading.
-        let treatment_line = note.lines().enumerate()
+        let treatment_line = note
+            .lines()
+            .enumerate()
             .find(|(_, l)| l.contains("## TREATMENT / PLAN"))
             .map(|(i, _)| i);
-        let sentinel_line = note.lines().enumerate()
+        let sentinel_line = note
+            .lines()
+            .enumerate()
             .find(|(_, l)| l.contains("TX_MODS_SENTINEL_VALUE"))
             .map(|(i, _)| i);
 
@@ -1526,7 +1921,8 @@ mod tests {
             sentinel_idx > treatment_idx,
             "TX_MODS_SENTINEL_VALUE (line {}) must appear AFTER ## TREATMENT / PLAN (line {}), \
              but it appeared before it. The section is being dumped at the wrong position.",
-            sentinel_idx, treatment_idx
+            sentinel_idx,
+            treatment_idx
         );
     }
 
@@ -1552,7 +1948,8 @@ mod tests {
         assert!(
             note.contains("CUSTOM_SECTION_SENTINEL"),
             "CUSTOM_SECTION_SENTINEL must appear in rendered note for a generic multi_field \
-             section id, got:\n{}", note
+             section id, got:\n{}",
+            note
         );
     }
 
@@ -1563,11 +1960,8 @@ mod tests {
     #[test]
     fn non_header_multi_field_section_not_before_intake_separator() {
         let tx_mods_sec = make_multi_field_section_with_id("tx_mods");
-        let tx_mods_hs = make_header_state_with_confirmed(
-            "mod_field",
-            "Modification",
-            "PREMATURE_SENTINEL",
-        );
+        let tx_mods_hs =
+            make_header_state_with_confirmed("mod_field", "Modification", "PREMATURE_SENTINEL");
 
         let sections = vec![tx_mods_sec];
         let states = vec![SectionState::Header(tx_mods_hs)];
@@ -1577,23 +1971,27 @@ mod tests {
         let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
 
         // Find the first separator line index
-        let first_separator_line = note.lines().enumerate()
+        let first_separator_line = note
+            .lines()
+            .enumerate()
             .find(|(_, l)| l.contains("_______________"))
             .map(|(i, _)| i);
-        let sentinel_line = note.lines().enumerate()
+        let sentinel_line = note
+            .lines()
+            .enumerate()
             .find(|(_, l)| l.contains("PREMATURE_SENTINEL"))
             .map(|(i, _)| i);
 
         let separator_idx = first_separator_line
             .expect("at least one _______________ separator must appear in the note");
-        let sentinel_idx = sentinel_line
-            .expect("PREMATURE_SENTINEL must appear in the note");
+        let sentinel_idx = sentinel_line.expect("PREMATURE_SENTINEL must appear in the note");
 
         assert!(
             sentinel_idx > separator_idx,
             "PREMATURE_SENTINEL (line {}) must NOT appear before the first _______________ \
              separator (line {}). The section is being prematurely dumped before the INTAKE block.",
-            sentinel_idx, separator_idx
+            sentinel_idx,
+            separator_idx
         );
     }
 
@@ -1621,10 +2019,14 @@ mod tests {
              got:\n{}", note
         );
 
-        let treatment_line = note.lines().enumerate()
+        let treatment_line = note
+            .lines()
+            .enumerate()
             .find(|(_, l)| l.contains("## TREATMENT / PLAN"))
             .map(|(i, _)| i);
-        let sentinel_line = note.lines().enumerate()
+        let sentinel_line = note
+            .lines()
+            .enumerate()
             .find(|(_, l)| l.contains("EXPORT_TX_MODS_SENTINEL"))
             .map(|(i, _)| i);
 
@@ -1635,7 +2037,8 @@ mod tests {
             sentinel_idx > treatment_idx,
             "EXPORT_TX_MODS_SENTINEL (line {}) must appear AFTER ## TREATMENT / PLAN (line {}) \
              in export mode.",
-            sentinel_idx, treatment_idx
+            sentinel_idx,
+            treatment_idx
         );
     }
 
@@ -1654,11 +2057,7 @@ mod tests {
     #[test]
     fn tx_mods_multi_field_header_state_preview_shows_exact_heading_and_value() {
         let sec = make_multi_field_section_with_id("tx_mods");
-        let hs = make_header_state_with_confirmed(
-            "pressure",
-            "Pressure",
-            "ST48_4_PREVIEW_VALUE",
-        );
+        let hs = make_header_state_with_confirmed("pressure", "Pressure", "ST48_4_PREVIEW_VALUE");
 
         let sections = vec![sec];
         let states = vec![SectionState::Header(hs)];
@@ -1670,11 +2069,13 @@ mod tests {
         assert!(
             note.contains("#### TREATMENT MODIFICATIONS & PREFERENCES"),
             "exact heading '#### TREATMENT MODIFICATIONS & PREFERENCES' must appear for \
-             tx_mods multi_field section in preview mode, got:\n{}", note
+             tx_mods multi_field section in preview mode, got:\n{}",
+            note
         );
         assert!(
             note.contains("ST48_4_PREVIEW_VALUE"),
-            "confirmed field value ST48_4_PREVIEW_VALUE must appear in preview note, got:\n{}", note
+            "confirmed field value ST48_4_PREVIEW_VALUE must appear in preview note, got:\n{}",
+            note
         );
     }
 
@@ -1684,11 +2085,7 @@ mod tests {
     #[test]
     fn tx_mods_multi_field_header_state_export_shows_exact_heading_and_value() {
         let sec = make_multi_field_section_with_id("tx_mods");
-        let hs = make_header_state_with_confirmed(
-            "pressure",
-            "Pressure",
-            "ST48_4_EXPORT_VALUE",
-        );
+        let hs = make_header_state_with_confirmed("pressure", "Pressure", "ST48_4_EXPORT_VALUE");
 
         let sections = vec![sec];
         let states = vec![SectionState::Header(hs)];
@@ -1700,11 +2097,13 @@ mod tests {
         assert!(
             note.contains("#### TREATMENT MODIFICATIONS & PREFERENCES"),
             "exact heading '#### TREATMENT MODIFICATIONS & PREFERENCES' must appear for \
-             tx_mods multi_field section in export mode, got:\n{}", note
+             tx_mods multi_field section in export mode, got:\n{}",
+            note
         );
         assert!(
             note.contains("ST48_4_EXPORT_VALUE"),
-            "confirmed field value ST48_4_EXPORT_VALUE must appear in export note, got:\n{}", note
+            "confirmed field value ST48_4_EXPORT_VALUE must appear in export note, got:\n{}",
+            note
         );
     }
 
@@ -1747,12 +2146,14 @@ mod tests {
         assert!(
             note.contains("ST48_4_PRESSURE"),
             "first field value ST48_4_PRESSURE must appear in preview note via \
-             render_multifield_section, got:\n{}", note
+             render_multifield_section, got:\n{}",
+            note
         );
         assert!(
             note.contains("ST48_4_CHALLENGE"),
             "second field value ST48_4_CHALLENGE must appear in preview note via \
-             render_multifield_section, got:\n{}", note
+             render_multifield_section, got:\n{}",
+            note
         );
     }
 
@@ -1780,7 +2181,10 @@ mod tests {
         let sections = vec![sec];
         let states = vec![SectionState::Header(hs)];
         let mut sticky = HashMap::new();
-        sticky.insert("ST48_4_STICKY_KEY".to_string(), "ST48_4_STICKY_RESOLVED".to_string());
+        sticky.insert(
+            "ST48_4_STICKY_KEY".to_string(),
+            "ST48_4_STICKY_RESOLVED".to_string(),
+        );
         let bp = HashMap::new();
 
         let note = render_note(&sections, &states, &sticky, &bp, NoteRenderMode::Preview);
@@ -1788,12 +2192,14 @@ mod tests {
         assert!(
             note.contains("ST48_4_STICKY_KEY") || note.contains("ST48_4_STICKY_RESOLVED"),
             "tx_mods multi_field preview must render the confirmed/sticky value for the field; \
-             expected ST48_4_STICKY_KEY or ST48_4_STICKY_RESOLVED in note, got:\n{}", note
+             expected ST48_4_STICKY_KEY or ST48_4_STICKY_RESOLVED in note, got:\n{}",
+            note
         );
         assert!(
             note.contains("#### TREATMENT MODIFICATIONS & PREFERENCES"),
             "heading must appear when tx_mods multi_field HeaderState has confirmed values, \
-             got:\n{}", note
+             got:\n{}",
+            note
         );
     }
 
@@ -1810,11 +2216,8 @@ mod tests {
     #[test]
     fn tx_mods_rendered_exactly_once_in_preview() {
         let sec = make_multi_field_section_with_id("tx_mods");
-        let hs = make_header_state_with_confirmed(
-            "pressure",
-            "Pressure",
-            "ST50_2_CATCHALL_SENTINEL",
-        );
+        let hs =
+            make_header_state_with_confirmed("pressure", "Pressure", "ST50_2_CATCHALL_SENTINEL");
 
         let sections = vec![sec];
         let states = vec![SectionState::Header(hs)];
@@ -1828,7 +2231,8 @@ mod tests {
             occurrences, 1,
             "ST50_2_CATCHALL_SENTINEL must appear exactly once in preview output; \
              the known_ids shim must prevent the catch-all block from duplicating tx_mods. \
-             Found {} occurrence(s).\nNote output:\n{}", occurrences, note
+             Found {} occurrence(s).\nNote output:\n{}",
+            occurrences, note
         );
     }
 
@@ -1855,7 +2259,8 @@ mod tests {
             occurrences, 1,
             "ST50_2_EXPORT_CATCHALL_SENTINEL must appear exactly once in export output; \
              the known_ids shim must prevent the catch-all block from duplicating tx_mods. \
-             Found {} occurrence(s).\nNote output:\n{}", occurrences, note
+             Found {} occurrence(s).\nNote output:\n{}",
+            occurrences, note
         );
     }
 
@@ -1873,13 +2278,14 @@ mod tests {
     fn tx_mods_section_start_line_finds_treatment_modifications_heading() {
         use crate::data::AppData;
         let data_dir = std::path::PathBuf::from(
-            std::env::var("CARGO_MANIFEST_DIR")
-                .expect("CARGO_MANIFEST_DIR must be set"),
-        ).join("data");
+            std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set"),
+        )
+        .join("data");
         let app: AppData = AppData::load(data_dir).expect("load must succeed");
 
         // Build minimal states for all sections (all Pending).
-        let states: Vec<crate::app::SectionState> = app.sections
+        let states: Vec<crate::app::SectionState> = app
+            .sections
             .iter()
             .map(|_| crate::app::SectionState::Pending)
             .collect();

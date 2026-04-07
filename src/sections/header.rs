@@ -44,7 +44,8 @@ impl HeaderState {
 
     /// Advance to the next field. Returns true if all fields are complete.
     pub fn advance(&mut self) -> bool {
-        let limit = self.field_configs
+        let limit = self
+            .field_configs
             .get(self.field_index)
             .and_then(|cfg| cfg.repeat_limit);
         if let Some(lim) = limit {
@@ -74,8 +75,6 @@ impl HeaderState {
             false
         }
     }
-
-
 }
 
 #[cfg(test)]
@@ -125,8 +124,14 @@ mod header_state_repeat_limit_tests {
             2,
             "repeat_counts should have one entry per field"
         );
-        assert_eq!(state.repeat_counts[0], 0, "repeat_count[0] should start at 0");
-        assert_eq!(state.repeat_counts[1], 0, "repeat_count[1] should start at 0");
+        assert_eq!(
+            state.repeat_counts[0], 0,
+            "repeat_count[0] should start at 0"
+        );
+        assert_eq!(
+            state.repeat_counts[1], 0,
+            "repeat_count[1] should start at 0"
+        );
     }
 
     // ST49-2-TEST-3: old `values: Vec<String>` field must NOT exist (compilation would fail)
@@ -200,7 +205,10 @@ mod header_state_repeat_limit_tests {
             state.field_index, 1,
             "without repeat_limit, advance should move field_index to 1"
         );
-        assert!(!done, "should not be done after first advance with 2 fields");
+        assert!(
+            !done,
+            "should not be done after first advance with 2 fields"
+        );
     }
 
     // ST49-2-TEST-8: advance() on last field with no repeat_limit sets completed = true
@@ -221,7 +229,7 @@ mod header_state_repeat_limit_tests {
         // Simulate being at field 1 with some repeat count set for field 0
         state.field_index = 1;
         state.repeat_counts[0] = 2; // pretend we repeated twice
-        // go_back from field 1 goes to field 0 and should clear its repeat_count
+                                    // go_back from field 1 goes to field 0 and should clear its repeat_count
         state.go_back();
         assert_eq!(
             state.field_index, 0,
@@ -255,7 +263,10 @@ mod header_state_repeat_limit_tests {
         assert_eq!(state.repeat_counts[0], 1);
         // advance 2: counter 1->2, limit=2, reached -> move to field 1
         state.advance();
-        assert_eq!(state.field_index, 1, "after 2 repeats, should advance to field 1");
+        assert_eq!(
+            state.field_index, 1,
+            "after 2 repeats, should advance to field 1"
+        );
         assert_eq!(state.repeat_counts[0], 2);
     }
 }

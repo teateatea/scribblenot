@@ -95,10 +95,13 @@ impl ListSelectState {
 
     pub fn handle_backspace(&mut self) {
         match self.mode {
-            ListSelectMode::AddingLabel => { self.add_label_buf.pop(); }
-            ListSelectMode::AddingOutput => { self.add_output_buf.pop(); }
+            ListSelectMode::AddingLabel => {
+                self.add_label_buf.pop();
+            }
+            ListSelectMode::AddingOutput => {
+                self.add_output_buf.pop();
+            }
             _ => {}
         }
     }
-
 }

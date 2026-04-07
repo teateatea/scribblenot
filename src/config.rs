@@ -7,6 +7,8 @@ use std::path::Path;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub pane_layout: String,
+    #[serde(default = "default_theme_name")]
+    pub theme: String,
     #[serde(default)]
     pub sticky_values: HashMap<String, String>,
     #[serde(default = "default_true")]
@@ -19,10 +21,15 @@ fn default_true() -> bool {
     true
 }
 
+fn default_theme_name() -> String {
+    "default-theme".to_string()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             pane_layout: "default".to_string(),
+            theme: default_theme_name(),
             sticky_values: HashMap::new(),
             hint_labels_capitalized: true,
             hint_labels_case_sensitive: false,

@@ -48,7 +48,11 @@ pub fn appkey_from_iced(key: Key, modifiers: Modifiers) -> AppKey {
         Key::Character(ref s) => {
             let c = s.chars().next().unwrap_or('\0');
             if modifiers.contains(Modifiers::CTRL) {
-                if c == 'c' { AppKey::CtrlC } else { AppKey::CtrlChar(c) }
+                if c == 'c' {
+                    AppKey::CtrlC
+                } else {
+                    AppKey::CtrlChar(c)
+                }
             } else if c == ' ' {
                 AppKey::Space
             } else {
@@ -113,11 +117,11 @@ pub struct App {
     pub current_idx: usize,
     pub data: AppData,
     pub config: Config,
+    pub ui_theme: crate::theme::AppTheme,
     pub pane_swapped: bool,
     pub show_help: bool,
     pub status: Option<StatusMsg>,
     pub quit: bool,
-    pub note_completed: bool,
     pub copy_requested: bool,
     pub data_dir: PathBuf,
     pub focus: Focus,
@@ -128,8 +132,7 @@ pub struct App {
     pub hint_buffer: String,
     pub editable_note: String,
     pub note_headings_valid: bool,
-    pub show_window: bool,
-    pub clipboard_import: Option<String>,
+    pub note_structure_warning: Option<String>,
 }
 
 pub fn match_binding_str(binding: &str, key: &AppKey) -> bool {
@@ -143,12 +146,33 @@ pub fn match_binding_str(binding: &str, key: &AppKey) -> bool {
         "space" => matches!(key, AppKey::Space),
         "backspace" => matches!(key, AppKey::Backspace),
         "shift+enter" => matches!(key, AppKey::ShiftEnter),
+        s if s
+            .strip_prefix("ctrl+")
+            .is_some_and(|suffix| suffix.len() == 1) =>
+        {
+            let c = s.strip_prefix("ctrl+").unwrap().chars().next().unwrap();
+            matches!(key, AppKey::CtrlChar(k) if *k == c)
+                || (c == 'c' && matches!(key, AppKey::CtrlC))
+        }
         s if s.len() == 1 => {
             let c = s.chars().next().unwrap();
             matches!(key, AppKey::Char(k) if *k == c)
         }
         _ => false,
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct MapHintLabels {
+    pub groups: Vec<String>,
+    pub sections: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WizardHintLabels {
+    pub group: Option<String>,
+    pub section: Option<String>,
+    pub fields: Vec<String>,
 }
 
 impl App {
@@ -162,18 +186,26 @@ impl App {
             &config.sticky_values,
             &data.boilerplate_texts,
         );
-        let note_headings_valid = crate::document::validate_canonical_headings(&editable_note);
+        let note_validation =
+            crate::document::validate_document_structure(&editable_note, &sections);
+        let note_headings_valid = note_validation.is_ok();
+        let note_structure_warning = note_validation.err();
+        let ui_theme =
+            crate::theme::AppTheme::load(&data_dir, &config.theme).unwrap_or_else(|err| {
+                eprintln!("Warning: failed to load theme '{}': {err}", config.theme);
+                crate::theme::AppTheme::default()
+            });
         Self {
             sections,
             section_states,
             current_idx: 0,
             data,
             config,
+            ui_theme,
             pane_swapped,
             show_help: false,
             status: None,
             quit: false,
-            note_completed: false,
             copy_requested: false,
             data_dir,
             focus: Focus::Wizard,
@@ -184,8 +216,92 @@ impl App {
             hint_buffer: String::new(),
             editable_note,
             note_headings_valid,
-            show_window: false,
-            clipboard_import: None,
+            note_structure_warning,
+        }
+    }
+
+    pub fn set_editable_note(&mut self, new_text: String) {
+        self.editable_note = new_text;
+        self.refresh_note_structure();
+    }
+
+    pub fn set_modal_query(&mut self, new_text: String) {
+        if let Some(modal) = self.modal.as_mut() {
+            modal.query = new_text;
+            modal.update_filter();
+        }
+    }
+
+    pub fn select_modal_filtered_index(&mut self, filtered_index: usize) {
+        let value = {
+            let Some(modal) = self.modal.as_mut() else {
+                return;
+            };
+            if filtered_index >= modal.filtered.len() {
+                return;
+            }
+            modal.list_cursor = filtered_index;
+            modal.update_scroll();
+            modal.selected_value().map(str::to_string)
+        };
+
+        if let Some(value) = value {
+            self.confirm_modal_value(value);
+        }
+    }
+
+    fn refresh_note_structure(&mut self) {
+        match crate::document::validate_document_structure(&self.editable_note, &self.sections) {
+            Ok(()) => {
+                self.note_headings_valid = true;
+                self.note_structure_warning = None;
+            }
+            Err(message) => {
+                self.note_headings_valid = false;
+                self.note_structure_warning = Some(message);
+            }
+        }
+    }
+
+    fn sync_section_into_editable_note(&mut self, idx: usize) {
+        if !self.note_headings_valid {
+            self.status = Some(StatusMsg::error(
+                self.note_structure_warning.clone().unwrap_or_else(|| {
+                    "Document structure is invalid; structured sync is blocked.".to_string()
+                }),
+            ));
+            return;
+        }
+
+        let Some(cfg) = self.sections.get(idx) else {
+            return;
+        };
+        let Some(state) = self.section_states.get(idx) else {
+            return;
+        };
+
+        let body = crate::note::render_editable_section_body(
+            cfg,
+            state,
+            &self.config.sticky_values,
+            crate::note::NoteRenderMode::Preview,
+        );
+
+        match crate::document::replace_managed_section_body(&self.editable_note, &cfg.id, &body) {
+            Some(updated) => {
+                self.editable_note = updated;
+                self.refresh_note_structure();
+            }
+            None => {
+                self.note_headings_valid = false;
+                self.note_structure_warning =
+                    Some(format!("Missing managed markers for section '{}'.", cfg.id));
+                self.status = Some(StatusMsg::error(
+                    self.note_structure_warning.clone().unwrap_or_else(|| {
+                        "Document structure is invalid; structured sync is blocked.".to_string()
+                    }),
+                ));
+            }
         }
     }
 
@@ -208,7 +324,9 @@ impl App {
                     SectionState::ListSelect(ListSelectState::new(entries))
                 }
                 "block_select" => {
-                    let regions = data.block_select_data.get(&cfg.id)
+                    let regions = data
+                        .block_select_data
+                        .get(&cfg.id)
                         .cloned()
                         .unwrap_or_default();
                     SectionState::BlockSelect(BlockSelectState::new(regions))
@@ -297,6 +415,10 @@ impl App {
         self.matches_key(key, &self.data.keybindings.super_confirm)
     }
 
+    fn is_refresh_theme(&self, key: &AppKey) -> bool {
+        matches!(key, AppKey::Char('/'))
+    }
+
     fn section_at_top_level(&self) -> bool {
         match self.section_states.get(self.current_idx) {
             Some(SectionState::FreeText(s)) => !s.is_editing(),
@@ -353,16 +475,26 @@ impl App {
             self.hint_buffer.push_str(&ch_str);
             let typed = self.hint_buffer.clone();
 
-            let hints = crate::data::combined_hints(&self.data.keybindings);
             // Build a case-folded hint list matching the typed string's case
-            let folded_hints: Vec<String> = hints.iter().map(|h| {
-                if case_sensitive { h.to_string() } else { h.to_ascii_lowercase().to_string() }
-            }).collect();
-            let folded_refs: Vec<&str> = folded_hints.iter().map(String::as_str).collect();
+            let active_group_idx = match self.map_hint_level {
+                MapHintLevel::Groups => None,
+                MapHintLevel::Sections(g_idx) => Some(g_idx),
+            };
+            let map_labels = self.map_hint_labels(active_group_idx);
+            let group_refs_owned: Vec<String> = map_labels
+                .groups
+                .iter()
+                .map(|h| {
+                    if case_sensitive {
+                        h.to_string()
+                    } else {
+                        h.to_ascii_lowercase().to_string()
+                    }
+                })
+                .collect();
+            let group_refs: Vec<&str> = group_refs_owned.iter().map(String::as_str).collect();
 
             // Universal group-jump: fires at any map_hint_level
-            let n_groups = self.data.groups.len();
-            let group_refs: Vec<&str> = folded_refs.iter().take(n_groups).copied().collect();
             match crate::data::resolve_hint(&group_refs, &typed) {
                 crate::data::HintResolveResult::Exact(g_idx) => {
                     let flat_idx = crate::data::group_jump_target(&self.data.groups, g_idx);
@@ -388,14 +520,33 @@ impl App {
                     self.hint_buffer.clear();
                 }
                 MapHintLevel::Sections(g_idx) => {
-                    let group_start: usize = self.data.groups.iter().take(g_idx).map(|g| g.sections.len()).sum();
-                    let group_len = self.data.groups.get(g_idx).map(|g| g.sections.len()).unwrap_or(0);
-                    let section_refs: Vec<&str> = folded_refs
+                    let group_start: usize = self
+                        .data
+                        .groups
                         .iter()
-                        .skip(n_groups + group_start)
+                        .take(g_idx)
+                        .map(|g| g.sections.len())
+                        .sum();
+                    let group_len = self
+                        .data
+                        .groups
+                        .get(g_idx)
+                        .map(|g| g.sections.len())
+                        .unwrap_or(0);
+                    let section_refs_owned: Vec<String> = map_labels
+                        .sections
+                        .iter()
                         .take(group_len)
-                        .copied()
+                        .map(|h| {
+                            if case_sensitive {
+                                h.to_string()
+                            } else {
+                                h.to_ascii_lowercase().to_string()
+                            }
+                        })
                         .collect();
+                    let section_refs: Vec<&str> =
+                        section_refs_owned.iter().map(String::as_str).collect();
                     match crate::data::resolve_hint(&section_refs, &typed) {
                         crate::data::HintResolveResult::Exact(s_idx) => {
                             let flat_idx = group_start + s_idx;
@@ -428,33 +579,158 @@ impl App {
         0
     }
 
-    pub fn section_hint_key_idx(&self, flat_idx: usize) -> Option<usize> {
-        let hints = crate::data::combined_hints(&self.data.keybindings);
-        let n_groups = self.data.groups.len();
-        let hint_idx = n_groups + flat_idx;
-        if hint_idx < hints.len() {
-            Some(hint_idx)
-        } else {
-            None
+    fn fixed_hint_labels(&self, count: usize) -> Vec<String> {
+        crate::data::generate_fixed_length_hints(&self.data.keybindings.hints, count)
+    }
+
+    fn max_header_field_count(&self) -> usize {
+        self.section_states
+            .iter()
+            .filter_map(|state| match state {
+                SectionState::Header(header) => Some(header.field_configs.len()),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    fn navigation_hint_labels(&self) -> Vec<String> {
+        self.fixed_hint_labels(
+            self.data.groups.len() + self.sections.len() + self.max_header_field_count(),
+        )
+    }
+
+    pub fn map_hint_labels(&self, group_idx: Option<usize>) -> MapHintLabels {
+        let labels = self.navigation_hint_labels();
+        let group_start: usize = group_idx
+            .map(|idx| {
+                self.data
+                    .groups
+                    .iter()
+                    .take(idx)
+                    .map(|group| group.sections.len())
+                    .sum()
+            })
+            .unwrap_or(0);
+        let group_len = group_idx
+            .and_then(|idx| self.data.groups.get(idx))
+            .map(|group| group.sections.len())
+            .unwrap_or(0);
+        MapHintLabels {
+            groups: labels
+                .iter()
+                .take(self.data.groups.len())
+                .cloned()
+                .collect(),
+            sections: labels
+                .into_iter()
+                .skip(self.data.groups.len() + group_start)
+                .take(group_len)
+                .collect(),
+        }
+    }
+
+    pub fn wizard_hint_labels(&self, field_count: usize) -> WizardHintLabels {
+        let labels = self.navigation_hint_labels();
+        let group_idx = self.group_idx_for_section(self.current_idx);
+        let section_idx = self.data.groups.len() + self.current_idx;
+        let field_start = self.data.groups.len() + self.sections.len();
+        WizardHintLabels {
+            group: labels.get(group_idx).cloned(),
+            section: labels.get(section_idx).cloned(),
+            fields: labels
+                .into_iter()
+                .skip(field_start)
+                .take(field_count)
+                .collect(),
         }
     }
 
     fn update_note_scroll(&mut self) {
-        let section_id = self.sections.get(self.map_cursor).map(|s| s.id.clone()).unwrap_or_default();
-        self.note_scroll = crate::note::section_start_line(&self.sections, &self.section_states, &self.config.sticky_values, &self.data.groups, &self.data.boilerplate_texts, &section_id);
+        self.note_scroll = self.preview_scroll_line_for_index(self.map_cursor);
+    }
+
+    pub fn reload_theme(&mut self) -> anyhow::Result<()> {
+        self.ui_theme = crate::theme::AppTheme::load(&self.data_dir, &self.config.theme)?;
+        Ok(())
+    }
+
+    pub fn current_preview_scroll_line(&self) -> u16 {
+        match self.focus {
+            Focus::Map => self.note_scroll,
+            Focus::Wizard => self.preview_scroll_line_for_index(self.current_idx),
+        }
+    }
+
+    fn preview_scroll_line_for_index(&self, idx: usize) -> u16 {
+        let Some(section) = self.sections.get(idx) else {
+            return 0;
+        };
+        let preview = crate::document::export_editable_document(&self.editable_note);
+
+        if let Some(line) = crate::note::managed_heading_for_section(section)
+            .and_then(|heading| find_line_containing(&preview, &heading))
+        {
+            return line;
+        }
+
+        if let Some(line) = section
+            .heading_search_text
+            .as_deref()
+            .and_then(|heading| find_line_containing(&preview, heading))
+        {
+            return line;
+        }
+
+        let Some(group_id) = self
+            .data
+            .groups
+            .iter()
+            .find(|group| group.sections.iter().any(|cfg| cfg.id == section.id))
+            .map(|group| group.id.as_str())
+        else {
+            return 0;
+        };
+
+        let group_anchor = match group_id {
+            "subjective" => "## SUBJECTIVE",
+            "treatment" => "## TREATMENT / PLAN",
+            "objective" => "## OBJECTIVE / OBSERVATIONS",
+            "post_tx" => "## POST-TREATMENT",
+            _ => "",
+        };
+
+        find_line_containing(&preview, group_anchor).unwrap_or(0)
+    }
+
+    pub fn current_map_scroll_line(&self) -> u16 {
+        let group_idx = self.group_idx_for_section(self.map_cursor);
+        let prior_sections: usize = self
+            .data
+            .groups
+            .iter()
+            .take(group_idx)
+            .map(|group| group.sections.len())
+            .sum();
+        let line = group_idx + self.map_cursor.saturating_sub(prior_sections) + prior_sections;
+        line.saturating_sub(4) as u16
+    }
+
+    fn text_entry_active(&self) -> bool {
+        matches!(
+            self.section_states.get(self.current_idx),
+            Some(SectionState::FreeText(s)) if s.is_editing()
+        ) || matches!(
+            self.section_states.get(self.current_idx),
+            Some(SectionState::ListSelect(s))
+                if matches!(s.mode, ListSelectMode::AddingLabel | ListSelectMode::AddingOutput)
+        )
     }
 
     pub fn handle_key(&mut self, key: AppKey) {
         // Ctrl+C always quits
         if matches!(key, AppKey::CtrlC) {
             self.quit = true;
-            return;
-        }
-
-        if self.is_copy_note(&key) {
-            self.modal = None;
-            self.show_help = false;
-            self.copy_requested = true;
             return;
         }
 
@@ -470,10 +746,19 @@ impl App {
             return;
         }
 
-        if self.is_quit(&key) && self.focus != Focus::Map {
+        if !self.text_entry_active() && self.is_copy_note(&key) {
+            self.modal = None;
+            self.show_help = false;
+            self.copy_requested = true;
+            return;
+        }
+
+        if !self.text_entry_active() && self.is_quit(&key) && self.focus != Focus::Map {
             let is_hint_key = if let AppKey::Char(c) = key {
                 let c_str = c.to_ascii_lowercase().to_string();
-                crate::data::combined_hints(&self.data.keybindings).iter().any(|h| h.to_ascii_lowercase() == c_str)
+                crate::data::combined_hints(&self.data.keybindings)
+                    .iter()
+                    .any(|h| h.to_ascii_lowercase() == c_str)
             } else {
                 false
             };
@@ -485,6 +770,21 @@ impl App {
 
         if self.is_help(&key) {
             self.show_help = true;
+            return;
+        }
+
+        if !self.text_entry_active() && self.is_refresh_theme(&key) {
+            match self.reload_theme() {
+                Ok(()) => {
+                    self.status = Some(StatusMsg::success(format!(
+                        "Theme refreshed: {}",
+                        self.config.theme
+                    )));
+                }
+                Err(err) => {
+                    self.status = Some(StatusMsg::error(format!("Theme refresh failed: {err}")));
+                }
+            }
             return;
         }
 
@@ -573,7 +873,7 @@ impl App {
         if self.current_idx + 1 < self.sections.len() {
             self.current_idx += 1;
         } else {
-            self.note_completed = true;
+            self.status = Some(StatusMsg::success("End of note reached. Press c to copy."));
         }
     }
 
@@ -586,26 +886,50 @@ impl App {
     fn handle_header_key(&mut self, key: AppKey) {
         // Hint key handling: group/section hint -> return to map, field hints -> jump to field
         if let AppKey::Char(c) = key {
-            let hints = crate::data::combined_hints(&self.data.keybindings);
             let case_sensitive = self.config.hint_labels_case_sensitive;
-            let ch_str: String = if case_sensitive { c.to_string() } else { c.to_ascii_lowercase().to_string() };
+            let ch_str: String = if case_sensitive {
+                c.to_string()
+            } else {
+                c.to_ascii_lowercase().to_string()
+            };
             self.hint_buffer.push_str(&ch_str);
             let typed = self.hint_buffer.clone();
 
-            let folded_hints: Vec<String> = hints.iter().map(|h| {
-                if case_sensitive { h.to_string() } else { h.to_ascii_lowercase().to_string() }
-            }).collect();
-            let folded_refs: Vec<&str> = folded_hints.iter().map(String::as_str).collect();
+            let idx = self.current_idx;
+            let n_fields = match self.section_states.get(idx) {
+                Some(SectionState::Header(s)) => s.field_configs.len(),
+                _ => 0,
+            };
+            let labels = self.wizard_hint_labels(n_fields);
+
+            let folded_fields: Vec<String> = labels
+                .fields
+                .iter()
+                .map(|h| {
+                    if case_sensitive {
+                        h.to_string()
+                    } else {
+                        h.to_ascii_lowercase().to_string()
+                    }
+                })
+                .collect();
+            let field_refs: Vec<&str> = folded_fields.iter().map(String::as_str).collect();
 
             let g_idx = self.group_idx_for_section(self.current_idx);
 
             // Group hint
-            let group_hint = folded_refs.get(g_idx).copied().unwrap_or("");
-            match crate::data::resolve_hint(&[group_hint], &typed) {
+            let group_hint = labels.group.as_deref().unwrap_or("");
+            let group_hint_owned = if case_sensitive {
+                group_hint.to_string()
+            } else {
+                group_hint.to_ascii_lowercase()
+            };
+            match crate::data::resolve_hint(&[group_hint_owned.as_str()], &typed) {
                 crate::data::HintResolveResult::Exact(_) => {
                     self.focus = Focus::Map;
                     self.map_cursor = self.current_idx;
                     self.map_hint_level = MapHintLevel::Groups;
+                    self.update_note_scroll();
                     self.hint_buffer.clear();
                     return;
                 }
@@ -614,13 +938,18 @@ impl App {
             }
 
             // Section hint
-            if let Some(shi) = self.section_hint_key_idx(self.current_idx) {
-                let section_hint = folded_refs.get(shi).copied().unwrap_or("");
-                match crate::data::resolve_hint(&[section_hint], &typed) {
+            if let Some(section_hint) = labels.section.as_deref() {
+                let section_hint_owned = if case_sensitive {
+                    section_hint.to_string()
+                } else {
+                    section_hint.to_ascii_lowercase()
+                };
+                match crate::data::resolve_hint(&[section_hint_owned.as_str()], &typed) {
                     crate::data::HintResolveResult::Exact(_) => {
                         self.focus = Focus::Map;
                         self.map_cursor = self.current_idx;
                         self.map_hint_level = MapHintLevel::Sections(g_idx);
+                        self.update_note_scroll();
                         self.hint_buffer.clear();
                         return;
                     }
@@ -628,20 +957,7 @@ impl App {
                     crate::data::HintResolveResult::NoMatch => {}
                 }
 
-                // Field hints: exclude section hint index and group hint index
-                let field_hint_indices: Vec<usize> = (0..hints.len())
-                    .filter(|&i| i != shi && i != g_idx)
-                    .collect();
-                let idx = self.current_idx;
-                let n_fields = match self.section_states.get(idx) {
-                    Some(SectionState::Header(s)) => s.field_configs.len(),
-                    _ => 0,
-                };
                 // Build the candidate list for field hints and resolve
-                let field_refs: Vec<&str> = field_hint_indices.iter()
-                    .take(n_fields)
-                    .filter_map(|&hi| folded_refs.get(hi).copied())
-                    .collect();
                 match crate::data::resolve_hint(&field_refs, &typed) {
                     crate::data::HintResolveResult::Exact(f_idx) => {
                         if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
@@ -667,7 +983,9 @@ impl App {
             let idx = self.current_idx;
             let resolved = if let Some(SectionState::Header(s)) = self.section_states.get(idx) {
                 s.field_configs.get(s.field_index).map(|cfg| {
-                    let confirmed = s.repeated_values.get(s.field_index)
+                    let confirmed = s
+                        .repeated_values
+                        .get(s.field_index)
                         .and_then(|v| v.last())
                         .map(|v| v.as_str())
                         .unwrap_or("");
@@ -680,10 +998,13 @@ impl App {
             } else {
                 None
             };
-            if let Some(crate::sections::multi_field::ResolvedMultiFieldValue::Complete(value)) = resolved {
+            if let Some(crate::sections::multi_field::ResolvedMultiFieldValue::Complete(value)) =
+                resolved
+            {
                 if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                     s.set_current_value(value);
                     let done = s.advance();
+                    self.sync_section_into_editable_note(idx);
                     if done {
                         self.advance_section();
                     }
@@ -694,7 +1015,8 @@ impl App {
 
         if self.is_back(&key) || self.is_navigate_up(&key) {
             let idx = self.current_idx;
-            let went_back = if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+            let went_back = if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx)
+            {
                 // Normalize out-of-bounds index before going back
                 if s.field_index >= s.field_configs.len() && !s.field_configs.is_empty() {
                     s.field_index = s.field_configs.len() - 1;
@@ -748,11 +1070,18 @@ impl App {
             None
         };
         if let Some(cfg) = field_cfg {
-            let window_size = crate::data::combined_hints(&self.data.keybindings).len();
+            let window_size = self.data.keybindings.hints.len();
             let modal = if let Some(composite) = cfg.composite {
-                SearchModal::new_composite(field_idx, cfg.id, composite, &self.config.sticky_values, window_size)
+                SearchModal::new_composite(
+                    field_idx,
+                    cfg.id,
+                    composite,
+                    &self.config.sticky_values,
+                    window_size,
+                )
             } else if !cfg.options.is_empty() {
-                let mut m = SearchModal::new_simple(field_idx, cfg.id, cfg.options.clone(), window_size);
+                let mut m =
+                    SearchModal::new_simple(field_idx, cfg.id, cfg.options.clone(), window_size);
                 if let Some(ref default) = cfg.default {
                     if let Some(pos) = cfg.options.iter().position(|e| e == default) {
                         m.list_cursor = pos;
@@ -769,9 +1098,8 @@ impl App {
     }
 
     fn handle_modal_key(&mut self, key: AppKey) {
-        let hints = crate::data::combined_hints(&self.data.keybindings);
-
         if matches!(key, AppKey::Esc) {
+            self.hint_buffer.clear();
             self.modal = None;
             return;
         }
@@ -788,7 +1116,9 @@ impl App {
             };
             match value {
                 Some(v) => self.confirm_modal_value(v),
-                None => { self.modal = None; }
+                None => {
+                    self.modal = None;
+                }
             }
             return;
         }
@@ -828,9 +1158,17 @@ impl App {
             },
             ModalFocus::List => match key {
                 AppKey::Backspace => {
-                    let can_go_back = self.modal.as_ref().map(|m| {
-                        m.composite.as_ref().map(|c| c.part_idx > 0).unwrap_or(false)
-                    }).unwrap_or(false);
+                    self.hint_buffer.clear();
+                    let can_go_back = self
+                        .modal
+                        .as_ref()
+                        .map(|m| {
+                            m.composite
+                                .as_ref()
+                                .map(|c| c.part_idx > 0)
+                                .unwrap_or(false)
+                        })
+                        .unwrap_or(false);
                     if can_go_back {
                         self.composite_go_back();
                     } else {
@@ -839,14 +1177,23 @@ impl App {
                     }
                 }
                 AppKey::Space => {
+                    self.hint_buffer.clear();
                     self.modal.as_mut().unwrap().focus = ModalFocus::SearchBar;
                 }
                 AppKey::Enter => {
-                    if let Some(val) = self.modal.as_ref().unwrap().selected_value().map(String::from) {
+                    self.hint_buffer.clear();
+                    if let Some(val) = self
+                        .modal
+                        .as_ref()
+                        .unwrap()
+                        .selected_value()
+                        .map(String::from)
+                    {
                         self.confirm_modal_value(val);
                     }
                 }
                 AppKey::Up => {
+                    self.hint_buffer.clear();
                     let modal = self.modal.as_mut().unwrap();
                     if modal.list_cursor > 0 {
                         modal.list_cursor -= 1;
@@ -854,6 +1201,7 @@ impl App {
                     }
                 }
                 AppKey::Down => {
+                    self.hint_buffer.clear();
                     let modal = self.modal.as_mut().unwrap();
                     if modal.list_cursor + 1 < modal.filtered.len() {
                         modal.list_cursor += 1;
@@ -861,8 +1209,48 @@ impl App {
                     }
                 }
                 AppKey::Char(c) => {
-                    if let Some(hint_pos) = hints.iter().position(|h| *h == c.to_string().as_str()) {
-                        if let Some(val) = self.modal.as_ref().unwrap().hint_value(hint_pos).map(String::from) {
+                    let case_sensitive = self.config.hint_labels_case_sensitive;
+                    let ch_str: String = if case_sensitive {
+                        c.to_string()
+                    } else {
+                        c.to_ascii_lowercase().to_string()
+                    };
+                    let visible_count = self
+                        .modal
+                        .as_ref()
+                        .map(|modal| {
+                            let end =
+                                (modal.list_scroll + modal.window_size).min(modal.filtered.len());
+                            end.saturating_sub(modal.list_scroll)
+                        })
+                        .unwrap_or(0);
+                    let labels: Vec<String> = self
+                        .data
+                        .keybindings
+                        .hints
+                        .iter()
+                        .take(visible_count)
+                        .cloned()
+                        .collect();
+                    let folded_labels: Vec<String> = labels
+                        .iter()
+                        .map(|h| {
+                            if case_sensitive {
+                                h.to_string()
+                            } else {
+                                h.to_ascii_lowercase()
+                            }
+                        })
+                        .collect();
+                    if let Some(hint_pos) = folded_labels.iter().position(|label| label == &ch_str)
+                    {
+                        if let Some(val) = self
+                            .modal
+                            .as_ref()
+                            .unwrap()
+                            .hint_value(hint_pos)
+                            .map(String::from)
+                        {
                             self.confirm_modal_value(val);
                         }
                     }
@@ -874,10 +1262,17 @@ impl App {
 
     fn confirm_modal_value(&mut self, value: String) {
         let idx = self.current_idx;
-        let is_composite = self.modal.as_ref().map(|m| m.composite.is_some()).unwrap_or(false);
+        let is_composite = self
+            .modal
+            .as_ref()
+            .map(|m| m.composite.is_some())
+            .unwrap_or(false);
 
         if is_composite {
-            let advance = self.modal.as_mut().unwrap()
+            let advance = self
+                .modal
+                .as_mut()
+                .unwrap()
                 .advance_composite(value, &mut self.config.sticky_values);
             match advance {
                 CompositeAdvance::NextPart => {
@@ -897,6 +1292,7 @@ impl App {
                         }
                         s.set_current_value(final_value);
                         let done = s.advance();
+                        self.sync_section_into_editable_note(idx);
                         if done {
                             self.advance_section();
                         }
@@ -909,6 +1305,7 @@ impl App {
             if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                 s.set_current_value(value);
                 let done = s.advance();
+                self.sync_section_into_editable_note(idx);
                 if done {
                     self.advance_section();
                 }
@@ -936,6 +1333,7 @@ impl App {
                 if let SectionState::FreeText(s) = &mut self.section_states[idx] {
                     s.commit_entry();
                 }
+                self.sync_section_into_editable_note(idx);
                 return;
             }
             if matches!(key, AppKey::Backspace) {
@@ -987,12 +1385,14 @@ impl App {
                 if let SectionState::FreeText(s) = &mut self.section_states[idx] {
                     s.completed = true;
                 }
+                self.sync_section_into_editable_note(idx);
                 self.advance_section();
             } else {
                 // Empty = skip
                 if let SectionState::FreeText(s) = &mut self.section_states[idx] {
                     s.skipped = true;
                 }
+                self.sync_section_into_editable_note(idx);
                 self.advance_section();
             }
         }
@@ -1001,13 +1401,11 @@ impl App {
     fn handle_list_select_key(&mut self, key: AppKey) {
         let idx = self.current_idx;
         let mode = match &self.section_states[idx] {
-            SectionState::ListSelect(s) => {
-                match s.mode {
-                    ListSelectMode::Browsing => 0,
-                    ListSelectMode::AddingLabel => 1,
-                    ListSelectMode::AddingOutput => 2,
-                }
-            }
+            SectionState::ListSelect(s) => match s.mode {
+                ListSelectMode::Browsing => 0,
+                ListSelectMode::AddingLabel => 1,
+                ListSelectMode::AddingOutput => 2,
+            },
             _ => return,
         };
 
@@ -1027,27 +1425,39 @@ impl App {
                             s.confirm_label();
                         }
                     } else {
-                        let new_entry = if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
-                            s.confirm_output()
-                        } else {
-                            None
-                        };
+                        let new_entry =
+                            if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
+                                s.confirm_output()
+                            } else {
+                                None
+                            };
                         if let Some(entry) = new_entry {
                             let data_file = self.sections[idx].data_file.clone();
                             if let Some(ref df) = data_file {
                                 match self.data.append_list_entry(df, entry.clone()) {
                                     Ok(_) => {
-                                        if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
-                                            s.entries = self.data.list_data.get(df).cloned().unwrap_or_default();
+                                        if let SectionState::ListSelect(s) =
+                                            &mut self.section_states[idx]
+                                        {
+                                            s.entries = self
+                                                .data
+                                                .list_data
+                                                .get(df)
+                                                .cloned()
+                                                .unwrap_or_default();
                                             // Select the newly added entry
                                             let new_idx = s.entries.len().saturating_sub(1);
                                             s.cursor = new_idx;
                                             s.selected_indices.push(new_idx);
                                         }
+                                        self.sync_section_into_editable_note(idx);
                                         self.status = Some(StatusMsg::success("Entry added."));
                                     }
                                     Err(e) => {
-                                        self.status = Some(StatusMsg::error(format!("Failed to save: {}", e)));
+                                        self.status = Some(StatusMsg::error(format!(
+                                            "Failed to save: {}",
+                                            e
+                                        )));
                                     }
                                 }
                             }
@@ -1088,6 +1498,7 @@ impl App {
                     if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
                         s.toggle_current();
                     }
+                    self.sync_section_into_editable_note(idx);
                     return;
                 }
                 if self.is_add_entry(&key) {
@@ -1097,19 +1508,28 @@ impl App {
                     return;
                 }
                 if self.is_confirm(&key) {
-                    let has_selection = match &self.section_states[idx] {
-                        SectionState::ListSelect(s) => !s.selected_indices.is_empty(),
-                        _ => false,
+                    let (has_selection, has_entries) = match &self.section_states[idx] {
+                        SectionState::ListSelect(s) => {
+                            (!s.selected_indices.is_empty(), !s.entries.is_empty())
+                        }
+                        _ => (false, false),
                     };
                     if has_selection {
                         if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
                             s.completed = true;
                         }
+                        self.sync_section_into_editable_note(idx);
                         self.advance_section();
+                    } else if has_entries {
+                        if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
+                            s.toggle_current();
+                        }
+                        self.sync_section_into_editable_note(idx);
                     } else {
                         if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
                             s.skipped = true;
                         }
+                        self.sync_section_into_editable_note(idx);
                         self.advance_section();
                     }
                 }
@@ -1147,6 +1567,7 @@ impl App {
                 if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
                     s.toggle_item();
                 }
+                self.sync_section_into_editable_note(idx);
                 return;
             }
             if self.is_confirm(&key) {
@@ -1190,11 +1611,13 @@ impl App {
                     if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
                         s.completed = true;
                     }
+                    self.sync_section_into_editable_note(idx);
                     self.advance_section();
                 } else {
                     if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
                         s.skipped = true;
                     }
+                    self.sync_section_into_editable_note(idx);
                     self.advance_section();
                 }
                 return;
@@ -1214,6 +1637,7 @@ impl App {
                         s.skipped = true;
                     }
                 }
+                self.sync_section_into_editable_note(idx);
                 self.advance_section();
             }
         }
@@ -1242,12 +1666,14 @@ impl App {
             if let SectionState::Checklist(s) = &mut self.section_states[idx] {
                 s.toggle_current();
             }
+            self.sync_section_into_editable_note(idx);
             return;
         }
         if self.is_confirm(&key) {
             if let SectionState::Checklist(s) = &mut self.section_states[idx] {
                 s.completed = true;
             }
+            self.sync_section_into_editable_note(idx);
             self.advance_section();
         }
     }
@@ -1277,26 +1703,31 @@ impl App {
     /// Returns true if navigation happened.
     fn try_navigate_to_map_via_hint(&mut self, key: &AppKey) -> bool {
         if let AppKey::Char(c) = *key {
-            let hints = crate::data::combined_hints(&self.data.keybindings);
             let case_sensitive = self.config.hint_labels_case_sensitive;
-            let ch_str: String = if case_sensitive { c.to_string() } else { c.to_ascii_lowercase().to_string() };
+            let ch_str: String = if case_sensitive {
+                c.to_string()
+            } else {
+                c.to_ascii_lowercase().to_string()
+            };
             self.hint_buffer.push_str(&ch_str);
             let typed = self.hint_buffer.clone();
 
-            let folded_hints: Vec<String> = hints.iter().map(|h| {
-                if case_sensitive { h.to_string() } else { h.to_ascii_lowercase().to_string() }
-            }).collect();
-            let folded_refs: Vec<&str> = folded_hints.iter().map(String::as_str).collect();
-
             let g_idx = self.group_idx_for_section(self.current_idx);
+            let labels = self.wizard_hint_labels(0);
 
             // Check group hint
-            let group_hint = folded_refs.get(g_idx).copied().unwrap_or("");
-            match crate::data::resolve_hint(&[group_hint], &typed) {
+            let group_hint = labels.group.as_deref().unwrap_or("");
+            let group_hint_owned = if case_sensitive {
+                group_hint.to_string()
+            } else {
+                group_hint.to_ascii_lowercase()
+            };
+            match crate::data::resolve_hint(&[group_hint_owned.as_str()], &typed) {
                 crate::data::HintResolveResult::Exact(_) => {
                     self.focus = Focus::Map;
                     self.map_cursor = self.current_idx;
                     self.map_hint_level = MapHintLevel::Groups;
+                    self.update_note_scroll();
                     self.hint_buffer.clear();
                     return true;
                 }
@@ -1305,13 +1736,18 @@ impl App {
             }
 
             // Check section hint
-            if let Some(shi) = self.section_hint_key_idx(self.current_idx) {
-                let section_hint = folded_refs.get(shi).copied().unwrap_or("");
-                match crate::data::resolve_hint(&[section_hint], &typed) {
+            if let Some(section_hint) = labels.section.as_deref() {
+                let section_hint_owned = if case_sensitive {
+                    section_hint.to_string()
+                } else {
+                    section_hint.to_ascii_lowercase()
+                };
+                match crate::data::resolve_hint(&[section_hint_owned.as_str()], &typed) {
                     crate::data::HintResolveResult::Exact(_) => {
                         self.focus = Focus::Map;
                         self.map_cursor = self.current_idx;
                         self.map_hint_level = MapHintLevel::Sections(g_idx);
+                        self.update_note_scroll();
                         self.hint_buffer.clear();
                         return true;
                     }
@@ -1346,7 +1782,11 @@ impl App {
             comp.part_idx -= 1;
             let part = &comp.config.parts[comp.part_idx];
             let labels: Vec<String> = part.options.iter().map(|o| o.label().to_string()).collect();
-            let outputs: Vec<String> = part.options.iter().map(|o| o.output().to_string()).collect();
+            let outputs: Vec<String> = part
+                .options
+                .iter()
+                .map(|o| o.output().to_string())
+                .collect();
             let dc = part.default_cursor();
             (comp.part_idx, popped, labels, outputs, dc)
         };
@@ -1380,7 +1820,10 @@ impl App {
         } else {
             let (preview, spans) = {
                 let modal = self.modal.as_ref().unwrap();
-                (compute_composite_preview(modal), compute_composite_spans(modal))
+                (
+                    compute_composite_preview(modal),
+                    compute_composite_spans(modal),
+                )
             };
             if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                 s.set_preview_value(preview);
@@ -1407,7 +1850,9 @@ fn compute_composite_spans(modal: &crate::modal::SearchModal) -> Vec<(String, bo
             }
             let mut id = String::new();
             for c2 in chars.by_ref() {
-                if c2 == '}' { break; }
+                if c2 == '}' {
+                    break;
+                }
                 id.push(c2);
             }
             if let Some(i) = comp.config.parts.iter().position(|p| p.id == id) {
@@ -1446,6 +1891,15 @@ fn compute_composite_preview(modal: &crate::modal::SearchModal) -> String {
     result
 }
 
+fn find_line_containing(text: &str, needle: &str) -> Option<u16> {
+    if needle.is_empty() {
+        return None;
+    }
+    text.lines()
+        .position(|line| line.contains(needle))
+        .map(|idx| idx as u16)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1476,33 +1930,135 @@ mod tests {
     }
 
     #[test]
-    fn super_confirm_fills_default_and_advances() {
-        use crate::data::{AppData, HeaderFieldConfig, KeyBindings, SectionConfig, SectionGroup};
+    fn matches_key_ctrl_q_binding_recognized() {
+        assert!(
+            match_binding_str("ctrl+q", &AppKey::CtrlChar('q')),
+            "match_binding_str(\"ctrl+q\", AppKey::CtrlChar('q')) should return true"
+        );
+    }
+
+    #[test]
+    fn copy_key_is_text_when_free_text_editor_is_active() {
         use crate::config::Config;
+        use crate::data::{AppData, KeyBindings, SectionConfig, SectionGroup};
+        use crate::sections::free_text::{FreeTextMode, FreeTextState};
+        use std::path::PathBuf;
+
+        let section = SectionConfig {
+            id: "subjective_section".to_string(),
+            name: "Subjective".to_string(),
+            map_label: "Subjective".to_string(),
+            section_type: "free_text".to_string(),
+            data_file: None,
+            date_prefix: None,
+            options: vec![],
+            composite: None,
+            fields: None,
+            is_intake: false,
+            heading_search_text: Some("## SUBJECTIVE".to_string()),
+            heading_label: None,
+            note_render_slot: Some("subjective_section".to_string()),
+        };
+        let data = AppData {
+            groups: vec![SectionGroup {
+                id: "subjective".to_string(),
+                num: None,
+                name: "Subjective".to_string(),
+                sections: vec![section.clone()],
+            }],
+            sections: vec![section],
+            list_data: Default::default(),
+            checklist_data: Default::default(),
+            block_select_data: Default::default(),
+            boilerplate_texts: Default::default(),
+            keybindings: KeyBindings::default(),
+            data_dir: PathBuf::new(),
+        };
+        let mut app = App::new(data, Config::default(), PathBuf::new());
+        app.section_states[0] = SectionState::FreeText(FreeTextState {
+            entries: Vec::new(),
+            cursor: 0,
+            mode: FreeTextMode::Editing,
+            edit_buf: String::new(),
+            skipped: false,
+            completed: false,
+        });
+
+        app.handle_key(AppKey::Char('c'));
+
+        assert!(!app.copy_requested);
+        match &app.section_states[0] {
+            SectionState::FreeText(state) => assert_eq!(state.edit_buf, "c"),
+            _ => panic!("expected free text state"),
+        }
+    }
+
+    #[test]
+    fn super_confirm_fills_default_and_advances() {
+        use crate::config::Config;
+        use crate::data::{AppData, HeaderFieldConfig, KeyBindings, SectionConfig, SectionGroup};
         use std::path::PathBuf;
 
         let fields = vec![
-            HeaderFieldConfig { id: "f1".to_string(), name: "F1".to_string(), options: vec![], composite: None, default: Some("hello".to_string()), repeat_limit: None },
-            HeaderFieldConfig { id: "f2".to_string(), name: "F2".to_string(), options: vec![], composite: None, default: None, repeat_limit: None },
+            HeaderFieldConfig {
+                id: "f1".to_string(),
+                name: "F1".to_string(),
+                options: vec![],
+                composite: None,
+                default: Some("hello".to_string()),
+                repeat_limit: None,
+            },
+            HeaderFieldConfig {
+                id: "f2".to_string(),
+                name: "F2".to_string(),
+                options: vec![],
+                composite: None,
+                default: None,
+                repeat_limit: None,
+            },
         ];
         let section = SectionConfig {
-            id: "s1".to_string(), name: "S1".to_string(), map_label: "S1".to_string(),
-            section_type: "multi_field".to_string(), data_file: None, date_prefix: None,
-            options: vec![], composite: None, fields: Some(fields),
-            is_intake: false, heading_search_text: None, heading_label: None, note_render_slot: None,
+            id: "s1".to_string(),
+            name: "S1".to_string(),
+            map_label: "S1".to_string(),
+            section_type: "multi_field".to_string(),
+            data_file: None,
+            date_prefix: None,
+            options: vec![],
+            composite: None,
+            fields: Some(fields),
+            is_intake: false,
+            heading_search_text: None,
+            heading_label: None,
+            note_render_slot: None,
         };
-        let group = SectionGroup { id: "g1".to_string(), num: None, name: "G1".to_string(), sections: vec![section.clone()] };
+        let group = SectionGroup {
+            id: "g1".to_string(),
+            num: None,
+            name: "G1".to_string(),
+            sections: vec![section.clone()],
+        };
         let data = AppData {
-            groups: vec![group], sections: vec![section],
-            list_data: Default::default(), checklist_data: Default::default(),
-            block_select_data: Default::default(), boilerplate_texts: Default::default(),
+            groups: vec![group],
+            sections: vec![section],
+            list_data: Default::default(),
+            checklist_data: Default::default(),
+            block_select_data: Default::default(),
+            boilerplate_texts: Default::default(),
             keybindings: KeyBindings::default(),
             data_dir: PathBuf::new(),
         };
         let mut app = App::new(data, Config::default(), PathBuf::new());
         app.handle_header_key(AppKey::ShiftEnter);
-        if let Some(SectionState::Header(s)) = app.section_states.get(0) {
-            assert_eq!(s.repeated_values[0].last().map(|s| s.as_str()).unwrap_or(""), "hello", "field 0 should be filled with its default");
+        if let Some(SectionState::Header(s)) = app.section_states.first() {
+            assert_eq!(
+                s.repeated_values[0]
+                    .last()
+                    .map(|s| s.as_str())
+                    .unwrap_or(""),
+                "hello",
+                "field 0 should be filled with its default"
+            );
             assert_eq!(s.field_index, 1, "field_index should advance to 1");
         } else {
             panic!("expected Header state at index 0");
@@ -1511,33 +2067,364 @@ mod tests {
 
     #[test]
     fn super_confirm_no_op_when_no_default() {
-        use crate::data::{AppData, HeaderFieldConfig, KeyBindings, SectionConfig, SectionGroup};
         use crate::config::Config;
+        use crate::data::{AppData, HeaderFieldConfig, KeyBindings, SectionConfig, SectionGroup};
         use std::path::PathBuf;
 
-        let fields = vec![
-            HeaderFieldConfig { id: "f1".to_string(), name: "F1".to_string(), options: vec![], composite: None, default: None, repeat_limit: None },
-        ];
+        let fields = vec![HeaderFieldConfig {
+            id: "f1".to_string(),
+            name: "F1".to_string(),
+            options: vec![],
+            composite: None,
+            default: None,
+            repeat_limit: None,
+        }];
         let section = SectionConfig {
-            id: "s1".to_string(), name: "S1".to_string(), map_label: "S1".to_string(),
-            section_type: "multi_field".to_string(), data_file: None, date_prefix: None,
-            options: vec![], composite: None, fields: Some(fields),
-            is_intake: false, heading_search_text: None, heading_label: None, note_render_slot: None,
+            id: "s1".to_string(),
+            name: "S1".to_string(),
+            map_label: "S1".to_string(),
+            section_type: "multi_field".to_string(),
+            data_file: None,
+            date_prefix: None,
+            options: vec![],
+            composite: None,
+            fields: Some(fields),
+            is_intake: false,
+            heading_search_text: None,
+            heading_label: None,
+            note_render_slot: None,
         };
-        let group = SectionGroup { id: "g1".to_string(), num: None, name: "G1".to_string(), sections: vec![section.clone()] };
+        let group = SectionGroup {
+            id: "g1".to_string(),
+            num: None,
+            name: "G1".to_string(),
+            sections: vec![section.clone()],
+        };
         let data = AppData {
-            groups: vec![group], sections: vec![section],
-            list_data: Default::default(), checklist_data: Default::default(),
-            block_select_data: Default::default(), boilerplate_texts: Default::default(),
+            groups: vec![group],
+            sections: vec![section],
+            list_data: Default::default(),
+            checklist_data: Default::default(),
+            block_select_data: Default::default(),
+            boilerplate_texts: Default::default(),
             keybindings: KeyBindings::default(),
             data_dir: PathBuf::new(),
         };
         let mut app = App::new(data, Config::default(), PathBuf::new());
         app.handle_header_key(AppKey::ShiftEnter);
-        if let Some(SectionState::Header(s)) = app.section_states.get(0) {
-            assert_eq!(s.field_index, 0, "field_index should stay at 0 when no default");
+        if let Some(SectionState::Header(s)) = app.section_states.first() {
+            assert_eq!(
+                s.field_index, 0,
+                "field_index should stay at 0 when no default"
+            );
         } else {
             panic!("expected Header state at index 0");
         }
+    }
+
+    #[test]
+    fn sync_section_into_editable_note_updates_only_current_managed_block() {
+        use crate::config::Config;
+        use crate::data::{AppData, KeyBindings, SectionConfig, SectionGroup};
+        use crate::sections::free_text::FreeTextState;
+        use std::path::PathBuf;
+
+        let subjective = SectionConfig {
+            id: "subjective_section".to_string(),
+            name: "Subjective".to_string(),
+            map_label: "Subjective".to_string(),
+            section_type: "free_text".to_string(),
+            data_file: None,
+            date_prefix: None,
+            options: vec![],
+            composite: None,
+            fields: None,
+            is_intake: false,
+            heading_search_text: Some("## SUBJECTIVE".to_string()),
+            heading_label: None,
+            note_render_slot: Some("subjective_section".to_string()),
+        };
+        let objective = SectionConfig {
+            id: "objective_section".to_string(),
+            name: "Objective".to_string(),
+            map_label: "Objective".to_string(),
+            section_type: "free_text".to_string(),
+            data_file: None,
+            date_prefix: None,
+            options: vec![],
+            composite: None,
+            fields: None,
+            is_intake: false,
+            heading_search_text: Some("## OBJECTIVE / OBSERVATIONS".to_string()),
+            heading_label: None,
+            note_render_slot: Some("objective_section".to_string()),
+        };
+        let group_subjective = SectionGroup {
+            id: "subjective".to_string(),
+            num: None,
+            name: "Subjective".to_string(),
+            sections: vec![subjective.clone()],
+        };
+        let group_objective = SectionGroup {
+            id: "objective".to_string(),
+            num: None,
+            name: "Objective".to_string(),
+            sections: vec![objective.clone()],
+        };
+        let data = AppData {
+            groups: vec![group_subjective, group_objective],
+            sections: vec![subjective, objective],
+            list_data: Default::default(),
+            checklist_data: Default::default(),
+            block_select_data: Default::default(),
+            boilerplate_texts: Default::default(),
+            keybindings: KeyBindings::default(),
+            data_dir: PathBuf::new(),
+        };
+
+        let mut app = App::new(data, Config::default(), PathBuf::new());
+        app.editable_note = app.editable_note.replace(
+            "<!-- scribblenot:section id=objective_section:end -->",
+            "User free edits stay here.\n<!-- scribblenot:section id=objective_section:end -->",
+        );
+
+        app.current_idx = 0;
+        app.section_states[0] = SectionState::FreeText(FreeTextState {
+            entries: vec!["subjective synced".to_string()],
+            edit_buf: String::new(),
+            mode: crate::sections::free_text::FreeTextMode::Browsing,
+            cursor: 0,
+            completed: true,
+            skipped: false,
+        });
+        app.sync_section_into_editable_note(0);
+
+        assert!(app.editable_note.contains("subjective synced"));
+        assert!(app.editable_note.contains("User free edits stay here."));
+        assert!(app.note_headings_valid);
+    }
+
+    #[test]
+    fn set_editable_note_recomputes_invalid_structure_warning() {
+        use crate::config::Config;
+        use crate::data::{AppData, KeyBindings, SectionConfig, SectionGroup};
+        use std::path::PathBuf;
+
+        let subjective = SectionConfig {
+            id: "subjective_section".to_string(),
+            name: "Subjective".to_string(),
+            map_label: "Subjective".to_string(),
+            section_type: "free_text".to_string(),
+            data_file: None,
+            date_prefix: None,
+            options: vec![],
+            composite: None,
+            fields: None,
+            is_intake: false,
+            heading_search_text: Some("## SUBJECTIVE".to_string()),
+            heading_label: None,
+            note_render_slot: Some("subjective_section".to_string()),
+        };
+        let group = SectionGroup {
+            id: "subjective".to_string(),
+            num: None,
+            name: "Subjective".to_string(),
+            sections: vec![subjective.clone()],
+        };
+        let data = AppData {
+            groups: vec![group],
+            sections: vec![subjective],
+            list_data: Default::default(),
+            checklist_data: Default::default(),
+            block_select_data: Default::default(),
+            boilerplate_texts: Default::default(),
+            keybindings: KeyBindings::default(),
+            data_dir: PathBuf::new(),
+        };
+
+        let mut app = App::new(data, Config::default(), PathBuf::new());
+        let broken = app.editable_note.replace(
+            "<!-- scribblenot:section id=subjective_section:start -->",
+            "",
+        );
+        app.set_editable_note(broken);
+
+        assert!(!app.note_headings_valid);
+        assert!(app
+            .note_structure_warning
+            .as_deref()
+            .unwrap_or("")
+            .contains("managed section"));
+    }
+
+    #[test]
+    fn list_select_enter_selects_current_before_confirming_section() {
+        use crate::config::Config;
+        use crate::data::{AppData, KeyBindings, ListEntry, SectionConfig, SectionGroup};
+        use std::collections::HashMap;
+        use std::path::PathBuf;
+
+        let section = SectionConfig {
+            id: "objective_section".to_string(),
+            name: "Objective".to_string(),
+            map_label: "Objective".to_string(),
+            section_type: "list_select".to_string(),
+            data_file: Some("objective.yml".to_string()),
+            date_prefix: None,
+            options: vec![],
+            composite: None,
+            fields: None,
+            is_intake: false,
+            heading_search_text: Some("## OBJECTIVE / OBSERVATIONS".to_string()),
+            heading_label: None,
+            note_render_slot: Some("objective_section".to_string()),
+        };
+        let group = SectionGroup {
+            id: "objective".to_string(),
+            num: None,
+            name: "Objective".to_string(),
+            sections: vec![section.clone()],
+        };
+        let mut list_data = HashMap::new();
+        list_data.insert(
+            "objective.yml".to_string(),
+            vec![ListEntry {
+                label: "Upper traps".to_string(),
+                output: "Upper traps: Increased resting muscle tension".to_string(),
+            }],
+        );
+        let data = AppData {
+            groups: vec![group],
+            sections: vec![section],
+            list_data,
+            checklist_data: Default::default(),
+            block_select_data: Default::default(),
+            boilerplate_texts: Default::default(),
+            keybindings: KeyBindings::default(),
+            data_dir: PathBuf::new(),
+        };
+
+        let mut app = App::new(data, Config::default(), PathBuf::new());
+
+        app.handle_list_select_key(AppKey::Enter);
+        match &app.section_states[0] {
+            SectionState::ListSelect(state) => {
+                assert_eq!(state.selected_indices, vec![0]);
+                assert!(!state.completed);
+                assert!(!state.skipped);
+            }
+            _ => panic!("expected list select state"),
+        }
+        assert_eq!(app.current_idx, 0);
+        assert!(app
+            .editable_note
+            .contains("Upper traps: Increased resting muscle tension"));
+
+        app.handle_list_select_key(AppKey::Enter);
+        match &app.section_states[0] {
+            SectionState::ListSelect(state) => {
+                assert!(state.completed);
+                assert!(!state.skipped);
+            }
+            _ => panic!("expected list select state"),
+        }
+        assert!(app
+            .status
+            .as_ref()
+            .is_some_and(|status| status.text.contains("End of note")));
+    }
+
+    #[test]
+    fn preview_scroll_tracks_map_cursor_in_clean_preview() {
+        use crate::config::Config;
+        use crate::data::{AppData, KeyBindings, SectionConfig, SectionGroup};
+        use crate::sections::free_text::{FreeTextMode, FreeTextState};
+        use std::path::PathBuf;
+
+        let subjective = SectionConfig {
+            id: "subjective_section".to_string(),
+            name: "Subjective".to_string(),
+            map_label: "Subjective".to_string(),
+            section_type: "free_text".to_string(),
+            data_file: None,
+            date_prefix: None,
+            options: vec![],
+            composite: None,
+            fields: None,
+            is_intake: false,
+            heading_search_text: Some("## SUBJECTIVE".to_string()),
+            heading_label: None,
+            note_render_slot: Some("subjective_section".to_string()),
+        };
+        let objective = SectionConfig {
+            id: "objective_section".to_string(),
+            name: "Objective".to_string(),
+            map_label: "Objective".to_string(),
+            section_type: "free_text".to_string(),
+            data_file: None,
+            date_prefix: None,
+            options: vec![],
+            composite: None,
+            fields: None,
+            is_intake: false,
+            heading_search_text: Some("## OBJECTIVE / OBSERVATIONS".to_string()),
+            heading_label: None,
+            note_render_slot: Some("objective_section".to_string()),
+        };
+        let data = AppData {
+            groups: vec![
+                SectionGroup {
+                    id: "subjective".to_string(),
+                    num: None,
+                    name: "Subjective".to_string(),
+                    sections: vec![subjective.clone()],
+                },
+                SectionGroup {
+                    id: "objective".to_string(),
+                    num: None,
+                    name: "Objective".to_string(),
+                    sections: vec![objective.clone()],
+                },
+            ],
+            sections: vec![subjective, objective],
+            list_data: Default::default(),
+            checklist_data: Default::default(),
+            block_select_data: Default::default(),
+            boilerplate_texts: Default::default(),
+            keybindings: KeyBindings::default(),
+            data_dir: PathBuf::new(),
+        };
+
+        let mut app = App::new(data, Config::default(), PathBuf::new());
+        app.section_states[0] = SectionState::FreeText(FreeTextState {
+            entries: vec!["subjective body".to_string()],
+            edit_buf: String::new(),
+            mode: FreeTextMode::Browsing,
+            cursor: 0,
+            completed: true,
+            skipped: false,
+        });
+        app.sync_section_into_editable_note(0);
+        app.section_states[1] = SectionState::FreeText(FreeTextState {
+            entries: vec!["objective body".to_string()],
+            edit_buf: String::new(),
+            mode: FreeTextMode::Browsing,
+            cursor: 0,
+            completed: true,
+            skipped: false,
+        });
+        app.sync_section_into_editable_note(1);
+
+        app.current_idx = 0;
+        app.map_cursor = 1;
+        app.focus = Focus::Map;
+        app.update_note_scroll();
+
+        let preview = crate::document::export_editable_document(&app.editable_note);
+        let objective_line = find_line_containing(&preview, "#### OBJECTIVE").unwrap();
+        let subjective_line = find_line_containing(&preview, "#### SUBJECTIVE").unwrap();
+
+        assert_eq!(app.current_preview_scroll_line(), objective_line);
+        assert_ne!(app.current_preview_scroll_line(), subjective_line);
     }
 }

@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::data::{CompositeConfig, CompositePart, HeaderFieldConfig};
+use std::collections::HashMap;
 
 /// The resolved value for a single multi_field field.
 #[derive(Debug, Clone)]

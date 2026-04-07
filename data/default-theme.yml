@@ -1,0 +1,61 @@
+
+# Reusable names for theme-specific colors. Values can be RRGGBB, RRGGBBAA,
+# #RRGGBB, #RRGGBBAA, built-in color names, or another custom color name.
+custom_colors:
+  shadowy-blue: 1F3B4D
+  night-blue: 0F1217
+  pane-blue: 141821
+  modal-blue: 061016
+  rail-blue: 1A2A35
+  scroller-blue: 375A6F
+  bright-blue: 4FB3D9
+  bright-cyan: 7FD7FF
+  dark-magenta: fc027f
+
+# Text and semantic roles
+text: "#E6E6E6"
+active: "#FFFF00"
+active_preview: "#FFA500"
+selected: "#00FF00"
+selected_dark: "#00A000"
+hint: "#FF00FF"
+hint_prefix: "bright-cyan" #"#00FFFF"
+modal: "white" #"#00FFFF"
+muted: "#555555"
+error: "#FF0000"
+displaced: "#FF0000"
+
+# Container/background roles supported by iced containers
+background: night-blue
+pane_background: pane-blue
+pane_active_background: pane-blue
+pane_inactive_background: night-blue
+pane_active_border: bright-blue
+pane_inactive_border: #shadowy-blue
+pane_border_width: 2.0
+pane_buffer_width: 8.0
+modal_background: #modal-blue
+modal_panel_background: modal-blue
+modal_item_background:
+modal_item_hovered_background: rail-blue
+modal_text: "#E6E6E6"
+modal_selected_text: "#00FF00"
+modal_muted_text: "#555555"
+modal_hint_text: "#FF00FF"
+modal_input_background: night-blue
+modal_input_text: "#E6E6E6"
+modal_input_placeholder: "#555555"
+modal_input_border: "#00FFFF"
+status_background: "#0A0D12"
+
+# Scrollbar roles supported by iced scrollables
+scroll_rail: #rail-blue
+scroll_scroller: scroller-blue
+scroll_rail_hovered: #shadowy-blue
+scroll_scroller_hovered: bright-blue
+scroll_rail_dragged: #scroller-blue
+scroll_scroller_dragged: bright-cyan
+scroll_gap: night-blue
+scroll_border_width: 1.0
+scroll_width: 10.0
+scroll_spacing: 6.0

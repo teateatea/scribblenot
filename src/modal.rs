@@ -37,7 +37,12 @@ pub enum CompositeAdvance {
 }
 
 impl SearchModal {
-    pub fn new_simple(field_idx: usize, field_id: String, entries: Vec<String>, window_size: usize) -> Self {
+    pub fn new_simple(
+        field_idx: usize,
+        field_id: String,
+        entries: Vec<String>,
+        window_size: usize,
+    ) -> Self {
         let n = entries.len();
         Self {
             field_idx,
@@ -63,8 +68,16 @@ impl SearchModal {
         window_size: usize,
     ) -> Self {
         let first_part = &config.parts[0];
-        let labels: Vec<String> = first_part.options.iter().map(|o| o.label().to_string()).collect();
-        let outputs: Vec<String> = first_part.options.iter().map(|o| o.output().to_string()).collect();
+        let labels: Vec<String> = first_part
+            .options
+            .iter()
+            .map(|o| o.label().to_string())
+            .collect();
+        let outputs: Vec<String> = first_part
+            .options
+            .iter()
+            .map(|o| o.output().to_string())
+            .collect();
         let n = labels.len();
         let list_cursor = if first_part.sticky {
             let key = format!("{}.{}", field_id, first_part.id);
@@ -191,8 +204,16 @@ impl SearchModal {
             }
 
             let next_part = &comp.config.parts[comp.part_idx];
-            let next_labels: Vec<String> = next_part.options.iter().map(|o| o.label().to_string()).collect();
-            let next_outputs: Vec<String> = next_part.options.iter().map(|o| o.output().to_string()).collect();
+            let next_labels: Vec<String> = next_part
+                .options
+                .iter()
+                .map(|o| o.label().to_string())
+                .collect();
+            let next_outputs: Vec<String> = next_part
+                .options
+                .iter()
+                .map(|o| o.output().to_string())
+                .collect();
             self.query = String::new();
             self.list_cursor = if next_part.sticky {
                 let key = format!("{}.{}", self.field_id, next_part.id);

@@ -63,7 +63,11 @@ mod appkey_conversion_tests {
         assert_eq!(named(Named::ArrowDown), AppKey::Down, "ArrowDown -> Down");
         assert_eq!(named(Named::ArrowUp), AppKey::Up, "ArrowUp -> Up");
         assert_eq!(named(Named::ArrowLeft), AppKey::Left, "ArrowLeft -> Left");
-        assert_eq!(named(Named::ArrowRight), AppKey::Right, "ArrowRight -> Right");
+        assert_eq!(
+            named(Named::ArrowRight),
+            AppKey::Right,
+            "ArrowRight -> Right"
+        );
     }
 
     #[test]

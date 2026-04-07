@@ -10,16 +10,24 @@ pub struct BlockSelectGroup {
 
 impl BlockSelectGroup {
     pub fn from_config(cfg: &HierarchyList) -> Self {
-        let item_selected = cfg.items.iter().map(|e| e.default.unwrap_or(true)).collect();
+        let item_selected = cfg
+            .items
+            .iter()
+            .map(|e| e.default.unwrap_or(false))
+            .collect();
         Self {
             label: cfg.label.clone().unwrap_or_default(),
             header: cfg.label.clone().unwrap_or_default(),
-            entries: cfg.items.iter().map(|item| PartOption::Full {
-                id: item.id.clone(),
-                label: item.label.clone(),
-                output: item.output.clone().unwrap_or_else(|| item.label.clone()),
-                default: item.default.unwrap_or(true),
-            }).collect(),
+            entries: cfg
+                .items
+                .iter()
+                .map(|item| PartOption::Full {
+                    id: item.id.clone(),
+                    label: item.label.clone(),
+                    output: item.output.clone().unwrap_or_else(|| item.label.clone()),
+                    default: item.default.unwrap_or(false),
+                })
+                .collect(),
             item_selected,
         }
     }
@@ -89,9 +97,7 @@ impl BlockSelectState {
             BlockSelectFocus::Items(region_idx) => {
                 let region_idx = *region_idx;
                 if let Some(region) = self.groups.get(region_idx) {
-                    if !region.entries.is_empty()
-                        && self.item_cursor < region.entries.len() - 1
-                    {
+                    if !region.entries.is_empty() && self.item_cursor < region.entries.len() - 1 {
                         self.item_cursor += 1;
                     }
                 }
@@ -161,7 +167,10 @@ mod tests_st3_default_selected {
             output: "alpha".to_string(),
             default: true,
         };
-        assert!(opt.default_selected(), "Full with default=true should return true from default_selected()");
+        assert!(
+            opt.default_selected(),
+            "Full with default=true should return true from default_selected()"
+        );
     }
 
     #[test]
@@ -172,59 +181,113 @@ mod tests_st3_default_selected {
             output: "beta".to_string(),
             default: false,
         };
-        assert!(!opt.default_selected(), "Full with default=false should return false from default_selected()");
+        assert!(
+            !opt.default_selected(),
+            "Full with default=false should return false from default_selected()"
+        );
     }
 
     #[test]
     fn part_option_default_selected_simple() {
         let opt = PartOption::Simple("gamma".to_string());
-        assert!(opt.default_selected(), "Simple variant should always return true from default_selected()");
+        assert!(
+            opt.default_selected(),
+            "Simple variant should always return true from default_selected()"
+        );
     }
 
-    // ST3-TEST-2: BlockSelectGroup::from_config where all entries have default=true (or omitted)
+    // ST3-TEST-2: BlockSelectGroup::from_config where all entries have default=true
     // should initialize item_selected to all true.
     #[test]
     fn region_state_all_default_true_starts_all_selected() {
-        let list = make_hier_list("region_a", "Region A", vec![
-            make_hier_item("opt1", "Option 1", Some(true)),
-            make_hier_item("opt2", "Option 2", Some(true)),
-            make_hier_item("opt3", "Option 3", Some(true)),
-        ]);
+        let list = make_hier_list(
+            "region_a",
+            "Region A",
+            vec![
+                make_hier_item("opt1", "Option 1", Some(true)),
+                make_hier_item("opt2", "Option 2", Some(true)),
+                make_hier_item("opt3", "Option 3", Some(true)),
+            ],
+        );
         let state = BlockSelectGroup::from_config(&list);
         assert_eq!(state.item_selected.len(), 3);
-        assert!(state.item_selected[0], "entry 0 with default=true should start selected");
-        assert!(state.item_selected[1], "entry 1 with default=true should start selected");
-        assert!(state.item_selected[2], "entry 2 with default=true should start selected");
+        assert!(
+            state.item_selected[0],
+            "entry 0 with default=true should start selected"
+        );
+        assert!(
+            state.item_selected[1],
+            "entry 1 with default=true should start selected"
+        );
+        assert!(
+            state.item_selected[2],
+            "entry 2 with default=true should start selected"
+        );
+    }
+
+    #[test]
+    fn region_state_omitted_defaults_start_unselected() {
+        let list = make_hier_list(
+            "region_c",
+            "Region C",
+            vec![
+                make_hier_item("opt1", "Option 1", None),
+                make_hier_item("opt2", "Option 2", None),
+            ],
+        );
+        let state = BlockSelectGroup::from_config(&list);
+        assert_eq!(state.item_selected, vec![false, false]);
     }
 
     // ST3-TEST-3: BlockSelectGroup::from_config where one entry has default=false
     // should initialize that entry's slot as false, others as true.
     #[test]
     fn region_state_one_default_false_starts_unselected() {
-        let list = make_hier_list("region_b", "Region B", vec![
-            make_hier_item("opt1", "Option 1", Some(true)),
-            make_hier_item("opt2", "Option 2", Some(false)),
-            make_hier_item("opt3", "Option 3", Some(true)),
-        ]);
+        let list = make_hier_list(
+            "region_b",
+            "Region B",
+            vec![
+                make_hier_item("opt1", "Option 1", Some(true)),
+                make_hier_item("opt2", "Option 2", Some(false)),
+                make_hier_item("opt3", "Option 3", Some(true)),
+            ],
+        );
         let state = BlockSelectGroup::from_config(&list);
         assert_eq!(state.item_selected.len(), 3);
-        assert!(state.item_selected[0], "entry 0 with default=true should start selected");
-        assert!(!state.item_selected[1], "entry 1 with default=false should start unselected");
-        assert!(state.item_selected[2], "entry 2 with default=true should start selected");
+        assert!(
+            state.item_selected[0],
+            "entry 0 with default=true should start selected"
+        );
+        assert!(
+            !state.item_selected[1],
+            "entry 1 with default=false should start unselected"
+        );
+        assert!(
+            state.item_selected[2],
+            "entry 2 with default=true should start selected"
+        );
     }
 
     // ST3-TEST-4: BlockSelectState::new propagates default selection through from_config.
     #[test]
     fn block_select_state_new_propagates_defaults() {
-        let regions = vec![
-            make_hier_list("r1", "R1", vec![
+        let regions = vec![make_hier_list(
+            "r1",
+            "R1",
+            vec![
                 make_hier_item("a", "A", Some(true)),
                 make_hier_item("b", "B", Some(false)),
-            ]),
-        ];
+            ],
+        )];
         let state = BlockSelectState::new(regions);
-        assert!(state.groups[0].item_selected[0], "A (default=true) should start selected");
-        assert!(!state.groups[0].item_selected[1], "B (default=false) should start unselected");
+        assert!(
+            state.groups[0].item_selected[0],
+            "A (default=true) should start selected"
+        );
+        assert!(
+            !state.groups[0].item_selected[1],
+            "B (default=false) should start unselected"
+        );
     }
 }
 
@@ -237,13 +300,16 @@ mod tests_t46_st1_rename {
         HierarchyList {
             id: label.to_lowercase().replace(' ', "_"),
             label: Some(label.to_string()),
-            items: opts.iter().map(|s| HierarchyItem {
-                id: s.to_lowercase(),
-                label: s.to_string(),
-                default: None,
-                output: Some(s.to_string()),
-                note: None,
-            }).collect(),
+            items: opts
+                .iter()
+                .map(|s| HierarchyItem {
+                    id: s.to_lowercase(),
+                    label: s.to_string(),
+                    default: None,
+                    output: Some(s.to_string()),
+                    note: None,
+                })
+                .collect(),
         }
     }
 
@@ -353,13 +419,16 @@ mod tests_st2_region_state_entries_field {
         HierarchyList {
             id: label.to_lowercase().replace(' ', "_"),
             label: Some(label.to_string()),
-            items: opts.iter().map(|s| HierarchyItem {
-                id: s.to_lowercase(),
-                label: s.to_string(),
-                default: None,
-                output: Some(s.to_string()),
-                note: None,
-            }).collect(),
+            items: opts
+                .iter()
+                .map(|s| HierarchyItem {
+                    id: s.to_lowercase(),
+                    label: s.to_string(),
+                    default: None,
+                    output: Some(s.to_string()),
+                    note: None,
+                })
+                .collect(),
         }
     }
 

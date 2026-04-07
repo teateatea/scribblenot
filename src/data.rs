@@ -9,8 +9,17 @@ use std::path::PathBuf;
 #[serde(untagged)]
 pub enum PartOption {
     Simple(String),
-    Full { id: String, label: String, output: String, #[serde(default = "default_true")] default: bool },
-    Labeled { label: String, output: String },
+    Full {
+        id: String,
+        label: String,
+        output: String,
+        #[serde(default = "default_true")]
+        default: bool,
+    },
+    Labeled {
+        label: String,
+        output: String,
+    },
 }
 
 impl PartOption {
@@ -34,6 +43,7 @@ impl PartOption {
             _ => None,
         }
     }
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn default_selected(&self) -> bool {
         match self {
             Self::Full { default, .. } => *default,
@@ -42,7 +52,9 @@ impl PartOption {
     }
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompositePart {
@@ -59,11 +71,21 @@ pub struct CompositePart {
 
 impl CompositePart {
     pub fn default_cursor(&self) -> usize {
-        let Some(ref default) = self.default else { return 0; };
-        if let Some(pos) = self.options.iter().position(|o| o.option_id() == Some(default.as_str())) {
+        let Some(ref default) = self.default else {
+            return 0;
+        };
+        if let Some(pos) = self
+            .options
+            .iter()
+            .position(|o| o.option_id() == Some(default.as_str()))
+        {
             return pos;
         }
-        if let Some(pos) = self.options.iter().position(|o| o.label() == default.as_str()) {
+        if let Some(pos) = self
+            .options
+            .iter()
+            .position(|o| o.label() == default.as_str())
+        {
             return pos;
         }
         0
@@ -126,13 +148,6 @@ pub struct ListEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ListFile {
-    entries: Vec<ListEntry>,
-}
-
-
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyBindings {
     pub navigate_down: Vec<String>,
     pub navigate_up: Vec<String>,
@@ -172,7 +187,10 @@ fn default_focus_right() -> Vec<String> {
     vec!["right".to_string(), "i".to_string()]
 }
 fn default_hints() -> Vec<String> {
-    ["1","2","3","4","5","6","7","8","9"].iter().map(|s| s.to_string()).collect()
+    ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 impl Default for KeyBindings {
@@ -186,7 +204,7 @@ impl Default for KeyBindings {
             back: vec!["esc".to_string()],
             swap_panes: vec!["`".to_string(), "\\".to_string()],
             help: vec!["?".to_string()],
-            quit: vec!["q".to_string()],
+            quit: vec!["ctrl+q".to_string()],
             focus_left: default_focus_left(),
             focus_right: default_focus_right(),
             hints: default_hints(),
@@ -211,11 +229,9 @@ pub struct AppData {
 
 impl AppData {
     pub fn load(data_dir: PathBuf) -> Result<Self> {
-        let hf = load_hierarchy_dir(&data_dir)
-            .map_err(|e| anyhow::anyhow!(e))?;
-        let (groups, sections, boilerplate_texts, block_select_data) =
-            hierarchy_to_runtime(hf)
-                .map_err(|e| anyhow::anyhow!(e))?;
+        let hf = load_hierarchy_dir(&data_dir).map_err(|e| anyhow::anyhow!(e))?;
+        let (groups, sections, boilerplate_texts, mut block_select_data) =
+            hierarchy_to_runtime(hf).map_err(|e| anyhow::anyhow!(e))?;
 
         let mut list_data: HashMap<String, Vec<ListEntry>> = HashMap::new();
         let mut checklist_data: HashMap<String, Vec<String>> = HashMap::new();
@@ -233,7 +249,10 @@ impl AppData {
                                 for item in &list.items {
                                     entries.push(ListEntry {
                                         label: item.label.clone(),
-                                        output: item.output.clone().unwrap_or_else(|| item.label.clone()),
+                                        output: item
+                                            .output
+                                            .clone()
+                                            .unwrap_or_else(|| item.label.clone()),
                                     });
                                 }
                             }
@@ -249,6 +268,11 @@ impl AppData {
                             }
                             checklist_data.insert(data_file.clone(), items);
                         }
+                        "block_select" => {
+                            let parsed: HierarchyFile = serde_yaml::from_str(&content)?;
+                            block_select_data
+                                .insert(section.id.clone(), parsed.lists.unwrap_or_default());
+                        }
                         _ => {}
                     }
                 }
@@ -261,7 +285,10 @@ impl AppData {
             match serde_yaml::from_str(&kb_content) {
                 Ok(kb) => kb,
                 Err(e) => {
-                    eprintln!("Warning: keybindings.yml parse error ({}), using defaults", e);
+                    eprintln!(
+                        "Warning: keybindings.yml parse error ({}), using defaults",
+                        e
+                    );
                     KeyBindings::default()
                 }
             }
@@ -287,27 +314,160 @@ impl AppData {
         let path = self.data_dir.join(data_file);
         if path.exists() {
             let content = fs::read_to_string(&path)?;
-            let file: ListFile = serde_yaml::from_str(&content)?;
-            self.list_data.insert(data_file.to_string(), file.entries);
+            let file: HierarchyFile = serde_yaml::from_str(&content)?;
+            self.list_data
+                .insert(data_file.to_string(), list_entries_from_hierarchy(&file));
         }
         Ok(())
     }
 
     pub fn append_list_entry(&mut self, data_file: &str, entry: ListEntry) -> Result<()> {
         let path = self.data_dir.join(data_file);
-        let mut entries = if path.exists() {
+        let mut file = if path.exists() {
             let content = fs::read_to_string(&path)?;
-            let file: ListFile = serde_yaml::from_str(&content)?;
-            file.entries
+            serde_yaml::from_str::<HierarchyFile>(&content)?
         } else {
-            vec![]
+            HierarchyFile::default()
         };
-        entries.push(entry);
-        let file = ListFile { entries };
+
+        let list_id = std::path::Path::new(data_file)
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("custom_entries")
+            .to_string();
+        let lists = file.lists.get_or_insert_with(|| {
+            vec![HierarchyList {
+                id: list_id.clone(),
+                label: None,
+                items: Vec::new(),
+            }]
+        });
+        if lists.is_empty() {
+            lists.push(HierarchyList {
+                id: list_id,
+                label: None,
+                items: Vec::new(),
+            });
+        }
+
+        let target_list = &mut lists[0];
+        let base_id = slugify_id(&entry.label);
+        let mut id = base_id.clone();
+        let mut suffix = 2usize;
+        while target_list.items.iter().any(|item| item.id == id) {
+            id = format!("{base_id}_{suffix}");
+            suffix += 1;
+        }
+        target_list.items.push(HierarchyItem {
+            id,
+            label: entry.label,
+            default: None,
+            output: Some(entry.output),
+            note: None,
+        });
+
         let content = serde_yaml::to_string(&file)?;
         fs::write(&path, content)?;
         self.reload_list(data_file)?;
         Ok(())
+    }
+}
+
+fn list_entries_from_hierarchy(file: &HierarchyFile) -> Vec<ListEntry> {
+    file.lists
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .flat_map(|list| {
+            list.items.iter().map(|item| ListEntry {
+                label: item.label.clone(),
+                output: item.output.clone().unwrap_or_else(|| item.label.clone()),
+            })
+        })
+        .collect()
+}
+
+fn slugify_id(label: &str) -> String {
+    let mut slug = String::new();
+    let mut last_was_separator = false;
+
+    for c in label.chars().flat_map(char::to_lowercase) {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c);
+            last_was_separator = false;
+        } else if !last_was_separator && !slug.is_empty() {
+            slug.push('_');
+            last_was_separator = true;
+        }
+    }
+
+    while slug.ends_with('_') {
+        slug.pop();
+    }
+
+    if slug.is_empty() {
+        "custom_entry".to_string()
+    } else {
+        slug
+    }
+}
+
+#[cfg(test)]
+mod list_persistence_tests {
+    use super::*;
+
+    #[test]
+    fn append_list_entry_preserves_hierarchy_list_format() {
+        let dir = std::env::temp_dir().join(format!(
+            "scribblenot_list_persistence_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp data dir");
+        let data_file = "custom.yml";
+        std::fs::write(
+            dir.join(data_file),
+            concat!(
+                "lists:\n",
+                "  - id: custom\n",
+                "    label: Custom\n",
+                "    items:\n",
+                "      - id: existing\n",
+                "        label: Existing\n",
+                "        output: Existing output\n",
+            ),
+        )
+        .expect("write hierarchy list file");
+
+        let mut data = AppData {
+            groups: Vec::new(),
+            sections: Vec::new(),
+            list_data: HashMap::new(),
+            checklist_data: HashMap::new(),
+            block_select_data: HashMap::new(),
+            boilerplate_texts: HashMap::new(),
+            keybindings: KeyBindings::default(),
+            data_dir: dir.clone(),
+        };
+
+        data.append_list_entry(
+            data_file,
+            ListEntry {
+                label: "My Custom Entry!".to_string(),
+                output: "Custom output".to_string(),
+            },
+        )
+        .expect("append hierarchy entry");
+
+        let content = std::fs::read_to_string(dir.join(data_file)).expect("read updated file");
+        assert!(content.contains("lists:"));
+        assert!(!content.contains("entries:"));
+        assert!(content.contains("my_custom_entry"));
+        assert!(data.list_data.get(data_file).is_some_and(|entries| entries
+            .iter()
+            .any(|entry| entry.label == "My Custom Entry!")));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
@@ -337,9 +497,13 @@ pub fn generate_hint_permutations(base: &[String], count_needed: usize) -> Vec<S
                 let j = i + dist;
                 if j < n {
                     result.push(format!("{}{}", base[i], base[j]));
-                    if result.len() >= count_needed { break 'outer; }
+                    if result.len() >= count_needed {
+                        break 'outer;
+                    }
                     result.push(format!("{}{}", base[j], base[i]));
-                    if result.len() >= count_needed { break 'outer; }
+                    if result.len() >= count_needed {
+                        break 'outer;
+                    }
                 }
             }
         }
@@ -357,14 +521,20 @@ pub fn generate_hint_permutations(base: &[String], count_needed: usize) -> Vec<S
                 if dist == 0 {
                     let entry = format!("{}{}", prefix, base[i]);
                     result.push(entry);
-                    if result.len() >= count_needed { break 'r3; }
+                    if result.len() >= count_needed {
+                        break 'r3;
+                    }
                 } else {
                     let j = i + dist;
                     if j < n {
                         result.push(format!("{}{}", prefix, base[i]));
-                        if result.len() >= count_needed { break 'r3; }
+                        if result.len() >= count_needed {
+                            break 'r3;
+                        }
                         result.push(format!("{}{}", prefix, base[j]));
-                        if result.len() >= count_needed { break 'r3; }
+                        if result.len() >= count_needed {
+                            break 'r3;
+                        }
                     }
                 }
             }
@@ -394,9 +564,42 @@ pub fn ensure_hint_permutations(kb: &mut KeyBindings) {
 /// Returns a combined ordered slice of all hints followed by all hint_permutations.
 /// Use this wherever hints are assigned to groups, sections, fields, or modal rows.
 pub fn combined_hints(kb: &KeyBindings) -> Vec<&str> {
-    kb.hints.iter().map(String::as_str)
+    kb.hints
+        .iter()
+        .map(String::as_str)
         .chain(kb.hint_permutations.iter().map(String::as_str))
         .collect()
+}
+
+/// Returns `count_needed` hint labels, all using the same chord length.
+///
+/// This avoids prefix collisions inside one simultaneous hint scope. For example, if the
+/// base hints include `w`, a scope that needs enough labels to use `ww` should not also
+/// use plain `w`, because `w` would resolve before `ww` can be typed.
+pub fn generate_fixed_length_hints(base: &[String], count_needed: usize) -> Vec<String> {
+    if base.is_empty() || count_needed == 0 {
+        return Vec::new();
+    }
+
+    let mut chord_len = 1usize;
+    let mut capacity = base.len();
+    while capacity < count_needed {
+        chord_len += 1;
+        capacity = capacity.saturating_mul(base.len());
+    }
+
+    let mut labels = Vec::with_capacity(count_needed);
+    for ordinal in 0..count_needed {
+        let mut value = ordinal;
+        let mut parts = vec![String::new(); chord_len];
+        for slot in (0..chord_len).rev() {
+            let idx = value % base.len();
+            value /= base.len();
+            parts[slot] = base[idx].clone();
+        }
+        labels.push(parts.concat());
+    }
+    labels
 }
 
 #[cfg(test)]
@@ -409,7 +612,10 @@ mod part_option_default_tests {
         let parsed: PartOption = serde_yaml::from_str(yaml).expect("deserialize failed");
         match parsed {
             PartOption::Full { default, .. } => {
-                assert!(default, "expected default == true when `default:` key is absent");
+                assert!(
+                    default,
+                    "expected default == true when `default:` key is absent"
+                );
             }
             other => panic!("expected PartOption::Full, got {:?}", other),
         }
@@ -421,7 +627,10 @@ mod part_option_default_tests {
         let parsed: PartOption = serde_yaml::from_str(yaml).expect("deserialize failed");
         match parsed {
             PartOption::Full { default, .. } => {
-                assert!(!default, "expected default == false when `default: false` is set");
+                assert!(
+                    !default,
+                    "expected default == false when `default: false` is set"
+                );
             }
             other => panic!("expected PartOption::Full, got {:?}", other),
         }
@@ -497,7 +706,7 @@ pub fn filter_hints_by_prefix(hints: &[&str], prefix: &str) -> Vec<usize> {
 /// - `NoMatch`   - no hint starts with `typed`
 /// - `Exact(i)`  - exactly one hint starts with `typed` AND equals `typed` in full
 /// - `Partial(v)`- one or more hints share the prefix but none is an exact full match,
-///                 or more than one match exists
+///   or more than one match exists
 pub fn resolve_hint(hints: &[&str], typed: &str) -> HintResolveResult {
     let matches = filter_hints_by_prefix(hints, typed);
     match matches.as_slice() {
@@ -524,14 +733,18 @@ pub enum TypeTag {
 pub struct HierarchyItem {
     pub id: String,
     pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HierarchyList {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     pub items: Vec<HierarchyItem>,
 }
@@ -588,22 +801,36 @@ pub struct BoilerplateEntry {
     pub text: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HierarchyFile {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub template: Option<HierarchyTemplate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub groups: Option<Vec<HierarchyGroup>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sections: Option<Vec<HierarchySection>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub fields: Option<Vec<HierarchyField>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub lists: Option<Vec<HierarchyList>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Vec<HierarchyItem>>,
     #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub boilerplate: Vec<BoilerplateEntry>,
 }
 
 /// Converts a merged HierarchyFile into runtime structures.
 ///
 /// Returns (groups, sections, boilerplate_texts, block_select_data).
-pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<(Vec<SectionGroup>, Vec<SectionConfig>, HashMap<String, String>, HashMap<String, Vec<HierarchyList>>), String> {
+pub type RuntimeHierarchy = (
+    Vec<SectionGroup>,
+    Vec<SectionConfig>,
+    HashMap<String, String>,
+    HashMap<String, Vec<HierarchyList>>,
+);
+
+pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, String> {
     let h_sections = hf.sections.as_deref().unwrap_or(&[]);
     let h_groups = hf.groups.as_deref().unwrap_or(&[]);
 
@@ -618,14 +845,17 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<(Vec<SectionGroup>, Vec
             for sec_id in &hg.sections {
                 if let Some(hs) = h_sections.iter().find(|s| &s.id == sec_id) {
                     let fields = hs.fields.as_ref().map(|hfields| {
-                        hfields.iter().map(|hf| HeaderFieldConfig {
-                            id: hf.id.clone(),
-                            name: hf.label.clone(),
-                            options: hf.options.clone(),
-                            composite: hf.composite.clone(),
-                            default: hf.default.clone(),
-                            repeat_limit: hf.repeat_limit,
-                        }).collect()
+                        hfields
+                            .iter()
+                            .map(|hf| HeaderFieldConfig {
+                                id: hf.id.clone(),
+                                name: hf.label.clone(),
+                                options: hf.options.clone(),
+                                composite: hf.composite.clone(),
+                                default: hf.default.clone(),
+                                repeat_limit: hf.repeat_limit,
+                            })
+                            .collect()
                     });
                     let sc = SectionConfig {
                         id: hs.id.clone(),
@@ -679,8 +909,8 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<(Vec<SectionGroup>, Vec
 
 pub fn load_hierarchy_dir(dir: &std::path::Path) -> Result<HierarchyFile, String> {
     // --- Phase 1: scan and parse ---
-    let entries = fs::read_dir(dir)
-        .map_err(|e| format!("failed to read directory {:?}: {}", dir, e))?;
+    let entries =
+        fs::read_dir(dir).map_err(|e| format!("failed to read directory {:?}: {}", dir, e))?;
 
     let mut merged = HierarchyFile {
         template: None,
@@ -696,10 +926,7 @@ pub fn load_hierarchy_dir(dir: &std::path::Path) -> Result<HierarchyFile, String
     for entry in entries {
         let entry = entry.map_err(|e| format!("directory entry error: {}", e))?;
         let file_path = entry.path();
-        let file_name = file_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let file_name = file_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if !file_name.ends_with(".yml") {
             continue;
         }
@@ -739,9 +966,19 @@ pub fn load_hierarchy_dir(dir: &std::path::Path) -> Result<HierarchyFile, String
 
     // --- Phase 2: template cardinality ---
     match template_count {
-        0 => return Err("no template defined: exactly 1 template is required across all hierarchy files".to_string()),
+        0 => {
+            return Err(
+                "no template defined: exactly 1 template is required across all hierarchy files"
+                    .to_string(),
+            )
+        }
         1 => {}
-        n => return Err(format!("multiple templates defined: found {}, expected exactly 1", n)),
+        n => {
+            return Err(format!(
+                "multiple templates defined: found {}, expected exactly 1",
+                n
+            ))
+        }
     }
 
     // --- Phase 3: typed ID uniqueness ---
@@ -781,14 +1018,34 @@ pub fn load_hierarchy_dir(dir: &std::path::Path) -> Result<HierarchyFile, String
 
     // --- Phase 5: cross-reference validation ---
     // Build typed lookup sets for O(1) existence checks
-    let group_ids: HashSet<&str> = merged.groups.as_deref().unwrap_or(&[])
-        .iter().map(|g| g.id.as_str()).collect();
-    let section_ids: HashSet<&str> = merged.sections.as_deref().unwrap_or(&[])
-        .iter().map(|s| s.id.as_str()).collect();
-    let _field_ids: HashSet<&str> = merged.fields.as_deref().unwrap_or(&[])
-        .iter().map(|f| f.id.as_str()).collect();
-    let list_ids: HashSet<&str> = merged.lists.as_deref().unwrap_or(&[])
-        .iter().map(|l| l.id.as_str()).collect();
+    let group_ids: HashSet<&str> = merged
+        .groups
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .map(|g| g.id.as_str())
+        .collect();
+    let section_ids: HashSet<&str> = merged
+        .sections
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .map(|s| s.id.as_str())
+        .collect();
+    let _field_ids: HashSet<&str> = merged
+        .fields
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .map(|f| f.id.as_str())
+        .collect();
+    let list_ids: HashSet<&str> = merged
+        .lists
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .map(|l| l.id.as_str())
+        .collect();
 
     // Template -> group refs
     let template = merged.template.as_ref().unwrap(); // safe: cardinality already checked
@@ -801,7 +1058,10 @@ pub fn load_hierarchy_dir(dir: &std::path::Path) -> Result<HierarchyFile, String
     for g in merged.groups.as_deref().unwrap_or(&[]) {
         for sref in &g.sections {
             if !section_ids.contains(sref.as_str()) {
-                return Err(format!("unresolved section ref '{}' in group '{}'", sref, g.id));
+                return Err(format!(
+                    "unresolved section ref '{}' in group '{}'",
+                    sref, g.id
+                ));
             }
         }
     }
@@ -809,7 +1069,10 @@ pub fn load_hierarchy_dir(dir: &std::path::Path) -> Result<HierarchyFile, String
     for f in merged.fields.as_deref().unwrap_or(&[]) {
         if let Some(ref lid) = f.list_id {
             if !list_ids.contains(lid.as_str()) {
-                return Err(format!("unresolved list_id ref '{}' in field '{}'", lid, f.id));
+                return Err(format!(
+                    "unresolved list_id ref '{}' in field '{}'",
+                    lid, f.id
+                ));
             }
         }
     }
@@ -840,7 +1103,9 @@ pub fn load_hierarchy_dir(dir: &std::path::Path) -> Result<HierarchyFile, String
 
     let mut adj: HashMap<String, Vec<String>> = HashMap::new();
     for g in merged.groups.as_deref().unwrap_or(&[]) {
-        adj.entry(g.id.clone()).or_default().extend(g.sections.iter().cloned());
+        adj.entry(g.id.clone())
+            .or_default()
+            .extend(g.sections.iter().cloned());
     }
     for f in merged.fields.as_deref().unwrap_or(&[]) {
         if let Some(ref lid) = f.list_id {
@@ -892,7 +1157,9 @@ mod tests {
     #[test]
     fn hint_permutations_capped_at_count_needed() {
         let base: Vec<String> = vec!["q", "w", "f", "p"]
-            .into_iter().map(|s| s.to_string()).collect();
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
         let result = generate_hint_permutations(&base, 5);
         assert_eq!(result.len(), 5, "output should be capped at count_needed=5");
     }
@@ -901,14 +1168,24 @@ mod tests {
     #[test]
     fn hint_permutations_r2_from_4_element_base() {
         let base: Vec<String> = vec!["q", "w", "f", "p"]
-            .into_iter().map(|s| s.to_string()).collect();
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
         // Ask for exactly 16 - the full r=2 space
         let result = generate_hint_permutations(&base, 16);
-        assert_eq!(result.len(), 16, "4-element base should yield 16 r=2 permutations");
+        assert_eq!(
+            result.len(),
+            16,
+            "4-element base should yield 16 r=2 permutations"
+        );
         // Every entry should be exactly 2 characters (single-char keys concatenated)
         for entry in result.iter() {
             let entry: &String = entry;
-            assert_eq!(entry.len(), 2, "each r=2 entry should have length 2, got: {entry}");
+            assert_eq!(
+                entry.len(),
+                2,
+                "each r=2 entry should have length 2, got: {entry}"
+            );
         }
     }
 
@@ -918,32 +1195,70 @@ mod tests {
     #[test]
     fn hint_permutations_adjacency_ordering_adjacent_before_distant() {
         let base: Vec<String> = vec!["q", "w", "f", "p"]
-            .into_iter().map(|s| s.to_string()).collect();
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
         let result = generate_hint_permutations(&base, 16);
 
-        let pos_qq = result.iter().position(|s| s == "qq").expect("qq should be present");
-        let pos_qw = result.iter().position(|s| s == "qw").expect("qw should be present");
-        let pos_wq = result.iter().position(|s| s == "wq").expect("wq should be present");
-        let pos_ww = result.iter().position(|s| s == "ww").expect("ww should be present");
-        let pos_qp = result.iter().position(|s| s == "qp").expect("qp should be present");
+        let pos_qq = result
+            .iter()
+            .position(|s| s == "qq")
+            .expect("qq should be present");
+        let pos_qw = result
+            .iter()
+            .position(|s| s == "qw")
+            .expect("qw should be present");
+        let pos_wq = result
+            .iter()
+            .position(|s| s == "wq")
+            .expect("wq should be present");
+        let pos_ww = result
+            .iter()
+            .position(|s| s == "ww")
+            .expect("ww should be present");
+        let pos_qp = result
+            .iter()
+            .position(|s| s == "qp")
+            .expect("qp should be present");
 
-        assert!(pos_qq < pos_qp, "qq (adjacent) should appear before qp (distant)");
-        assert!(pos_qw < pos_qp, "qw (adjacent) should appear before qp (distant)");
-        assert!(pos_wq < pos_qp, "wq (adjacent) should appear before qp (distant)");
-        assert!(pos_ww < pos_qp, "ww (adjacent) should appear before qp (distant)");
+        assert!(
+            pos_qq < pos_qp,
+            "qq (adjacent) should appear before qp (distant)"
+        );
+        assert!(
+            pos_qw < pos_qp,
+            "qw (adjacent) should appear before qp (distant)"
+        );
+        assert!(
+            pos_wq < pos_qp,
+            "wq (adjacent) should appear before qp (distant)"
+        );
+        assert!(
+            pos_ww < pos_qp,
+            "ww (adjacent) should appear before qp (distant)"
+        );
     }
 
     /// When count_needed > base^2 (r=2 space exhausted), r=3 entries must appear to fill the gap.
     #[test]
     fn hint_permutations_r3_fallback_when_r2_not_enough() {
         let base: Vec<String> = vec!["q", "w", "f", "p"]
-            .into_iter().map(|s| s.to_string()).collect();
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect();
         // 4^2=16 r=2 entries; ask for 20 to force r=3 entries
         let result = generate_hint_permutations(&base, 20);
-        assert_eq!(result.len(), 20, "should produce 20 entries when r=3 fallback is needed");
+        assert_eq!(
+            result.len(),
+            20,
+            "should produce 20 entries when r=3 fallback is needed"
+        );
         // At least one entry should have length 3 (an r=3 permutation)
         let has_r3 = result.iter().any(|s: &String| s.len() == 3);
-        assert!(has_r3, "result should contain at least one r=3 entry when count_needed > 4^2");
+        assert!(
+            has_r3,
+            "result should contain at least one r=3 entry when count_needed > 4^2"
+        );
     }
 
     /// KeyBindings must have a hint_permutations field that defaults to empty vec.
@@ -985,7 +1300,10 @@ mod tests {
     #[test]
     fn ensure_hint_permutations_populates_when_empty() {
         let mut kb = KeyBindings::default(); // hint_permutations = []
-        assert!(kb.hint_permutations.is_empty(), "precondition: starts empty");
+        assert!(
+            kb.hint_permutations.is_empty(),
+            "precondition: starts empty"
+        );
         ensure_hint_permutations(&mut kb);
         let expected_count = kb.hints.len() * kb.hints.len();
         assert_eq!(
@@ -1030,8 +1348,7 @@ mod tests {
         // Call again - should not change anything
         ensure_hint_permutations(&mut kb);
         assert_eq!(
-            kb.hint_permutations,
-            populated,
+            kb.hint_permutations, populated,
             "ensure_hint_permutations should be idempotent when already fresh"
         );
     }
@@ -1046,10 +1363,22 @@ mod tests {
         let combined = combined_hints(&kb);
         let n = kb.hints.len();
         for (i, h) in kb.hints.iter().enumerate() {
-            assert_eq!(combined[i], h.as_str(), "combined[{}] should match hints[{}]", i, i);
+            assert_eq!(
+                combined[i],
+                h.as_str(),
+                "combined[{}] should match hints[{}]",
+                i,
+                i
+            );
         }
         for (i, p) in kb.hint_permutations.iter().enumerate() {
-            assert_eq!(combined[n + i], p.as_str(), "combined[{}] should match hint_permutations[{}]", n + i, i);
+            assert_eq!(
+                combined[n + i],
+                p.as_str(),
+                "combined[{}] should match hint_permutations[{}]",
+                n + i,
+                i
+            );
         }
     }
 
@@ -1071,9 +1400,19 @@ mod tests {
     fn combined_hints_empty_permutations() {
         let kb = KeyBindings::default(); // hint_permutations starts empty
         let combined = combined_hints(&kb);
-        assert_eq!(combined.len(), kb.hints.len(), "combined length should equal hints.len() when permutations are empty");
+        assert_eq!(
+            combined.len(),
+            kb.hints.len(),
+            "combined length should equal hints.len() when permutations are empty"
+        );
         for (i, h) in kb.hints.iter().enumerate() {
-            assert_eq!(combined[i], h.as_str(), "combined[{}] should match hints[{}]", i, i);
+            assert_eq!(
+                combined[i],
+                h.as_str(),
+                "combined[{}] should match hints[{}]",
+                i,
+                i
+            );
         }
     }
 
@@ -1087,6 +1426,38 @@ mod tests {
         };
         let combined = combined_hints(&kb);
         assert_eq!(combined, vec!["a", "b", "aa", "ab"]);
+    }
+
+    #[test]
+    fn fixed_length_hints_use_single_chars_when_capacity_is_enough() {
+        let base = vec!["q".to_string(), "w".to_string(), "f".to_string()];
+        let result = generate_fixed_length_hints(&base, 3);
+
+        assert_eq!(result, vec!["q", "w", "f"]);
+    }
+
+    #[test]
+    fn fixed_length_hints_promote_whole_scope_to_two_chars() {
+        let base = vec!["q".to_string(), "w".to_string(), "f".to_string()];
+        let result = generate_fixed_length_hints(&base, 4);
+
+        assert_eq!(result, vec!["qq", "qw", "qf", "wq"]);
+        assert!(
+            result.iter().all(|hint| hint.len() == 2),
+            "all hints in the same active scope should use the same chord length"
+        );
+    }
+
+    #[test]
+    fn fixed_length_hints_can_expand_past_two_chars() {
+        let base = vec!["q".to_string(), "w".to_string()];
+        let result = generate_fixed_length_hints(&base, 9);
+
+        assert_eq!(result.len(), 9);
+        assert!(
+            result.iter().all(|hint| hint.len() == 4),
+            "2 base hints need four-character chords to cover 9 labels"
+        );
     }
 
     // ---- filter_hints_by_prefix / resolve_hint tests (Task #22 sub-task 1) ----
@@ -1343,9 +1714,7 @@ mod tests {
 
     /// Create a unique temp subdirectory under the system temp folder.
     fn make_test_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join("scribblenot_tests")
-            .join(name);
+        let dir = std::env::temp_dir().join("scribblenot_tests").join(name);
         std::fs::create_dir_all(&dir).expect("create test dir");
         dir
     }
@@ -1382,7 +1751,10 @@ mod tests {
         write_yml(&dir, "file_b.yml", "groups:\n  - id: grp_b\n    nav_label: Group B\n    sections: [sec_b]\nsections:\n  - id: sec_a\n    nav_label: Section A\n    section_type: free_text\n  - id: sec_b\n    nav_label: Section B\n    section_type: free_text\n");
         let result = load_hierarchy_dir(&dir);
         cleanup_test_dir(&dir);
-        assert!(result.is_ok(), "merge of two valid hierarchy files should succeed");
+        assert!(
+            result.is_ok(),
+            "merge of two valid hierarchy files should succeed"
+        );
         let hf = result.unwrap();
         let groups = hf.groups.as_ref().unwrap();
         assert_eq!(groups.len(), 2, "should have 2 groups from 2 files");
@@ -1413,7 +1785,11 @@ mod tests {
     fn load_hierarchy_dir_errors_on_duplicate_section_id_across_files() {
         let dir = make_test_dir("hier_dupe_cross_file");
         write_yml(&dir, "alpha.yml", "template:\n  groups: []\nsections:\n  - id: shared_id\n    nav_label: First\n    section_type: free_text\n");
-        write_yml(&dir, "beta.yml", "sections:\n  - id: shared_id\n    nav_label: Second\n    section_type: free_text\n");
+        write_yml(
+            &dir,
+            "beta.yml",
+            "sections:\n  - id: shared_id\n    nav_label: Second\n    section_type: free_text\n",
+        );
         let result = load_hierarchy_dir(&dir);
         cleanup_test_dir(&dir);
         assert!(
@@ -1495,14 +1871,18 @@ mod tests {
                 .expect("CARGO_MANIFEST_DIR must be set when running cargo test"),
         );
         let data_dir = manifest_dir.join("data");
-        assert!(data_dir.exists(), "data directory not found at {:?}", data_dir);
+        assert!(
+            data_dir.exists(),
+            "data directory not found at {:?}",
+            data_dir
+        );
 
         let hf = load_hierarchy_dir(&data_dir)
             .expect("load_hierarchy_dir on real data directory must succeed");
-        let (groups, _, _, _) = hierarchy_to_runtime(hf)
-            .expect("hierarchy_to_runtime must succeed");
+        let (groups, _, _, _) =
+            hierarchy_to_runtime(hf).expect("hierarchy_to_runtime must succeed");
         assert!(
-            groups.len() > 0,
+            !groups.is_empty(),
             "expected groups.len() > 0 after hierarchy_to_runtime, got {}",
             groups.len()
         );
@@ -1516,14 +1896,18 @@ mod tests {
                 .expect("CARGO_MANIFEST_DIR must be set when running cargo test"),
         );
         let data_dir = manifest_dir.join("data");
-        assert!(data_dir.exists(), "data directory not found at {:?}", data_dir);
+        assert!(
+            data_dir.exists(),
+            "data directory not found at {:?}",
+            data_dir
+        );
 
         let hf = load_hierarchy_dir(&data_dir)
             .expect("load_hierarchy_dir on real data directory must succeed");
-        let (_, sections, _, _) = hierarchy_to_runtime(hf)
-            .expect("hierarchy_to_runtime must succeed");
+        let (_, sections, _, _) =
+            hierarchy_to_runtime(hf).expect("hierarchy_to_runtime must succeed");
         assert!(
-            sections.len() > 0,
+            !sections.is_empty(),
             "expected sections.len() > 0 after hierarchy_to_runtime, got {}",
             sections.len()
         );
@@ -1558,9 +1942,7 @@ mod tests {
 
 pub fn find_data_dir() -> PathBuf {
     // Try cwd/data first (development)
-    let cwd_data = std::env::current_dir()
-        .unwrap_or_default()
-        .join("data");
+    let cwd_data = std::env::current_dir().unwrap_or_default().join("data");
     if cwd_data.exists() && cwd_data.is_dir() {
         return cwd_data;
     }
@@ -1585,9 +1967,7 @@ mod boilerplate_load_tests {
     use std::path::{Path, PathBuf};
 
     fn make_bp_test_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join("scribblenot_bp_tests")
-            .join(name);
+        let dir = std::env::temp_dir().join("scribblenot_bp_tests").join(name);
         std::fs::create_dir_all(&dir).expect("create test dir");
         dir
     }
@@ -1622,8 +2002,8 @@ mod boilerplate_load_tests {
         );
         let hf = load_hierarchy_dir(&dir).expect("load_hierarchy_dir should succeed");
         cleanup_bp_test_dir(&dir);
-        let (_, _, boilerplate_texts, _) = hierarchy_to_runtime(hf)
-            .expect("hierarchy_to_runtime should succeed");
+        let (_, _, boilerplate_texts, _) =
+            hierarchy_to_runtime(hf).expect("hierarchy_to_runtime should succeed");
         assert!(
             boilerplate_texts.contains_key("treatment_plan_disclaimer"),
             "boilerplate_texts must contain treatment_plan_disclaimer key"
@@ -1650,8 +2030,8 @@ mod boilerplate_load_tests {
         );
         let hf = load_hierarchy_dir(&dir).expect("load_hierarchy_dir should succeed");
         cleanup_bp_test_dir(&dir);
-        let (_, _, boilerplate_texts, _) = hierarchy_to_runtime(hf)
-            .expect("hierarchy_to_runtime should succeed");
+        let (_, _, boilerplate_texts, _) =
+            hierarchy_to_runtime(hf).expect("hierarchy_to_runtime should succeed");
         assert!(
             boilerplate_texts.contains_key("informed_consent"),
             "boilerplate_texts must contain informed_consent key"
@@ -1710,8 +2090,7 @@ mod header_field_repeat_limit_tests {
         let cfg: HeaderFieldConfig = serde_yaml::from_str(yaml)
             .expect("should deserialize HeaderFieldConfig without repeat_limit");
         assert_eq!(
-            cfg.repeat_limit,
-            None,
+            cfg.repeat_limit, None,
             "repeat_limit should be None when not specified in YAML"
         );
     }
@@ -1963,7 +2342,13 @@ mod tx_mods_multi_field_tests {
         let ids: Vec<&str> = fields.iter().map(|f| f.id.as_str()).collect();
         assert_eq!(
             ids,
-            vec!["pressure", "challenge", "mood", "communication", "modifications"],
+            vec![
+                "pressure",
+                "challenge",
+                "mood",
+                "communication",
+                "modifications"
+            ],
             "tx_mods field IDs must be exactly ['pressure', 'challenge', 'mood', \
              'communication', 'modifications'] in that order; got {:?}",
             ids
@@ -2104,10 +2489,10 @@ mod section_metadata_complete_tests {
     fn all_intake_sections_have_heading_label() {
         let app = load();
         let expected: &[(&str, &str)] = &[
-            ("exercise",    "#### EXERCISE HABITS"),
-            ("sleep_diet",  "#### SLEEP & DIET"),
-            ("social",      "#### SOCIAL & STRESS"),
-            ("history",     "#### HISTORY & PREVIOUS DIAGNOSES"),
+            ("exercise", "#### EXERCISE HABITS"),
+            ("sleep_diet", "#### SLEEP & DIET"),
+            ("social", "#### SOCIAL & STRESS"),
+            ("history", "#### HISTORY & PREVIOUS DIAGNOSES"),
             ("specialists", "#### SPECIALISTS & TREATMENT"),
         ];
         for &(id, label) in expected {
@@ -2118,7 +2503,9 @@ mod section_metadata_complete_tests {
                 "section '{}' must have heading_label == Some({:?}) after sub-task 51.2 \
                  implementation; sections.yml has not been populated for this section yet. \
                  Got: {:?}",
-                id, label, sec.heading_label
+                id,
+                label,
+                sec.heading_label
             );
         }
     }
@@ -2129,11 +2516,11 @@ mod section_metadata_complete_tests {
     fn all_sections_with_search_text_are_set() {
         let app = load();
         let expected: &[(&str, &str)] = &[
-            ("adl",               "ACTIVITIES OF DAILY LIVING"),
-            ("exercise",          "EXERCISE HABITS"),
-            ("tx_regions",        "TREATMENT / PLAN"),
+            ("adl", "ACTIVITIES OF DAILY LIVING"),
+            ("exercise", "EXERCISE HABITS"),
+            ("tx_regions", "TREATMENT / PLAN"),
             ("objective_section", "## OBJECTIVE / OBSERVATIONS"),
-            ("post_treatment",    "## POST-TREATMENT"),
+            ("post_treatment", "## POST-TREATMENT"),
         ];
         for &(id, text) in expected {
             let sec = find_section(&app, id);
@@ -2143,7 +2530,9 @@ mod section_metadata_complete_tests {
                 "section '{}' must have heading_search_text == Some({:?}) after sub-task 51.2 \
                  implementation; sections.yml has not been populated for this section yet. \
                  Got: {:?}",
-                id, text, sec.heading_search_text
+                id,
+                text,
+                sec.heading_search_text
             );
         }
     }
@@ -2155,14 +2544,14 @@ mod section_metadata_complete_tests {
     fn remaining_sections_have_note_render_slot() {
         let app = load();
         let expected: &[(&str, &str)] = &[
-            ("header",                   "header"),
-            ("subjective_section",       "subjective_section"),
-            ("tx_regions",               "tx_regions"),
-            ("objective_section",        "objective_section"),
-            ("post_treatment",           "post_treatment"),
-            ("remedial_section",         "remedial_section"),
-            ("tx_plan",                  "tx_plan"),
-            ("infection_control_section","infection_control_section"),
+            ("header", "header"),
+            ("subjective_section", "subjective_section"),
+            ("tx_regions", "tx_regions"),
+            ("objective_section", "objective_section"),
+            ("post_treatment", "post_treatment"),
+            ("remedial_section", "remedial_section"),
+            ("tx_plan", "tx_plan"),
+            ("infection_control_section", "infection_control_section"),
         ];
         for &(id, slot) in expected {
             let sec = find_section(&app, id);
@@ -2172,7 +2561,9 @@ mod section_metadata_complete_tests {
                 "section '{}' must have note_render_slot == Some({:?}) after sub-task 51.2 \
                  implementation; sections.yml has not been populated for this section yet. \
                  Got: {:?}",
-                id, slot, sec.note_render_slot
+                id,
+                slot,
+                sec.note_render_slot
             );
         }
     }
@@ -2195,9 +2586,18 @@ mod hierarchy_struct_tests {
             .expect("HierarchyItem must deserialize from YAML with id and label");
         assert_eq!(item.id, "opt_a");
         assert_eq!(item.label, "Option A");
-        assert!(item.default.is_none(), "default should be None when not specified");
-        assert!(item.output.is_none(), "output should be None when not specified");
-        assert!(item.note.is_none(), "note should be None when not specified");
+        assert!(
+            item.default.is_none(),
+            "default should be None when not specified"
+        );
+        assert!(
+            item.output.is_none(),
+            "output should be None when not specified"
+        );
+        assert!(
+            item.note.is_none(),
+            "note should be None when not specified"
+        );
     }
 
     // ST70-1-TEST-2: HierarchyItem deserializes with all optional fields present.
@@ -2233,8 +2633,9 @@ mod hierarchy_struct_tests {
     #[test]
     fn hierarchy_field_deserializes() {
         let yaml = "id: f1\nlabel: Field One\nfield_type: select\noptions:\n  - alpha\n  - beta\n";
-        let field: HierarchyField = serde_yaml::from_str(yaml)
-            .expect("HierarchyField must deserialize from YAML with id, label, field_type, options");
+        let field: HierarchyField = serde_yaml::from_str(yaml).expect(
+            "HierarchyField must deserialize from YAML with id, label, field_type, options",
+        );
         assert_eq!(field.id, "f1");
         assert_eq!(field.label, "Field One");
         assert_eq!(field.field_type, "select");
@@ -2247,7 +2648,8 @@ mod hierarchy_struct_tests {
     // FAILS because HierarchyField does not exist yet.
     #[test]
     fn hierarchy_field_deserializes_with_list_id_and_data_file() {
-        let yaml = "id: f2\nlabel: Field Two\nfield_type: list\nlist_id: my_list\ndata_file: data.yml\n";
+        let yaml =
+            "id: f2\nlabel: Field Two\nfield_type: list\nlist_id: my_list\ndata_file: data.yml\n";
         let field: HierarchyField = serde_yaml::from_str(yaml)
             .expect("HierarchyField must deserialize from YAML with list_id and data_file");
         assert_eq!(field.id, "f2");
@@ -2270,8 +2672,8 @@ mod hierarchy_struct_tests {
             "    label: Field One\n",
             "    field_type: select\n",
         );
-        let section: HierarchySection = serde_yaml::from_str(yaml)
-            .expect("HierarchySection must deserialize from YAML");
+        let section: HierarchySection =
+            serde_yaml::from_str(yaml).expect("HierarchySection must deserialize from YAML");
         assert_eq!(section.id, "sec1");
         assert_eq!(section.nav_label, "Section One");
         assert_eq!(section.map_label, "SEC 1");
@@ -2287,11 +2689,14 @@ mod hierarchy_struct_tests {
     #[test]
     fn hierarchy_group_deserializes() {
         let yaml = "id: grp1\nnav_label: Group One\nsections:\n  - sec_a\n  - sec_b\n";
-        let group: HierarchyGroup = serde_yaml::from_str(yaml)
-            .expect("HierarchyGroup must deserialize from YAML");
+        let group: HierarchyGroup =
+            serde_yaml::from_str(yaml).expect("HierarchyGroup must deserialize from YAML");
         assert_eq!(group.id, "grp1");
         assert_eq!(group.nav_label, "Group One");
-        assert_eq!(group.sections, vec!["sec_a".to_string(), "sec_b".to_string()]);
+        assert_eq!(
+            group.sections,
+            vec!["sec_a".to_string(), "sec_b".to_string()]
+        );
     }
 
     // ST70-1-TEST-8: HierarchyTemplate deserializes with groups (Vec<String> IDs).
@@ -2299,9 +2704,12 @@ mod hierarchy_struct_tests {
     #[test]
     fn hierarchy_template_deserializes() {
         let yaml = "groups:\n  - grp1\n  - grp2\n";
-        let template: HierarchyTemplate = serde_yaml::from_str(yaml)
-            .expect("HierarchyTemplate must deserialize from YAML");
-        assert_eq!(template.groups, vec!["grp1".to_string(), "grp2".to_string()]);
+        let template: HierarchyTemplate =
+            serde_yaml::from_str(yaml).expect("HierarchyTemplate must deserialize from YAML");
+        assert_eq!(
+            template.groups,
+            vec!["grp1".to_string(), "grp2".to_string()]
+        );
     }
 
     // ST70-1-TEST-9: HierarchyFile (top-level container) deserializes with optional
@@ -2456,16 +2864,8 @@ mod hierarchy_loader_tests {
     #[test]
     fn load_hierarchy_dir_errors_when_two_templates() {
         let dir = make_hier_test_dir("two_templates");
-        write_hier_yml(
-            &dir,
-            "file_a.yml",
-            "template:\n  groups:\n    - grp1\n",
-        );
-        write_hier_yml(
-            &dir,
-            "file_b.yml",
-            "template:\n  groups:\n    - grp2\n",
-        );
+        write_hier_yml(&dir, "file_a.yml", "template:\n  groups:\n    - grp1\n");
+        write_hier_yml(&dir, "file_b.yml", "template:\n  groups:\n    - grp2\n");
         let result = load_hierarchy_dir(&dir);
         cleanup_hier_test_dir(&dir);
         assert!(
@@ -2551,7 +2951,9 @@ mod hierarchy_loader_tests {
         );
         let msg = result.unwrap_err();
         assert!(
-            msg.contains("sec_nonexistent") || msg.to_lowercase().contains("missing") || msg.to_lowercase().contains("not found"),
+            msg.contains("sec_nonexistent")
+                || msg.to_lowercase().contains("missing")
+                || msg.to_lowercase().contains("not found"),
             "error message must mention 'sec_nonexistent' or 'missing'/'not found', got: {:?}",
             msg
         );
@@ -2591,7 +2993,9 @@ mod hierarchy_loader_tests {
         );
         let msg = result.unwrap_err();
         assert!(
-            msg.contains("bp1") || msg.to_lowercase().contains("duplicate") || msg.to_lowercase().contains("boilerplate"),
+            msg.contains("bp1")
+                || msg.to_lowercase().contains("duplicate")
+                || msg.to_lowercase().contains("boilerplate"),
             "error message must mention 'bp1', 'duplicate', or 'boilerplate', got: {:?}",
             msg
         );
@@ -2662,6 +3066,29 @@ mod hierarchy_runtime_tests {
         );
     }
 
+    #[test]
+    fn app_data_load_scopes_tx_regions_block_select_to_tx_regions_file() {
+        let dir = data_dir();
+        let data = AppData::load(dir).expect("real data must load");
+        let lists = data
+            .block_select_data
+            .get("tx_regions")
+            .expect("tx_regions block_select data must be loaded");
+
+        assert!(
+            lists.iter().any(|list| list.id == "back_all_prone"),
+            "tx_regions data should include tx_regions.yml treatment lists"
+        );
+        assert!(
+            !lists.iter().any(|list| list.id == "infection_control"),
+            "tx_regions block_select data must not include infection_control.yml lists"
+        );
+        assert!(
+            !lists.iter().any(|list| list.id == "day_numbers_list"),
+            "tx_regions block_select data must not include date header lists"
+        );
+    }
+
     // ST70-4-TEST-3: The SectionConfig for "objective_section" produced by
     // hierarchy_to_runtime must have date_prefix == Some(true).
     // This verifies Key Decision 2: date_prefix is carried through the shim unchanged.
@@ -2673,10 +3100,8 @@ mod hierarchy_runtime_tests {
             .expect("load_hierarchy_dir on real data directory must succeed");
         let (groups, _, _, _block_select_data) = hierarchy_to_runtime(hf)
             .expect("hierarchy_to_runtime must succeed on valid HierarchyFile");
-        let all_sections: Vec<&SectionConfig> = groups
-            .iter()
-            .flat_map(|g| g.sections.iter())
-            .collect();
+        let all_sections: Vec<&SectionConfig> =
+            groups.iter().flat_map(|g| g.sections.iter()).collect();
         let objective = all_sections
             .iter()
             .find(|s| s.id == "objective_section")

@@ -1,7 +1,8 @@
 pane_layout: default
+theme: default-theme
 sticky_values:
-  date.year: '2026'
-  date.day: '24'
-  date.month: '03'
+  date.year: '2025'
+  date.month: '05'
+  date.day: '08'
 hint_labels_capitalized: true
 hint_labels_case_sensitive: false
