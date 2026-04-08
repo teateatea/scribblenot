@@ -67,6 +67,8 @@ espanso/match/RMT.yml - Espanso top-level RMT match file: note headings, appoint
 
 example-note.md - Sample completed clinical note showing the full rendered output format for all sections
 
+operations/plans/PLAN-74-full-cutover-typed-contains.md - Full-cutover plan for replacing section-centric hierarchy assumptions with typed contains refs, first-class collections, structural note traversal, and explicit runtime ownership
+
 pathfinder/MISSION-LOG-1-super-confirm-cleanup.md - Mission log for mission 1 (super-confirm-cleanup): task status, permission events, casualties
 
 pathfinder/MISSION-LOG-2-pathfinder-skill-fixes.md - Mission log for mission 2 (pathfinder-skill-fixes): task status, permission events, casualties
@@ -100,7 +102,8 @@ src/modal.rs - SearchModal and CompositeModal: filterable list picker with searc
 src/note.rs - Note renderer: render_note() assembles all section states into the final markdown note string with correct headings and separators
   also: section_start_line() for scroll-to-section; header date/time formatters
 
-src/sections/block_select.rs - BlockSelectState and RegionState: per-region technique toggle state for the treatment regions section
+src/sections/block_select.rs - Legacy nested toggle state used by older treatment-region flows
+src/sections/collection.rs - CollectionState: top-level collection toggles with remembered inner item defaults and resets for treatment regions
 
 src/sections/checklist.rs - ChecklistState: toggle-based checklist (defaults all checked) for infection control section
 
@@ -110,7 +113,7 @@ src/sections/header.rs - HeaderState: multi-field header entry (date, time, dura
 
 src/sections/list_select.rs - ListSelectState: scrollable list with multi-select and inline add-new-entry capability for tx_mods, objective, remedial sections
 
-src/sections/mod.rs - Sections module declarations: header, free_text, list_select, block_select, checklist
+src/sections/mod.rs - Sections module declarations: header, free_text, list_select, block_select, collection, checklist
 
 src/theme.rs - Semantic color palette constants (ACTIVE, SELECTED, HINT, MODAL, MUTED, ERROR, DISPLACED) and composed ratatui Style helper functions
 
