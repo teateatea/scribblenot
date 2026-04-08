@@ -533,4 +533,4 @@ E) **[priority-order-inversion]**: All M6 tasks entered the queue at P:99 with n
 - Min/D: 0.72 min/D (407 min / D:569)
 - Min/C: 0.42 min/C (407 min / C:968)
 - Min/U: 0.56 min/U (407 min / U:732)
-- Context at finish:
+- Context at finish: 48%

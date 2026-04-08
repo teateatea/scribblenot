@@ -650,7 +650,7 @@ fn render_block_select(state: &SectionState) -> String {
                 .enumerate()
                 .filter(|(_, &sel)| sel)
                 .filter_map(|(i, _)| region_state.entries.get(i))
-                .map(|t| t.output().to_string())
+                .map(|t| t.output.clone().unwrap_or_else(|| t.label.clone()))
                 .collect();
             if !selected.is_empty() {
                 let mut region_text = region_state.header.clone();
@@ -784,17 +784,20 @@ fn format_header_generic_preview(
         if cfg.repeat_limit.is_some() {
             // Emit one line per confirmed value in order
             if slot.is_empty() {
-                lines.push(format!("{}: --", cfg.name));
+                lines.push("--".to_string());
             } else {
                 for entry in slot {
+                    if entry.trim().is_empty() {
+                        continue;
+                    }
                     let resolved = resolve_multifield_value(entry.as_str(), cfg, sticky_values);
-                    lines.push(format!("{}: {}", cfg.name, resolved.preview_str()));
+                    lines.push(resolved.preview_str().to_string());
                 }
             }
         } else {
             let confirmed = slot.first().map(|s| s.as_str()).unwrap_or("");
             let resolved = resolve_multifield_value(confirmed, cfg, sticky_values);
-            lines.push(format!("{}: {}", cfg.name, resolved.preview_str()));
+            lines.push(resolved.preview_str().to_string());
         }
     }
     lines.join("\n")
@@ -817,6 +820,9 @@ fn format_header_generic_export(
             .unwrap_or(&[]);
         if cfg.repeat_limit.is_some() {
             for entry in slot {
+                if entry.trim().is_empty() {
+                    continue;
+                }
                 let resolved = resolve_multifield_value(entry.as_str(), cfg, sticky_values);
                 if let Some(val) = resolved.export_value() {
                     lines.push(val.to_string());

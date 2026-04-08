@@ -6,106 +6,15 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum PartOption {
-    Simple(String),
-    Full {
-        id: String,
-        label: String,
-        output: String,
-        #[serde(default = "default_true")]
-        default: bool,
-    },
-    Labeled {
-        label: String,
-        output: String,
-    },
-}
-
-impl PartOption {
-    pub fn label(&self) -> &str {
-        match self {
-            Self::Simple(s) => s,
-            Self::Full { label, .. } => label,
-            Self::Labeled { label, .. } => label,
-        }
-    }
-    pub fn output(&self) -> &str {
-        match self {
-            Self::Simple(s) => s,
-            Self::Full { output, .. } => output,
-            Self::Labeled { output, .. } => output,
-        }
-    }
-    pub fn option_id(&self) -> Option<&str> {
-        match self {
-            Self::Full { id, .. } => Some(id.as_str()),
-            _ => None,
-        }
-    }
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn default_selected(&self) -> bool {
-        match self {
-            Self::Full { default, .. } => *default,
-            _ => true,
-        }
-    }
-}
-
-fn default_true() -> bool {
-    true
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompositePart {
-    pub id: String,
-    pub label: String,
-    pub preview: Option<String>,
-    #[serde(default)]
-    pub options: Vec<PartOption>,
-    pub data_file: Option<String>,
-    #[serde(default)]
-    pub sticky: bool,
-    pub default: Option<String>,
-}
-
-impl CompositePart {
-    pub fn default_cursor(&self) -> usize {
-        let Some(ref default) = self.default else {
-            return 0;
-        };
-        if let Some(pos) = self
-            .options
-            .iter()
-            .position(|o| o.option_id() == Some(default.as_str()))
-        {
-            return pos;
-        }
-        if let Some(pos) = self
-            .options
-            .iter()
-            .position(|o| o.label() == default.as_str())
-        {
-            return pos;
-        }
-        0
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompositeConfig {
-    pub format: String,
-    pub parts: Vec<CompositePart>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeaderFieldConfig {
     pub id: String,
     pub name: String,
     #[serde(default)]
-    pub options: Vec<String>,
-    pub composite: Option<CompositeConfig>,
-    pub default: Option<String>,
+    pub format: Option<String>,
+    #[serde(default)]
+    pub lists: Vec<HierarchyList>,
+    #[serde(default)]
+    pub format_lists: Vec<HierarchyList>,
     #[serde(default)]
     pub repeat_limit: Option<usize>,
 }
@@ -127,9 +36,6 @@ pub struct SectionConfig {
     pub section_type: String,
     pub data_file: Option<String>,
     pub date_prefix: Option<bool>,
-    #[serde(default)]
-    pub options: Vec<String>,
-    pub composite: Option<CompositeConfig>,
     pub fields: Option<Vec<HeaderFieldConfig>>,
     #[serde(default)]
     pub is_intake: bool,
@@ -202,7 +108,7 @@ impl Default for KeyBindings {
             confirm: vec!["enter".to_string(), "t".to_string()],
             add_entry: vec!["a".to_string(), "d".to_string()],
             back: vec!["esc".to_string()],
-            swap_panes: vec!["`".to_string(), "\\".to_string()],
+            swap_panes: vec!["`".to_string()],
             help: vec!["?".to_string()],
             quit: vec!["ctrl+q".to_string()],
             focus_left: default_focus_left(),
@@ -339,6 +245,11 @@ impl AppData {
             vec![HierarchyList {
                 id: list_id.clone(),
                 label: None,
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                repeating: None,
                 items: Vec::new(),
             }]
         });
@@ -346,6 +257,11 @@ impl AppData {
             lists.push(HierarchyList {
                 id: list_id,
                 label: None,
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                repeating: None,
                 items: Vec::new(),
             });
         }
@@ -364,6 +280,8 @@ impl AppData {
             default: None,
             output: Some(entry.output),
             note: None,
+            fields: None,
+            branch_fields: Vec::new(),
         });
 
         let content = serde_yaml::to_string(&file)?;
@@ -677,6 +595,7 @@ mod tx_regions_default_tests {
 /// - If the group exists but has 0 sections, returns the same start index (which equals the
 ///   next group's start, or total section count if it is the last group).
 /// - If `g_idx >= groups.len()`, returns the total section count (past-the-end sentinel).
+#[allow(dead_code)]
 pub fn group_jump_target(groups: &[SectionGroup], g_idx: usize) -> usize {
     if g_idx >= groups.len() {
         return groups.iter().map(|g| g.sections.len()).sum();
@@ -729,8 +648,9 @@ pub enum TypeTag {
     Boilerplate,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HierarchyItem {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub id: String,
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -739,6 +659,111 @@ pub struct HierarchyItem {
     pub output: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fields: Option<Vec<HierarchyFieldRef>>,
+    #[serde(skip)]
+    pub branch_fields: Vec<HeaderFieldConfig>,
+}
+
+impl<'de> Deserialize<'de> for HierarchyItem {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum ItemDef {
+            Text(String),
+            Map {
+                #[serde(default)]
+                id: String,
+                #[serde(default)]
+                label: Option<String>,
+                #[serde(default)]
+                default: Option<bool>,
+                #[serde(default)]
+                output: Option<String>,
+                #[serde(default)]
+                note: Option<String>,
+                #[serde(default)]
+                fields: Option<Vec<HierarchyFieldRef>>,
+            },
+        }
+
+        match ItemDef::deserialize(deserializer)? {
+            ItemDef::Text(label) => Ok(Self {
+                id: String::new(),
+                label,
+                default: None,
+                output: None,
+                note: None,
+                fields: None,
+                branch_fields: Vec::new(),
+            }),
+            ItemDef::Map {
+                id,
+                label,
+                default,
+                output,
+                note,
+                fields,
+            } => {
+                let label = label
+                    .or_else(|| output.clone())
+                    .ok_or_else(|| serde::de::Error::custom("item requires label or output"))?;
+
+                Ok(Self {
+                    id,
+                    label,
+                    default,
+                    output,
+                    note,
+                    fields,
+                    branch_fields: Vec::new(),
+                })
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RepeatJoinStyle {
+    CommaAnd,
+    CommaAndThe,
+    CommaOr,
+    Comma,
+    Semicolon,
+    Slash,
+    Newline,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ModalStart {
+    #[default]
+    List,
+    Search,
+}
+
+fn deserialize_repeating<'de, D>(deserializer: D) -> Result<Option<RepeatJoinStyle>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum RepeatingDef {
+        Bool(bool),
+        Style(RepeatJoinStyle),
+    }
+
+    match Option::<RepeatingDef>::deserialize(deserializer)? {
+        None | Some(RepeatingDef::Bool(false)) => Ok(None),
+        Some(RepeatingDef::Bool(true)) => Err(serde::de::Error::custom(
+            "repeating must be false or one of: comma_and, comma_and_the, comma_or, comma, semicolon, slash, newline",
+        )),
+        Some(RepeatingDef::Style(style)) => Ok(Some(style)),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -746,6 +771,20 @@ pub struct HierarchyList {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    #[serde(default)]
+    pub preview: Option<String>,
+    #[serde(default)]
+    pub sticky: bool,
+    #[serde(default)]
+    pub default: Option<String>,
+    #[serde(default)]
+    pub modal_start: ModalStart,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_repeating",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub repeating: Option<RepeatJoinStyle>,
     pub items: Vec<HierarchyItem>,
 }
 
@@ -753,24 +792,33 @@ pub struct HierarchyList {
 pub struct HierarchyField {
     pub id: String,
     pub label: String,
-    pub field_type: String,
     #[serde(default)]
-    pub options: Vec<String>,
-    pub list_id: Option<String>,
-    pub data_file: Option<String>,
-    pub composite: Option<CompositeConfig>,
-    pub default: Option<String>,
+    pub format: Option<String>,
+    #[serde(default)]
+    pub lists: Option<Vec<String>>,
+    #[serde(default)]
     pub repeat_limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum HierarchyFieldRef {
+    Ref(String),
+    Inline(HierarchyField),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HierarchySection {
     pub id: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
     pub nav_label: String,
     #[serde(default)]
     pub map_label: String,
-    pub section_type: String,
-    pub fields: Option<Vec<HierarchyField>>,
+    #[serde(default)]
+    pub section_type: Option<String>,
+    pub fields: Option<Vec<HierarchyFieldRef>>,
     pub lists: Option<Vec<HierarchyList>>,
     pub date_prefix: Option<bool>,
     pub data_file: Option<String>,
@@ -830,9 +878,117 @@ pub type RuntimeHierarchy = (
     HashMap<String, Vec<HierarchyList>>,
 );
 
+fn format_placeholders(format: &str) -> Vec<String> {
+    let mut placeholders = Vec::new();
+    let mut chars = format.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '{' {
+            continue;
+        }
+        let mut id = String::new();
+        for c2 in chars.by_ref() {
+            if c2 == '}' {
+                break;
+            }
+            id.push(c2);
+        }
+        if !id.is_empty() && !placeholders.contains(&id) {
+            placeholders.push(id);
+        }
+    }
+    placeholders
+}
+
+fn resolve_hierarchy_field(
+    field: &HierarchyField,
+    all_fields: &[HierarchyField],
+    all_lists: &[HierarchyList],
+    depth: usize,
+) -> HeaderFieldConfig {
+    let lists: Vec<HierarchyList> = field
+        .lists
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|list_id| {
+            all_lists
+                .iter()
+                .find(|list| &list.id == list_id)
+                .map(|list| resolve_hierarchy_list(list, all_fields, all_lists, depth + 1))
+        })
+        .collect();
+    let mut format_lists = lists.clone();
+    if let Some(format) = &field.format {
+        for list_id in format_placeholders(format) {
+            if format_lists.iter().any(|list| list.id == list_id) {
+                continue;
+            }
+            if let Some(list) = all_lists.iter().find(|list| list.id == list_id) {
+                format_lists.push(resolve_hierarchy_list(
+                    list,
+                    all_fields,
+                    all_lists,
+                    depth + 1,
+                ));
+            }
+        }
+    }
+
+    HeaderFieldConfig {
+        id: field.id.clone(),
+        name: field.label.clone(),
+        format: field.format.clone(),
+        lists,
+        format_lists,
+        repeat_limit: field.repeat_limit,
+    }
+}
+
+fn resolve_hierarchy_list(
+    list: &HierarchyList,
+    all_fields: &[HierarchyField],
+    all_lists: &[HierarchyList],
+    depth: usize,
+) -> HierarchyList {
+    let mut list = list.clone();
+    if depth
+        > all_fields
+            .len()
+            .saturating_add(all_lists.len())
+            .saturating_add(1)
+    {
+        return list;
+    }
+
+    for item in &mut list.items {
+        item.branch_fields = item
+            .fields
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .filter_map(|field_ref| match field_ref {
+                HierarchyFieldRef::Inline(field) => Some(resolve_hierarchy_field(
+                    field,
+                    all_fields,
+                    all_lists,
+                    depth + 1,
+                )),
+                HierarchyFieldRef::Ref(field_id) => all_fields
+                    .iter()
+                    .find(|field| &field.id == field_id)
+                    .map(|field| resolve_hierarchy_field(field, all_fields, all_lists, depth + 1)),
+            })
+            .collect();
+    }
+
+    list
+}
+
 pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, String> {
     let h_sections = hf.sections.as_deref().unwrap_or(&[]);
     let h_groups = hf.groups.as_deref().unwrap_or(&[]);
+    let h_fields = hf.fields.as_deref().unwrap_or(&[]);
+    let h_lists = hf.lists.as_deref().unwrap_or(&[]);
 
     let mut groups: Vec<SectionGroup> = Vec::new();
     let mut all_sections: Vec<SectionConfig> = Vec::new();
@@ -844,32 +1000,47 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
             let mut group_sections: Vec<SectionConfig> = Vec::new();
             for sec_id in &hg.sections {
                 if let Some(hs) = h_sections.iter().find(|s| &s.id == sec_id) {
-                    let fields = hs.fields.as_ref().map(|hfields| {
+                    let resolved_fields: Option<Vec<HierarchyField>> =
+                        hs.fields.as_ref().map(|hfields| {
+                            hfields
+                                .iter()
+                                .filter_map(|field_ref| match field_ref {
+                                    HierarchyFieldRef::Inline(field) => Some(field.clone()),
+                                    HierarchyFieldRef::Ref(field_id) => {
+                                        h_fields.iter().find(|f| &f.id == field_id).cloned()
+                                    }
+                                })
+                                .collect()
+                        });
+                    let fields = resolved_fields.as_ref().map(|hfields| {
                         hfields
                             .iter()
-                            .map(|hf| HeaderFieldConfig {
-                                id: hf.id.clone(),
-                                name: hf.label.clone(),
-                                options: hf.options.clone(),
-                                composite: hf.composite.clone(),
-                                default: hf.default.clone(),
-                                repeat_limit: hf.repeat_limit,
-                            })
+                            .map(|hf| resolve_hierarchy_field(hf, h_fields, h_lists, 0))
                             .collect()
                     });
+                    let section_type = hs.section_type.clone().unwrap_or_else(|| {
+                        if fields.is_some() {
+                            "multi_field".to_string()
+                        } else {
+                            "free_text".to_string()
+                        }
+                    });
+                    let section_name = if hs.nav_label.is_empty() {
+                        hs.label.clone().unwrap_or_else(|| hs.id.clone())
+                    } else {
+                        hs.nav_label.clone()
+                    };
                     let sc = SectionConfig {
                         id: hs.id.clone(),
-                        name: hs.nav_label.clone(),
+                        name: section_name.clone(),
                         map_label: if hs.map_label.is_empty() {
-                            hs.nav_label.clone()
+                            section_name.clone()
                         } else {
                             hs.map_label.clone()
                         },
-                        section_type: hs.section_type.clone(),
+                        section_type,
                         data_file: hs.data_file.clone(),
                         date_prefix: hs.date_prefix,
-                        options: vec![],
-                        composite: None,
                         fields,
                         is_intake: hs.is_intake,
                         heading_search_text: hs.heading_search_text.clone(),
@@ -899,7 +1070,7 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
     let mut block_select_data: HashMap<String, Vec<HierarchyList>> = HashMap::new();
     let top_lists = hf.lists.clone().unwrap_or_default();
     for hs in h_sections {
-        if hs.section_type == "block_select" {
+        if hs.section_type.as_deref() == Some("block_select") {
             block_select_data.insert(hs.id.clone(), top_lists.clone());
         }
     }
@@ -1032,7 +1203,7 @@ pub fn load_hierarchy_dir(dir: &std::path::Path) -> Result<HierarchyFile, String
         .iter()
         .map(|s| s.id.as_str())
         .collect();
-    let _field_ids: HashSet<&str> = merged
+    let field_ids: HashSet<&str> = merged
         .fields
         .as_deref()
         .unwrap_or(&[])
@@ -1065,14 +1236,93 @@ pub fn load_hierarchy_dir(dir: &std::path::Path) -> Result<HierarchyFile, String
             }
         }
     }
-    // Field -> list_id ref
+    // Section -> field refs
+    for s in merged.sections.as_deref().unwrap_or(&[]) {
+        for field_ref in s.fields.as_deref().unwrap_or(&[]) {
+            match field_ref {
+                HierarchyFieldRef::Ref(fref) => {
+                    if !field_ids.contains(fref.as_str()) {
+                        return Err(format!(
+                            "unresolved field ref '{}' in section '{}'",
+                            fref, s.id
+                        ));
+                    }
+                }
+                HierarchyFieldRef::Inline(field) => {
+                    for lid in field.lists.as_deref().unwrap_or(&[]) {
+                        if !list_ids.contains(lid.as_str()) {
+                            return Err(format!(
+                                "unresolved list ref '{}' in inline field '{}' in section '{}'",
+                                lid, field.id, s.id
+                            ));
+                        }
+                    }
+                    if let Some(format) = &field.format {
+                        for lid in format_placeholders(format) {
+                            if !list_ids.contains(lid.as_str()) {
+                                return Err(format!(
+                                    "unresolved format list ref '{}' in inline field '{}' in section '{}'",
+                                    lid, field.id, s.id
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Field -> lists refs
     for f in merged.fields.as_deref().unwrap_or(&[]) {
-        if let Some(ref lid) = f.list_id {
+        for lid in f.lists.as_deref().unwrap_or(&[]) {
             if !list_ids.contains(lid.as_str()) {
-                return Err(format!(
-                    "unresolved list_id ref '{}' in field '{}'",
-                    lid, f.id
-                ));
+                return Err(format!("unresolved list ref '{}' in field '{}'", lid, f.id));
+            }
+        }
+        if let Some(format) = &f.format {
+            for lid in format_placeholders(format) {
+                if !list_ids.contains(lid.as_str()) {
+                    return Err(format!(
+                        "unresolved format list ref '{}' in field '{}'",
+                        lid, f.id
+                    ));
+                }
+            }
+        }
+    }
+    // List item -> branch field refs
+    for list in merged.lists.as_deref().unwrap_or(&[]) {
+        for item in &list.items {
+            for branch_field_ref in item.fields.as_deref().unwrap_or(&[]) {
+                match branch_field_ref {
+                    HierarchyFieldRef::Ref(fref) => {
+                        if !field_ids.contains(fref.as_str()) {
+                            return Err(format!(
+                                "unresolved branch field ref '{}' in item '{}' in list '{}'",
+                                fref, item.id, list.id
+                            ));
+                        }
+                    }
+                    HierarchyFieldRef::Inline(field) => {
+                        for lid in field.lists.as_deref().unwrap_or(&[]) {
+                            if !list_ids.contains(lid.as_str()) {
+                                return Err(format!(
+                                    "unresolved list ref '{}' in inline branch field '{}' in item '{}' in list '{}'",
+                                    lid, field.id, item.id, list.id
+                                ));
+                            }
+                        }
+                        if let Some(format) = &field.format {
+                            for lid in format_placeholders(format) {
+                                if !list_ids.contains(lid.as_str()) {
+                                    return Err(format!(
+                                        "unresolved format list ref '{}' in inline branch field '{}' in item '{}' in list '{}'",
+                                        lid, field.id, item.id, list.id
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1107,8 +1357,15 @@ pub fn load_hierarchy_dir(dir: &std::path::Path) -> Result<HierarchyFile, String
             .or_default()
             .extend(g.sections.iter().cloned());
     }
+    for s in merged.sections.as_deref().unwrap_or(&[]) {
+        for field_ref in s.fields.as_deref().unwrap_or(&[]) {
+            if let HierarchyFieldRef::Ref(fref) = field_ref {
+                adj.entry(s.id.clone()).or_default().push(fref.clone());
+            }
+        }
+    }
     for f in merged.fields.as_deref().unwrap_or(&[]) {
-        if let Some(ref lid) = f.list_id {
+        for lid in f.lists.as_deref().unwrap_or(&[]) {
             adj.entry(f.id.clone()).or_default().push(lid.clone());
         }
     }
@@ -2576,15 +2833,15 @@ mod section_metadata_complete_tests {
 mod hierarchy_struct_tests {
     use super::*;
 
-    // ST70-1-TEST-1: HierarchyItem deserializes from YAML with required fields (id, label)
-    // and optional fields (default, output, note).
+    // ST70-1-TEST-1: HierarchyItem deserializes from YAML with required label
+    // and optional id, default, output, and note fields.
     // FAILS because HierarchyItem does not exist yet.
     #[test]
     fn hierarchy_item_deserializes_basic() {
-        let yaml = "id: opt_a\nlabel: Option A\n";
+        let yaml = "label: Option A\n";
         let item: HierarchyItem = serde_yaml::from_str(yaml)
-            .expect("HierarchyItem must deserialize from YAML with id and label");
-        assert_eq!(item.id, "opt_a");
+            .expect("HierarchyItem must deserialize from YAML with label and no id");
+        assert_eq!(item.id, "");
         assert_eq!(item.label, "Option A");
         assert!(
             item.default.is_none(),
@@ -2598,6 +2855,24 @@ mod hierarchy_struct_tests {
             item.note.is_none(),
             "note should be None when not specified"
         );
+    }
+
+    #[test]
+    fn hierarchy_item_deserializes_text_item() {
+        let item: HierarchyItem =
+            serde_yaml::from_str("Lateral Thoracic").expect("text item must deserialize");
+        assert_eq!(item.id, "");
+        assert_eq!(item.label, "Lateral Thoracic");
+        assert!(item.output.is_none());
+    }
+
+    #[test]
+    fn hierarchy_item_deserializes_output_only_item() {
+        let item: HierarchyItem = serde_yaml::from_str("output: Output Only\n")
+            .expect("output-only item must deserialize");
+        assert_eq!(item.id, "");
+        assert_eq!(item.label, "Output Only");
+        assert_eq!(item.output, Some("Output Only".to_string()));
     }
 
     // ST70-1-TEST-2: HierarchyItem deserializes with all optional fields present.

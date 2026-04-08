@@ -46,7 +46,19 @@ modal_input_background: night-blue
 modal_input_text: "#E6E6E6"
 modal_input_placeholder: "#555555"
 modal_input_border: "#00FFFF"
+sticky_default_preview: "#80BFD9"
+confirmed_muted_preview: "#4FAF4F"
+preview_copy_flash_background: "#1A592E"
+preview_copy_flash_duration_ms: 650
 status_background: "#0A0D12"
+
+# Font roles. Use installed font family names such as "Fira Code",
+# or generic names: default, sans-serif, serif, monospace.
+font_pane: "Fira Code"
+font_heading: "Fira Code Bold"
+font_preview: "Fira Code"
+font_modal: "Fira Code"
+font_status: "Fira Code Light"
 
 # Scrollbar roles supported by iced scrollables
 scroll_rail: #rail-blue

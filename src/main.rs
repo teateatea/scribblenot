@@ -13,8 +13,8 @@ mod ui;
 use iced::keyboard;
 use iced::time;
 use iced::widget::scrollable;
-use iced::{Element, Subscription, Task};
-use std::time::Duration;
+use iced::{Element, Size, Subscription, Task};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -22,6 +22,7 @@ pub enum Message {
     EditableNoteChanged(String),
     ModalQueryChanged(String),
     ModalSelect(usize),
+    WindowResized(Size),
     Tick,
 }
 
@@ -63,6 +64,9 @@ fn update(state: &mut ScribbleApp, message: Message) -> Task<Message> {
             should_scroll_preview = true;
             should_scroll_active_pane = true;
         }
+        Message::WindowResized(size) => {
+            state.inner.set_viewport_size(size);
+        }
         Message::Tick => {
             state.inner.tick();
         }
@@ -74,6 +78,12 @@ fn update(state: &mut ScribbleApp, message: Message) -> Task<Message> {
         match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(export_text)) {
             Ok(()) => {
                 state.inner.status = Some(app::StatusMsg::success("Copied note to clipboard."));
+                state.inner.copy_flash_until = Some(
+                    Instant::now()
+                        + Duration::from_millis(
+                            state.inner.ui_theme.preview_copy_flash_duration_ms,
+                        ),
+                );
             }
             Err(err) => {
                 state.inner.status = Some(app::StatusMsg::error(format!("Copy failed: {err}")));
@@ -119,10 +129,16 @@ fn view(state: &ScribbleApp) -> Element<'_, Message> {
     ui::view(&state.inner)
 }
 
-fn subscription(_state: &ScribbleApp) -> Subscription<Message> {
+fn subscription(state: &ScribbleApp) -> Subscription<Message> {
     let keys = keyboard::on_key_press(|key, mods| Some(Message::KeyPressed(key, mods)));
-    let tick = time::every(Duration::from_millis(500)).map(|_| Message::Tick);
-    Subscription::batch(vec![keys, tick])
+    let resize = iced::window::resize_events().map(|(_id, size)| Message::WindowResized(size));
+    let tick_interval = if state.inner.copy_flash_until.is_some() {
+        Duration::from_millis(33)
+    } else {
+        Duration::from_millis(500)
+    };
+    let tick = time::every(tick_interval).map(|_| Message::Tick);
+    Subscription::batch(vec![keys, resize, tick])
 }
 
 fn main() -> iced::Result {

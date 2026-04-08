@@ -1,11 +1,12 @@
 use crate::app::{App, Focus, MapHintLevel, SectionState};
-use crate::modal::ModalFocus;
+use crate::modal::{modal_height_for_viewport, ModalFocus};
 use crate::sections::block_select::BlockSelectFocus;
 use crate::sections::free_text::FreeTextMode;
 use crate::sections::list_select::ListSelectMode;
 use crate::Message;
 use iced::widget::{
-    button, column, container, row, scrollable, text, text_input, Scrollable, Stack,
+    button, column, container, rich_text, row, scrollable, span, text, text_input, Scrollable,
+    Space, Stack,
 };
 use iced::{Background, Border, Color};
 use iced::{Element, Length};
@@ -24,8 +25,7 @@ pub fn wizard_scroll_id() -> scrollable::Id {
 
 #[derive(Debug, Clone, Copy)]
 enum HintTarget {
-    Group(usize),
-    Section(usize),
+    Section,
     HeaderField,
 }
 
@@ -43,29 +43,13 @@ fn map_pane(app: &App) -> Element<'_, Message> {
 
     let mut flat_idx = 0usize;
     for (group_idx, group) in app.data.groups.iter().enumerate() {
-        let group_hint = map_labels
-            .groups
-            .get(group_idx)
-            .cloned()
-            .unwrap_or_default();
-        let group_hint = display_hint_label(app, &group_hint);
-        let group_target = HintTarget::Group(group_idx);
-        let group_hint_active = hint_is_active(app, group_target);
-        let group_hint_color = hint_color(app, group_target);
-        let group_color = if group_idx == app.group_idx_for_section(app.current_idx) {
-            app.ui_theme.active
-        } else {
-            app.ui_theme.muted
-        };
-        items.push(hinted_line(
-            "",
-            group_hint,
-            group.name.clone(),
-            group_hint_color,
-            group_hint_active,
-            group_color,
-            app,
-        ));
+        let group_color = app.ui_theme.text;
+        items.push(
+            text(group.name.clone())
+                .font(app.ui_theme.font_pane)
+                .color(group_color)
+                .into(),
+        );
 
         let section_labels = if active_map_group == Some(group_idx) {
             map_labels.sections.clone()
@@ -74,9 +58,7 @@ fn map_pane(app: &App) -> Element<'_, Message> {
         };
         for (group_section_idx, sec) in group.sections.iter().enumerate() {
             let mut label = sec.map_label.clone();
-            if app.section_is_completed(flat_idx) {
-                label.push_str(" [done]");
-            } else if app.section_is_skipped(flat_idx) {
+            if app.section_is_skipped(flat_idx) {
                 label.push_str(" [skip]");
             }
 
@@ -89,12 +71,14 @@ fn map_pane(app: &App) -> Element<'_, Message> {
             };
             let label_color = if flat_idx == app.map_cursor && app.focus == Focus::Map {
                 app.ui_theme.active
+            } else if flat_idx == app.current_idx && app.focus == Focus::Wizard {
+                app.ui_theme.active_preview
             } else if flat_idx == app.current_idx {
                 app.ui_theme.selected
             } else {
                 app.ui_theme.muted
             };
-            let target = HintTarget::Section(flat_idx);
+            let target = HintTarget::Section;
             let active = hint_is_active(app, target);
             let color = hint_color(app, target);
             let hint = section_labels
@@ -143,23 +127,11 @@ fn hint_is_active(app: &App, target: HintTarget) -> bool {
 
     match app.focus {
         Focus::Map => match target {
-            HintTarget::Group(_) => true,
-            HintTarget::Section(flat_idx) => match app.map_hint_level {
-                MapHintLevel::Groups => false,
-                MapHintLevel::Sections(active_group) => {
-                    app.group_idx_for_section(flat_idx) == active_group
-                }
-            },
+            HintTarget::Section => true,
             HintTarget::HeaderField => false,
         },
         Focus::Wizard => match target {
-            HintTarget::Group(group_idx) => {
-                wizard_map_hints_active(app)
-                    && group_idx == app.group_idx_for_section(app.current_idx)
-            }
-            HintTarget::Section(flat_idx) => {
-                wizard_map_hints_active(app) && flat_idx == app.current_idx
-            }
+            HintTarget::Section => wizard_map_hints_active(app),
             HintTarget::HeaderField => matches!(
                 app.section_states.get(app.current_idx),
                 Some(SectionState::Header(_))
@@ -189,12 +161,19 @@ fn hinted_line<'a>(
     app: &'a App,
 ) -> Element<'a, Message> {
     row![
-        text(format!("{marker} ")).color(label_color),
+        marker_cell(marker, label_color, app.ui_theme.font_pane),
         hint_label(app, hint, hint_color, hint_active),
-        text(label).color(label_color),
+        text(label).font(app.ui_theme.font_pane).color(label_color),
     ]
-    .spacing(2)
+    .spacing(0)
     .into()
+}
+
+fn marker_cell(marker: &str, color: Color, font: iced::Font) -> Element<'_, Message> {
+    container(text(marker.to_string()).color(color).font(font))
+        .width(Length::Fixed(14.0))
+        .align_left(Length::Fixed(14.0))
+        .into()
 }
 
 fn hint_label<'a>(
@@ -204,13 +183,21 @@ fn hint_label<'a>(
     hint_active: bool,
 ) -> Element<'a, Message> {
     if !hint_active || app.hint_buffer.is_empty() {
-        return text(format!("{hint:<3}")).color(base_color).into();
+        return fixed_hint_label(
+            text(format!("{hint:<4}"))
+                .font(app.ui_theme.font_pane)
+                .color(base_color),
+        );
     }
 
     let normalized_hint = normalize_hint_for_match(app, &hint);
     let normalized_buffer = normalize_hint_for_match(app, &app.hint_buffer);
     if !normalized_hint.starts_with(&normalized_buffer) {
-        return text(format!("{hint:<3}")).color(app.ui_theme.muted).into();
+        return fixed_hint_label(
+            text(format!("{hint:<4}"))
+                .font(app.ui_theme.font_pane)
+                .color(app.ui_theme.muted),
+        );
     }
 
     let mut chars: Vec<Element<'a, Message>> = Vec::new();
@@ -220,13 +207,27 @@ fn hint_label<'a>(
         } else {
             base_color
         };
-        chars.push(text(ch.to_string()).color(color).into());
+        chars.push(
+            text(ch.to_string())
+                .font(app.ui_theme.font_pane)
+                .color(color)
+                .into(),
+        );
     }
-    while chars.len() < 3 {
-        chars.push(text(" ").color(base_color).into());
+    while chars.len() < 4 {
+        chars.push(
+            text(" ")
+                .font(app.ui_theme.font_pane)
+                .color(base_color)
+                .into(),
+        );
     }
 
-    row(chars).spacing(0).into()
+    fixed_hint_label(row(chars).spacing(0))
+}
+
+fn fixed_hint_label<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    container(content).align_left(Length::Fixed(24.0)).into()
 }
 
 fn normalize_hint_for_match(app: &App, value: &str) -> String {
@@ -373,7 +374,7 @@ fn themed_scrollable<'a>(
 
 fn header_field_hint_labels(app: &App) -> Vec<String> {
     let field_count = match app.section_states.get(app.current_idx) {
-        Some(SectionState::Header(state)) => state.field_configs.len(),
+        Some(SectionState::Header(state)) => state.visible_row_count(),
         _ => 0,
     };
     app.wizard_hint_labels(field_count).fields
@@ -393,29 +394,6 @@ fn wizard_window(app: &App, cursor: usize, len: usize) -> std::ops::Range<usize>
     start..end
 }
 
-fn composite_part_display_value(
-    field_id: &str,
-    part: &crate::data::CompositePart,
-    app: &App,
-) -> String {
-    if part.sticky {
-        let key = format!("{field_id}.{}", part.id);
-        if let Some(value) = app.config.sticky_values.get(&key) {
-            if !value.is_empty() {
-                return value.clone();
-            }
-        }
-    }
-
-    if part.default.is_some() {
-        if let Some(option) = part.options.get(part.default_cursor()) {
-            return option.output().to_string();
-        }
-    }
-
-    part.preview.clone().unwrap_or_default()
-}
-
 fn field_display_value(
     app: &App,
     field: &crate::data::HeaderFieldConfig,
@@ -425,59 +403,95 @@ fn field_display_value(
         return confirmed_values.join(", ");
     }
 
-    if let Some(composite) = &field.composite {
-        let mut display = composite.format.clone();
-        let mut has_value = false;
-        for part in &composite.parts {
-            let value = composite_part_display_value(&field.id, part, app);
-            if !value.is_empty() {
-                has_value = true;
-            }
-            display = display.replace(&format!("{{{}}}", part.id), &value);
-        }
-        if has_value {
-            return display;
-        }
-    } else {
-        if let Some(value) = app.config.sticky_values.get(&field.id) {
-            if !value.is_empty() {
-                return value.clone();
+    let mut values = Vec::new();
+    for list in &field.lists {
+        if list.sticky {
+            if let Some(value) = app.config.sticky_values.get(&list.id) {
+                if !value.is_empty() {
+                    values.push((list.id.clone(), value.clone()));
+                    continue;
+                }
             }
         }
-        if let Some(default) = &field.default {
-            if !default.is_empty() {
-                return default.clone();
+        if let Some(default) = &list.default {
+            if let Some(item) = list.items.iter().find(|item| {
+                item.id == *default
+                    || item.label == *default
+                    || item.output.as_deref() == Some(default.as_str())
+            }) {
+                values.push((
+                    list.id.clone(),
+                    item.output.clone().unwrap_or_else(|| item.label.clone()),
+                ));
+                continue;
             }
+        }
+        if let Some(preview) = &list.preview {
+            values.push((list.id.clone(), preview.clone()));
         }
     }
 
-    "[empty]".to_string()
+    if values.is_empty() {
+        return "[empty]".to_string();
+    }
+
+    if let Some(format) = &field.format {
+        let mut display = format.clone();
+        for (list_id, value) in values {
+            display = display.replace(&format!("{{{}}}", list_id), &value);
+        }
+        for list in &field.format_lists {
+            let placeholder = format!("{{{}}}", list.id);
+            if !display.contains(&placeholder) {
+                continue;
+            }
+            let value = if list.sticky {
+                app.config
+                    .sticky_values
+                    .get(&list.id)
+                    .filter(|value| !value.is_empty())
+                    .cloned()
+            } else {
+                None
+            }
+            .or_else(|| {
+                list.default.as_ref().and_then(|default| {
+                    list.items
+                        .iter()
+                        .find(|item| {
+                            item.id == *default
+                                || item.label == *default
+                                || item.output.as_deref() == Some(default.as_str())
+                        })
+                        .map(|item| item.output.clone().unwrap_or_else(|| item.label.clone()))
+                })
+            })
+            .unwrap_or_default();
+            display = display.replace(&placeholder, &value);
+        }
+        return display;
+    }
+
+    values
+        .first()
+        .map(|(_, value)| value.clone())
+        .unwrap_or_else(|| "[empty]".to_string())
 }
 
 fn section_header(app: &App) -> Vec<Element<'_, Message>> {
     let sec = &app.sections[app.current_idx];
-    let group_idx = app.group_idx_for_section(app.current_idx);
-    let group_name = app
-        .data
-        .groups
-        .get(group_idx)
-        .map(|g| g.name.as_str())
-        .unwrap_or("Unknown");
 
-    let mut items = vec![
-        text(&sec.name).size(24).color(app.ui_theme.active).into(),
-        text(format!("{} ({})", sec.id, group_name))
-            .color(app.ui_theme.muted)
-            .into(),
-    ];
+    let mut items = vec![text(&sec.name)
+        .font(app.ui_theme.font_heading)
+        .size(24)
+        .color(if app.focus == Focus::Map {
+            app.ui_theme.active_preview
+        } else {
+            app.ui_theme.active
+        })
+        .into()];
 
-    if app.section_is_completed(app.current_idx) {
-        items.push(
-            text("Status: completed")
-                .color(app.ui_theme.selected)
-                .into(),
-        );
-    } else if app.section_is_skipped(app.current_idx) {
+    if app.section_is_skipped(app.current_idx) {
         items.push(text("Status: skipped").color(app.ui_theme.muted).into());
     }
 
@@ -491,7 +505,6 @@ fn render_header_state<'a>(
 ) -> Element<'a, Message> {
     let mut items = section_header(app);
 
-    items.push(text("Fields").color(app.ui_theme.modal).into());
     let field_hint_active = hint_is_active(app, HintTarget::HeaderField);
     let field_hint_color = hint_color(app, HintTarget::HeaderField);
     let field_range = wizard_window(app, state.field_index, state.field_configs.len());
@@ -499,41 +512,90 @@ fn render_header_state<'a>(
         items.push(text("...").color(app.ui_theme.muted).into());
     }
     let field_hints = header_field_hint_labels(app);
+    let mut hint_idx: usize = (0..field_range.start)
+        .map(|field_idx| state.visible_row_count_for_field(field_idx))
+        .sum();
     for idx in field_range.clone() {
         let Some(field) = state.field_configs.get(idx) else {
             continue;
         };
-        let values = state
+        let confirmed_values = state
             .repeated_values
             .get(idx)
-            .map(|confirmed_values| field_display_value(app, field, confirmed_values))
-            .unwrap_or_else(|| field_display_value(app, field, &[]));
-        let prefix = if idx == state.field_index { ">" } else { " " };
-        let color = if idx == state.field_index {
-            app.ui_theme.active
-        } else if state
-            .repeated_values
-            .get(idx)
-            .map(|vals| !vals.is_empty())
-            .unwrap_or(false)
-        {
+            .map(|values| values.as_slice())
+            .unwrap_or(&[]);
+        let base_color = if idx == state.field_index {
+            if app.focus == Focus::Map {
+                app.ui_theme.active_preview
+            } else {
+                app.ui_theme.active
+            }
+        } else if !confirmed_values.is_empty() {
             app.ui_theme.selected
         } else {
             app.ui_theme.muted
         };
+        if let Some(limit) = field.repeat_limit {
+            let active_value_index = state
+                .repeat_counts
+                .get(idx)
+                .copied()
+                .unwrap_or(0)
+                .min(limit.saturating_sub(1));
+            let mut visible_count = state.visible_value_count(idx);
+            if idx == state.field_index && active_value_index >= visible_count {
+                visible_count = active_value_index + 1;
+            }
+            visible_count = visible_count.max(1).min(limit.max(1));
+
+            for repeat_idx in 0..visible_count {
+                let is_active = idx == state.field_index && repeat_idx == active_value_index;
+                let prefix = if is_active { ">" } else { " " };
+                let color = if is_active {
+                    base_color
+                } else if repeat_idx < confirmed_values.len() {
+                    app.ui_theme.selected
+                } else {
+                    app.ui_theme.muted
+                };
+                let value = confirmed_values
+                    .get(repeat_idx)
+                    .map(|value| field_display_value(app, field, std::slice::from_ref(value)))
+                    .unwrap_or_else(|| field_display_value(app, field, &[]));
+                let hint = field_hints
+                    .get(hint_idx)
+                    .map(|hint| display_hint_label(app, hint))
+                    .unwrap_or_default();
+                hint_idx += 1;
+                items.push(hinted_line(
+                    prefix,
+                    hint,
+                    format!("{} {}: {}", field.name, repeat_idx + 1, value),
+                    field_hint_color,
+                    field_hint_active,
+                    color,
+                    app,
+                ));
+            }
+            continue;
+        }
+
+        let values = field_display_value(app, field, confirmed_values);
+        let prefix = if idx == state.field_index { ">" } else { " " };
         let field_hint = field_hints
-            .get(idx)
+            .get(hint_idx)
             .map(|hint| display_hint_label(app, hint))
             .unwrap_or_default();
-        items.push(
-            row![
-                text(format!("{prefix} ")).color(color),
-                hint_label(app, field_hint, field_hint_color, field_hint_active),
-                text(format!("{}: {}", field.name, values)).color(color),
-            ]
-            .spacing(2)
-            .into(),
-        );
+        hint_idx += 1;
+        items.push(hinted_line(
+            prefix,
+            field_hint,
+            format!("{}: {}", field.name, values),
+            field_hint_color,
+            field_hint_active,
+            base_color,
+            app,
+        ));
     }
     if field_range.end < state.field_configs.len() {
         items.push(text("...").color(app.ui_theme.muted).into());
@@ -568,7 +630,6 @@ fn render_free_text_state<'a>(
         items.push(text(&state.edit_buf).color(app.ui_theme.active).into());
     }
 
-    items.push(text("Entries").color(app.ui_theme.modal).into());
     if state.entries.is_empty() {
         items.push(text("[no entries yet]").color(app.ui_theme.muted).into());
     } else {
@@ -622,7 +683,6 @@ fn render_list_select_state<'a>(
         ListSelectMode::Browsing => {}
     }
 
-    items.push(text("Options").color(app.ui_theme.modal).into());
     if state.entries.is_empty() {
         items.push(text("[no options loaded]").color(app.ui_theme.error).into());
     } else {
@@ -668,7 +728,6 @@ fn render_block_select_state<'a>(
 ) -> Element<'a, Message> {
     let mut items = section_header(app);
 
-    items.push(text("Groups").color(app.ui_theme.modal).into());
     if state.groups.is_empty() {
         items.push(text("[no groups loaded]").color(app.ui_theme.error).into());
     } else {
@@ -754,7 +813,7 @@ fn render_block_select_state<'a>(
                     app.ui_theme.muted
                 };
                 items.push(
-                    text(format!("{prefix} {marker} {}", item.label()))
+                    text(format!("{prefix} {marker} {}", item.label))
                         .color(color)
                         .into(),
                 );
@@ -776,7 +835,6 @@ fn render_checklist_state<'a>(
 ) -> Element<'a, Message> {
     let mut items = section_header(app);
 
-    items.push(text("Checklist").color(app.ui_theme.modal).into());
     if state.items.is_empty() {
         items.push(
             text("[no checklist items loaded]")
@@ -857,20 +915,381 @@ fn editor_pane(app: &App) -> Element<'_, Message> {
         );
     }
 
-    items.push(text("Preview").color(app.ui_theme.modal).into());
-    let preview_text = crate::document::export_editable_document(&app.editable_note);
     items.push(
-        themed_scrollable(app, text(preview_text).size(14).width(Length::Fill))
-            .id(preview_scroll_id())
-            .height(Length::Fill)
+        text("Preview")
+            .font(app.ui_theme.font_heading)
+            .size(24)
+            .color(app.ui_theme.active)
             .into(),
     );
-
-    column(items)
-        .width(Length::Fill)
+    let preview_content = preview_lines(app);
+    items.push(
+        themed_scrollable(
+            app,
+            container(
+                column(preview_content)
+                    .spacing(0)
+                    .push(Space::with_height(Length::Fixed(1200.0))),
+            )
+            .padding([0.0, app.ui_theme.pane_buffer_width])
+            .width(Length::Fill),
+        )
+        .id(preview_scroll_id())
         .height(Length::Fill)
-        .spacing(4)
+        .into(),
+    );
+
+    let background = preview_background(app);
+    let text_color = app.ui_theme.text;
+    container(
+        column(items)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .spacing(4),
+    )
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .style(move |_| background_style(background, text_color))
+    .into()
+}
+
+fn preview_background(app: &App) -> Color {
+    let base = app.ui_theme.pane_inactive_background;
+    let Some(until) = app.copy_flash_until else {
+        return base;
+    };
+    let duration_ms = app.ui_theme.preview_copy_flash_duration_ms.max(1);
+    let remaining_ms = until
+        .saturating_duration_since(std::time::Instant::now())
+        .as_millis()
+        .min(u128::from(duration_ms)) as f32;
+    let t = remaining_ms / duration_ms as f32;
+    let eased = t * t * (3.0 - 2.0 * t);
+    blend_color(base, app.ui_theme.preview_copy_flash_background, eased)
+}
+
+fn blend_color(base: Color, flash: Color, amount: f32) -> Color {
+    let amount = amount.clamp(0.0, 1.0);
+    Color {
+        r: base.r + (flash.r - base.r) * amount,
+        g: base.g + (flash.g - base.g) * amount,
+        b: base.b + (flash.b - base.b) * amount,
+        a: base.a + (flash.a - base.a) * amount,
+    }
+}
+
+fn preview_lines(app: &App) -> Vec<Element<'_, Message>> {
+    let preview_text = crate::document::export_editable_document(&app.editable_note);
+    let mut group_idx: Option<usize> = None;
+    preview_text
+        .lines()
+        .map(|line| {
+            if let Some(idx) = preview_group_for_line(app, line) {
+                group_idx = Some(idx);
+            }
+            preview_line(app, line.to_string(), group_idx)
+        })
+        .collect()
+}
+
+fn preview_line(app: &App, line: String, group_idx: Option<usize>) -> Element<'_, Message> {
+    if let Some(spans) = appointment_header_line_spans(app, &line, group_idx) {
+        return rich_text::<Message, iced::Theme, iced::Renderer>(spans)
+            .font(app.ui_theme.font_preview)
+            .size(14)
+            .width(Length::Fill)
+            .into();
+    }
+
+    let color = preview_line_color(app, &line, group_idx);
+    text(line)
+        .font(app.ui_theme.font_preview)
+        .size(14)
+        .width(Length::Fill)
+        .color(color)
         .into()
+}
+
+fn preview_line_color(app: &App, line: &str, group_idx: Option<usize>) -> Color {
+    let in_current_group = group_idx
+        .map(|group_idx| group_idx == app.group_idx_for_section(app.current_idx))
+        .unwrap_or(true);
+
+    if line.starts_with("## ") {
+        return if in_current_group {
+            app.ui_theme.modal
+        } else {
+            app.ui_theme.muted
+        };
+    }
+
+    for (section_idx, section) in app.sections.iter().enumerate() {
+        if crate::note::managed_heading_for_section(section).as_deref() == Some(line) {
+            return section_preview_color(app, section_idx, in_current_group);
+        }
+
+        let Some(SectionState::Header(state)) = app.section_states.get(section_idx) else {
+            continue;
+        };
+        for (field_idx, field) in state.field_configs.iter().enumerate() {
+            let prefix = format!("{}: ", field.name);
+            if line.starts_with(&prefix) {
+                return header_field_preview_color(
+                    app,
+                    section_idx,
+                    state,
+                    field_idx,
+                    in_current_group,
+                );
+            }
+        }
+    }
+
+    if in_current_group {
+        app.ui_theme.text
+    } else {
+        app.ui_theme.muted
+    }
+}
+
+fn preview_group_for_line(app: &App, line: &str) -> Option<usize> {
+    match line {
+        "## SUBJECTIVE" => {
+            return app
+                .data
+                .groups
+                .iter()
+                .position(|group| group.id == "subjective")
+        }
+        "## TREATMENT / PLAN" => {
+            return app
+                .data
+                .groups
+                .iter()
+                .position(|group| group.id == "treatment")
+        }
+        "## OBJECTIVE / OBSERVATIONS" => {
+            return app
+                .data
+                .groups
+                .iter()
+                .position(|group| group.id == "objective")
+        }
+        "## POST-TREATMENT" => {
+            return app
+                .data
+                .groups
+                .iter()
+                .position(|group| group.id == "post_tx")
+        }
+        _ => {}
+    }
+
+    for (section_idx, section) in app.sections.iter().enumerate() {
+        if crate::note::managed_heading_for_section(section).as_deref() == Some(line) {
+            return Some(app.group_idx_for_section(section_idx));
+        }
+    }
+
+    None
+}
+
+fn appointment_header_line_spans<'a>(
+    app: &'a App,
+    line: &'a str,
+    group_idx: Option<usize>,
+) -> Option<Vec<iced::widget::text::Span<'static, Message, iced::Font>>> {
+    let header_idx = app
+        .sections
+        .iter()
+        .position(|section| section.note_render_slot.as_deref() == Some("header"))?;
+    let SectionState::Header(state) = app.section_states.get(header_idx)? else {
+        return None;
+    };
+
+    let date = rendered_header_field_value(app, state, "date").map(format_header_date_for_preview);
+    let start =
+        rendered_header_field_value(app, state, "start_time").map(format_header_time_for_preview);
+    let duration = rendered_header_field_value(app, state, "appointment_duration");
+    let appointment_type = rendered_header_field_value(app, state, "appointment_type");
+    let in_current_group = group_idx
+        .map(|group_idx| group_idx == app.group_idx_for_section(app.current_idx))
+        .unwrap_or(true);
+
+    if appointment_type.as_deref() == Some(line) {
+        let color =
+            header_field_color_by_id(app, header_idx, state, "appointment_type", in_current_group);
+        return Some(vec![
+            span::<Message, iced::Font>(line.to_string()).color(color)
+        ]);
+    }
+
+    let (Some(date), Some(start), Some(duration)) = (date, start, duration) else {
+        return None;
+    };
+    let expected = format!("{date} at {start} ({duration} min)");
+    if line != expected {
+        return None;
+    }
+
+    Some(vec![
+        span::<Message, iced::Font>(date).color(header_field_color_by_id(
+            app,
+            header_idx,
+            state,
+            "date",
+            in_current_group,
+        )),
+        span::<Message, iced::Font>(" at ").color(if in_current_group {
+            app.ui_theme.text
+        } else {
+            app.ui_theme.muted
+        }),
+        span::<Message, iced::Font>(start).color(header_field_color_by_id(
+            app,
+            header_idx,
+            state,
+            "start_time",
+            in_current_group,
+        )),
+        span::<Message, iced::Font>(" (").color(if in_current_group {
+            app.ui_theme.text
+        } else {
+            app.ui_theme.muted
+        }),
+        span::<Message, iced::Font>(duration).color(header_field_color_by_id(
+            app,
+            header_idx,
+            state,
+            "appointment_duration",
+            in_current_group,
+        )),
+        span::<Message, iced::Font>(" min)").color(if in_current_group {
+            app.ui_theme.text
+        } else {
+            app.ui_theme.muted
+        }),
+    ])
+}
+
+fn rendered_header_field_value(
+    app: &App,
+    state: &crate::sections::header::HeaderState,
+    field_id: &str,
+) -> Option<String> {
+    let (field_idx, field) = state
+        .field_configs
+        .iter()
+        .enumerate()
+        .find(|(_, field)| field.id == field_id)?;
+    let confirmed = state
+        .repeated_values
+        .get(field_idx)
+        .and_then(|values| values.first())
+        .map(|value| value.as_str())
+        .unwrap_or("");
+    let value = crate::sections::multi_field::resolve_multifield_value(
+        confirmed,
+        field,
+        &app.config.sticky_values,
+    );
+    value.export_value().map(str::to_string)
+}
+
+fn format_header_date_for_preview(date: String) -> String {
+    chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d")
+        .map(|d| d.format("%a %b %-d, %Y").to_string())
+        .unwrap_or(date)
+}
+
+fn format_header_time_for_preview(time: String) -> String {
+    chrono::NaiveTime::parse_from_str(&time, "%H:%M")
+        .or_else(|_| chrono::NaiveTime::parse_from_str(&time, "%I:%M%P"))
+        .map(|t| t.format("%-I:%M%P").to_string())
+        .unwrap_or(time)
+}
+
+fn header_field_color_by_id(
+    app: &App,
+    section_idx: usize,
+    state: &crate::sections::header::HeaderState,
+    field_id: &str,
+    in_current_group: bool,
+) -> Color {
+    state
+        .field_configs
+        .iter()
+        .position(|field| field.id == field_id)
+        .map(|field_idx| {
+            header_field_preview_color(app, section_idx, state, field_idx, in_current_group)
+        })
+        .unwrap_or(app.ui_theme.text)
+}
+
+fn header_field_preview_color(
+    app: &App,
+    section_idx: usize,
+    state: &crate::sections::header::HeaderState,
+    field_idx: usize,
+    in_current_group: bool,
+) -> Color {
+    if section_idx == app.current_idx && field_idx == state.field_index {
+        return if app.focus == Focus::Map {
+            app.ui_theme.active_preview
+        } else {
+            app.ui_theme.active
+        };
+    }
+    if state
+        .repeated_values
+        .get(field_idx)
+        .is_some_and(|values| !values.is_empty())
+    {
+        return if in_current_group {
+            app.ui_theme.selected
+        } else {
+            app.ui_theme.confirmed_muted_preview
+        };
+    }
+    let Some(field) = state.field_configs.get(field_idx) else {
+        return app.ui_theme.text;
+    };
+    let resolved = crate::sections::multi_field::resolve_multifield_value(
+        "",
+        field,
+        &app.config.sticky_values,
+    );
+    if resolved.export_value().is_some() {
+        if in_current_group {
+            app.ui_theme.sticky_default_preview
+        } else {
+            app.ui_theme.muted
+        }
+    } else {
+        app.ui_theme.muted
+    }
+}
+
+fn section_preview_color(app: &App, section_idx: usize, in_current_group: bool) -> Color {
+    if section_idx == app.current_idx {
+        if app.focus == Focus::Map {
+            app.ui_theme.active_preview
+        } else {
+            app.ui_theme.active
+        }
+    } else if app.section_is_completed(section_idx) {
+        if in_current_group {
+            app.ui_theme.selected
+        } else {
+            app.ui_theme.confirmed_muted_preview
+        }
+    } else if app.section_is_skipped(section_idx) {
+        app.ui_theme.muted
+    } else if !in_current_group {
+        app.ui_theme.muted
+    } else {
+        app.ui_theme.text
+    }
 }
 
 /// Build the status bar at the bottom.
@@ -890,7 +1309,10 @@ fn status_bar(app: &App) -> Element<'_, Message> {
     } else {
         (context, app.ui_theme.muted)
     };
-    text(status_text).color(color).into()
+    text(status_text)
+        .font(app.ui_theme.font_status)
+        .color(color)
+        .into()
 }
 
 fn panel_status_text(app: &App) -> String {
@@ -931,9 +1353,7 @@ fn wizard_status_text(app: &App) -> String {
     let mut parts = vec![format!("Wizard: {}", sec.name)];
     parts.push(format!("Type: {}", sec.section_type));
 
-    if app.section_is_completed(app.current_idx) {
-        parts.push("completed".to_string());
-    } else if app.section_is_skipped(app.current_idx) {
+    if app.section_is_skipped(app.current_idx) {
         parts.push("skipped".to_string());
     }
 
@@ -1039,14 +1459,20 @@ fn main_layout(app: &App) -> Element<'_, Message> {
 fn modal_overlay<'a>(app: &'a App, modal: &'a crate::modal::SearchModal) -> Element<'a, Message> {
     let mut modal_items: Vec<Element<'a, Message>> = Vec::new();
 
-    if let Some(part_label) = modal.current_part_label() {
-        modal_items.push(text(part_label).color(app.ui_theme.modal_text).into());
+    if let Some(part_label) = modal.current_part_label(&app.config.sticky_values) {
+        modal_items.push(
+            text(part_label)
+                .font(app.ui_theme.font_modal)
+                .color(app.ui_theme.modal_text)
+                .into(),
+        );
     }
 
     let app_theme = app.ui_theme.clone();
     modal_items.push(
         text_input("Search", &modal.query)
             .on_input(Message::ModalQueryChanged)
+            .font(app.ui_theme.font_modal)
             .width(Length::Fill)
             .style(move |_theme, status| modal_input_style(&app_theme, status))
             .into(),
@@ -1066,7 +1492,7 @@ fn modal_overlay<'a>(app: &'a App, modal: &'a crate::modal::SearchModal) -> Elem
         if let Some(&entry_idx) = modal.filtered.get(window_pos) {
             let label = &modal.all_entries[entry_idx];
             let color = if window_pos == modal.list_cursor {
-                app.ui_theme.modal_selected_text
+                app.ui_theme.active
             } else {
                 app.ui_theme.modal_muted_text
             };
@@ -1079,11 +1505,33 @@ fn modal_overlay<'a>(app: &'a App, modal: &'a crate::modal::SearchModal) -> Elem
             } else {
                 app.ui_theme.modal_muted_text
             };
+            let marker = if window_pos == modal.list_cursor {
+                ">"
+            } else {
+                " "
+            };
+            let marker_color =
+                if matches!(modal.focus, ModalFocus::List) && window_pos == modal.list_cursor {
+                    app.ui_theme.active
+                } else {
+                    app.ui_theme.modal_muted_text
+                };
             let button_label = row![
-                text(format!("{hint:<3}")).color(hint_color),
-                text(label).color(color),
+                container(
+                    text(marker)
+                        .font(app.ui_theme.font_modal)
+                        .color(marker_color),
+                )
+                .align_left(Length::Fixed(14.0)),
+                container(
+                    text(format!("{hint:<4}"))
+                        .font(app.ui_theme.font_modal)
+                        .color(hint_color),
+                )
+                .align_left(Length::Fixed(24.0)),
+                text(label).font(app.ui_theme.font_modal).color(color),
             ]
-            .spacing(6);
+            .spacing(0);
             let app_theme = app.ui_theme.clone();
             list_items.push(
                 button(button_label)
@@ -1101,20 +1549,87 @@ fn modal_overlay<'a>(app: &'a App, modal: &'a crate::modal::SearchModal) -> Elem
             .into(),
     );
 
+    let modal_size = modal_size_for_labels(&modal.all_entries);
+    let (modal_width, fallback_height) = modal_size.dimensions();
+    let modal_height =
+        modal_height_for_viewport(app.viewport_size.map(|size| size.height), fallback_height);
+    let top_offset = modal_top_offset(app);
     let modal_background = app.ui_theme.modal_panel_background;
     let text_color = app.ui_theme.text;
-    let modal_panel = container(column(modal_items).width(Length::Fixed(400.0)).padding(8))
-        .center_x(Length::Fill)
-        .center_y(Length::Fill)
-        .style(move |_| background_style(modal_background, text_color));
+    let modal_panel = container(
+        column(modal_items)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .padding(8),
+    )
+    .width(Length::Fixed(modal_width))
+    .height(Length::Fixed(modal_height))
+    .style(move |_| {
+        background_style(modal_background, text_color).border(Border {
+            color: text_color,
+            width: 1.0,
+            radius: 6.0.into(),
+        })
+    });
 
     let base = main_layout(app);
     Stack::new()
         .push(base)
-        .push(modal_panel)
+        .push(
+            container(column![
+                Space::with_height(Length::Fixed(top_offset)),
+                modal_panel
+            ])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill),
+        )
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ModalSize {
+    Small,
+    Medium,
+    Large,
+}
+
+impl ModalSize {
+    fn dimensions(self) -> (f32, f32) {
+        match self {
+            Self::Small => (320.0, 220.0),
+            Self::Medium => (520.0, 360.0),
+            Self::Large => (760.0, 520.0),
+        }
+    }
+}
+
+fn modal_size_for_labels(labels: &[String]) -> ModalSize {
+    let max_label_len = labels
+        .iter()
+        .map(|label| label.chars().count())
+        .max()
+        .unwrap_or(0);
+    if max_label_len <= 34 {
+        ModalSize::Small
+    } else if max_label_len <= 90 {
+        ModalSize::Medium
+    } else {
+        ModalSize::Large
+    }
+}
+
+fn modal_top_offset(app: &App) -> f32 {
+    let field_offset = match app.section_states.get(app.current_idx) {
+        Some(SectionState::Header(state)) => {
+            let range = wizard_window(app, state.field_index, state.field_configs.len());
+            state.field_index.saturating_sub(range.start) as f32
+        }
+        _ => 0.0,
+    };
+    88.0 + field_offset * 24.0
 }
 
 /// Public entry point called from main.rs view().

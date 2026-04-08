@@ -1,7 +1,10 @@
 use crate::config::Config;
 use crate::data::{AppData, SectionConfig};
 use crate::document::build_initial_document;
-use crate::modal::{CompositeAdvance, ModalFocus, SearchModal};
+use crate::modal::{
+    joined_repeating_value, modal_height_for_viewport, modal_window_size_for_height,
+    resolved_item_labels_for_list, FieldAdvance, ModalFocus, SearchModal,
+};
 use crate::sections::{
     block_select::BlockSelectState,
     checklist::ChecklistState,
@@ -27,6 +30,7 @@ pub enum AppKey {
     Backspace,
     Tab,
     Space,
+    Ignored,
 }
 
 pub fn appkey_from_iced(key: Key, modifiers: Modifiers) -> AppKey {
@@ -41,6 +45,7 @@ pub fn appkey_from_iced(key: Key, modifiers: Modifiers) -> AppKey {
         Key::Named(Named::Escape) => AppKey::Esc,
         Key::Named(Named::Backspace) => AppKey::Backspace,
         Key::Named(Named::Tab) => AppKey::Tab,
+        Key::Named(Named::Space) => AppKey::Space,
         Key::Named(Named::ArrowDown) => AppKey::Down,
         Key::Named(Named::ArrowUp) => AppKey::Up,
         Key::Named(Named::ArrowLeft) => AppKey::Left,
@@ -59,7 +64,7 @@ pub fn appkey_from_iced(key: Key, modifiers: Modifiers) -> AppKey {
                 AppKey::Char(c)
             }
         }
-        _ => AppKey::Char('\0'),
+        _ => AppKey::Ignored,
     }
 }
 use std::time::Instant;
@@ -123,9 +128,11 @@ pub struct App {
     pub status: Option<StatusMsg>,
     pub quit: bool,
     pub copy_requested: bool,
+    pub copy_flash_until: Option<Instant>,
     pub data_dir: PathBuf,
     pub focus: Focus,
     pub map_cursor: usize,
+    pub map_return_idx: Option<usize>,
     pub map_hint_level: MapHintLevel,
     pub note_scroll: u16,
     pub modal: Option<SearchModal>,
@@ -133,6 +140,7 @@ pub struct App {
     pub editable_note: String,
     pub note_headings_valid: bool,
     pub note_structure_warning: Option<String>,
+    pub viewport_size: Option<iced::Size>,
 }
 
 pub fn match_binding_str(binding: &str, key: &AppKey) -> bool {
@@ -164,14 +172,11 @@ pub fn match_binding_str(binding: &str, key: &AppKey) -> bool {
 
 #[derive(Debug, Clone)]
 pub struct MapHintLabels {
-    pub groups: Vec<String>,
     pub sections: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct WizardHintLabels {
-    pub group: Option<String>,
-    pub section: Option<String>,
     pub fields: Vec<String>,
 }
 
@@ -207,9 +212,11 @@ impl App {
             status: None,
             quit: false,
             copy_requested: false,
+            copy_flash_until: None,
             data_dir,
             focus: Focus::Wizard,
             map_cursor: 0,
+            map_return_idx: None,
             map_hint_level: MapHintLevel::Groups,
             note_scroll: 0,
             modal: None,
@@ -217,7 +224,23 @@ impl App {
             editable_note,
             note_headings_valid,
             note_structure_warning,
+            viewport_size: None,
         }
+    }
+
+    pub fn set_viewport_size(&mut self, size: iced::Size) {
+        self.viewport_size = Some(size);
+        let window_size = self.modal_window_size();
+        if let Some(modal) = self.modal.as_mut() {
+            modal.window_size = window_size;
+            modal.update_scroll();
+        }
+    }
+
+    pub fn modal_window_size(&self) -> usize {
+        let modal_height =
+            modal_height_for_viewport(self.viewport_size.map(|size| size.height), 360.0);
+        modal_window_size_for_height(modal_height, self.data.keybindings.hints.len())
     }
 
     pub fn set_editable_note(&mut self, new_text: String) {
@@ -351,6 +374,12 @@ impl App {
                 self.status = None;
             }
         }
+        if self
+            .copy_flash_until
+            .is_some_and(|until| Instant::now() >= until)
+        {
+            self.copy_flash_until = None;
+        }
     }
 
     fn matches_key(&self, key: &AppKey, action: &[String]) -> bool {
@@ -419,6 +448,10 @@ impl App {
         matches!(key, AppKey::Char('/'))
     }
 
+    fn is_refresh_data(&self, key: &AppKey) -> bool {
+        matches!(key, AppKey::Char('\\'))
+    }
+
     fn section_at_top_level(&self) -> bool {
         match self.section_states.get(self.current_idx) {
             Some(SectionState::FreeText(s)) => !s.is_editing(),
@@ -434,6 +467,7 @@ impl App {
             self.hint_buffer.clear();
             if self.map_cursor + 1 < self.sections.len() {
                 self.map_cursor += 1;
+                self.current_idx = self.map_cursor;
                 let g = self.group_idx_for_section(self.map_cursor);
                 self.map_hint_level = MapHintLevel::Sections(g);
                 self.update_note_scroll();
@@ -444,6 +478,7 @@ impl App {
             self.hint_buffer.clear();
             if self.map_cursor > 0 {
                 self.map_cursor -= 1;
+                self.current_idx = self.map_cursor;
                 let g = self.group_idx_for_section(self.map_cursor);
                 self.map_hint_level = MapHintLevel::Sections(g);
                 self.update_note_scroll();
@@ -453,12 +488,16 @@ impl App {
         if self.is_confirm(&key) {
             self.hint_buffer.clear();
             self.current_idx = self.map_cursor;
+            self.map_return_idx = None;
             self.focus = Focus::Wizard;
             self.map_hint_level = MapHintLevel::Groups;
             return;
         }
         if self.is_back(&key) {
             self.hint_buffer.clear();
+            if let Some(return_idx) = self.map_return_idx.take() {
+                self.current_idx = return_idx;
+            }
             self.focus = Focus::Wizard;
             self.map_hint_level = MapHintLevel::Groups;
             return;
@@ -475,14 +514,8 @@ impl App {
             self.hint_buffer.push_str(&ch_str);
             let typed = self.hint_buffer.clone();
 
-            // Build a case-folded hint list matching the typed string's case
-            let active_group_idx = match self.map_hint_level {
-                MapHintLevel::Groups => None,
-                MapHintLevel::Sections(g_idx) => Some(g_idx),
-            };
-            let map_labels = self.map_hint_labels(active_group_idx);
-            let group_refs_owned: Vec<String> = map_labels
-                .groups
+            let section_refs_owned: Vec<String> = self
+                .section_hint_labels()
                 .iter()
                 .map(|h| {
                     if case_sensitive {
@@ -492,75 +525,19 @@ impl App {
                     }
                 })
                 .collect();
-            let group_refs: Vec<&str> = group_refs_owned.iter().map(String::as_str).collect();
-
-            // Universal group-jump: fires at any map_hint_level
-            match crate::data::resolve_hint(&group_refs, &typed) {
-                crate::data::HintResolveResult::Exact(g_idx) => {
-                    let flat_idx = crate::data::group_jump_target(&self.data.groups, g_idx);
+            let section_refs: Vec<&str> = section_refs_owned.iter().map(String::as_str).collect();
+            match crate::data::resolve_hint(&section_refs, &typed) {
+                crate::data::HintResolveResult::Exact(flat_idx) => {
+                    self.current_idx = flat_idx;
                     self.map_cursor = flat_idx;
-                    self.map_hint_level = MapHintLevel::Sections(g_idx);
+                    self.map_hint_level =
+                        MapHintLevel::Sections(self.group_idx_for_section(flat_idx));
+                    self.update_note_scroll();
                     self.hint_buffer.clear();
-                    return;
                 }
-                crate::data::HintResolveResult::Partial(_) => {
-                    // Waiting for second char of group hint
-                    return;
-                }
+                crate::data::HintResolveResult::Partial(_) => {}
                 crate::data::HintResolveResult::NoMatch => {
-                    // Not a group hint - fall through to per-level logic
-                }
-            }
-
-            let hint_level = self.map_hint_level.clone();
-            match hint_level {
-                MapHintLevel::Groups => {
-                    // Universal check above handles all group hints.
-                    // If we reach here, typed matched no group hint - clear.
                     self.hint_buffer.clear();
-                }
-                MapHintLevel::Sections(g_idx) => {
-                    let group_start: usize = self
-                        .data
-                        .groups
-                        .iter()
-                        .take(g_idx)
-                        .map(|g| g.sections.len())
-                        .sum();
-                    let group_len = self
-                        .data
-                        .groups
-                        .get(g_idx)
-                        .map(|g| g.sections.len())
-                        .unwrap_or(0);
-                    let section_refs_owned: Vec<String> = map_labels
-                        .sections
-                        .iter()
-                        .take(group_len)
-                        .map(|h| {
-                            if case_sensitive {
-                                h.to_string()
-                            } else {
-                                h.to_ascii_lowercase().to_string()
-                            }
-                        })
-                        .collect();
-                    let section_refs: Vec<&str> =
-                        section_refs_owned.iter().map(String::as_str).collect();
-                    match crate::data::resolve_hint(&section_refs, &typed) {
-                        crate::data::HintResolveResult::Exact(s_idx) => {
-                            let flat_idx = group_start + s_idx;
-                            self.current_idx = flat_idx;
-                            self.map_cursor = flat_idx;
-                            self.focus = Focus::Wizard;
-                            self.map_hint_level = MapHintLevel::Groups;
-                            self.hint_buffer.clear();
-                        }
-                        crate::data::HintResolveResult::Partial(_) => {}
-                        crate::data::HintResolveResult::NoMatch => {
-                            self.hint_buffer.clear();
-                        }
-                    }
                 }
             }
         }
@@ -587,7 +564,7 @@ impl App {
         self.section_states
             .iter()
             .filter_map(|state| match state {
-                SectionState::Header(header) => Some(header.field_configs.len()),
+                SectionState::Header(header) => Some(header.visible_row_count()),
                 _ => None,
             })
             .max()
@@ -595,13 +572,18 @@ impl App {
     }
 
     fn navigation_hint_labels(&self) -> Vec<String> {
-        self.fixed_hint_labels(
-            self.data.groups.len() + self.sections.len() + self.max_header_field_count(),
-        )
+        self.fixed_hint_labels(self.sections.len() + self.max_header_field_count())
+    }
+
+    pub fn section_hint_labels(&self) -> Vec<String> {
+        self.navigation_hint_labels()
+            .into_iter()
+            .take(self.sections.len())
+            .collect()
     }
 
     pub fn map_hint_labels(&self, group_idx: Option<usize>) -> MapHintLabels {
-        let labels = self.navigation_hint_labels();
+        let labels = self.section_hint_labels();
         let group_start: usize = group_idx
             .map(|idx| {
                 self.data
@@ -617,14 +599,9 @@ impl App {
             .map(|group| group.sections.len())
             .unwrap_or(0);
         MapHintLabels {
-            groups: labels
-                .iter()
-                .take(self.data.groups.len())
-                .cloned()
-                .collect(),
             sections: labels
                 .into_iter()
-                .skip(self.data.groups.len() + group_start)
+                .skip(group_start)
                 .take(group_len)
                 .collect(),
         }
@@ -632,12 +609,8 @@ impl App {
 
     pub fn wizard_hint_labels(&self, field_count: usize) -> WizardHintLabels {
         let labels = self.navigation_hint_labels();
-        let group_idx = self.group_idx_for_section(self.current_idx);
-        let section_idx = self.data.groups.len() + self.current_idx;
-        let field_start = self.data.groups.len() + self.sections.len();
+        let field_start = self.sections.len();
         WizardHintLabels {
-            group: labels.get(group_idx).cloned(),
-            section: labels.get(section_idx).cloned(),
             fields: labels
                 .into_iter()
                 .skip(field_start)
@@ -652,6 +625,33 @@ impl App {
 
     pub fn reload_theme(&mut self) -> anyhow::Result<()> {
         self.ui_theme = crate::theme::AppTheme::load(&self.data_dir, &self.config.theme)?;
+        Ok(())
+    }
+
+    pub fn reload_data(&mut self) -> anyhow::Result<()> {
+        let previous_section_id = self.sections.get(self.current_idx).map(|s| s.id.clone());
+        let data = AppData::load(self.data_dir.clone())?;
+        self.sections = data.sections.clone();
+        self.section_states = Self::init_states(&self.sections, &data);
+        self.current_idx = previous_section_id
+            .as_ref()
+            .and_then(|id| self.sections.iter().position(|section| &section.id == id))
+            .unwrap_or(0)
+            .min(self.sections.len().saturating_sub(1));
+        self.map_cursor = self.current_idx;
+        self.map_return_idx = None;
+        self.map_hint_level = MapHintLevel::Sections(self.group_idx_for_section(self.current_idx));
+        self.modal = None;
+        self.hint_buffer.clear();
+        self.data = data;
+        self.editable_note = build_initial_document(
+            &self.sections,
+            &self.section_states,
+            &self.config.sticky_values,
+            &self.data.boilerplate_texts,
+        );
+        self.refresh_note_structure();
+        self.update_note_scroll();
         Ok(())
     }
 
@@ -728,6 +728,10 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: AppKey) {
+        if matches!(key, AppKey::Ignored) {
+            return;
+        }
+
         // Ctrl+C always quits
         if matches!(key, AppKey::CtrlC) {
             self.quit = true;
@@ -788,6 +792,18 @@ impl App {
             return;
         }
 
+        if !self.text_entry_active() && self.is_refresh_data(&key) {
+            match self.reload_data() {
+                Ok(()) => {
+                    self.status = Some(StatusMsg::success("Data refreshed from YAML."));
+                }
+                Err(err) => {
+                    self.status = Some(StatusMsg::error(format!("Data refresh failed: {err}")));
+                }
+            }
+            return;
+        }
+
         if self.is_swap_panes(&key) {
             self.pane_swapped = !self.pane_swapped;
             self.config.set_swapped(self.pane_swapped);
@@ -802,6 +818,7 @@ impl App {
                 // Map is to the left of wizard in default layout
                 let g_idx = self.group_idx_for_section(self.current_idx);
                 self.hint_buffer.clear();
+                self.map_return_idx = Some(self.current_idx);
                 self.focus = Focus::Map;
                 self.map_cursor = self.current_idx;
                 self.map_hint_level = MapHintLevel::Sections(g_idx);
@@ -811,6 +828,7 @@ impl App {
                 // Map is to the right; h/← from map returns to wizard
                 self.hint_buffer.clear();
                 self.current_idx = self.map_cursor;
+                self.map_return_idx = None;
                 self.focus = Focus::Wizard;
                 self.map_hint_level = MapHintLevel::Groups;
                 return;
@@ -822,6 +840,7 @@ impl App {
                 // Map is to the right of wizard in swapped layout
                 let g_idx = self.group_idx_for_section(self.current_idx);
                 self.hint_buffer.clear();
+                self.map_return_idx = Some(self.current_idx);
                 self.focus = Focus::Map;
                 self.map_cursor = self.current_idx;
                 self.map_hint_level = MapHintLevel::Sections(g_idx);
@@ -831,6 +850,7 @@ impl App {
                 // Map is to the left; i/→ from map returns to wizard
                 self.hint_buffer.clear();
                 self.current_idx = self.map_cursor;
+                self.map_return_idx = None;
                 self.focus = Focus::Wizard;
                 self.map_hint_level = MapHintLevel::Groups;
                 return;
@@ -897,7 +917,7 @@ impl App {
 
             let idx = self.current_idx;
             let n_fields = match self.section_states.get(idx) {
-                Some(SectionState::Header(s)) => s.field_configs.len(),
+                Some(SectionState::Header(s)) => s.visible_row_count(),
                 _ => 0,
             };
             let labels = self.wizard_hint_labels(n_fields);
@@ -915,67 +935,57 @@ impl App {
                 .collect();
             let field_refs: Vec<&str> = folded_fields.iter().map(String::as_str).collect();
 
-            let g_idx = self.group_idx_for_section(self.current_idx);
-
-            // Group hint
-            let group_hint = labels.group.as_deref().unwrap_or("");
-            let group_hint_owned = if case_sensitive {
-                group_hint.to_string()
-            } else {
-                group_hint.to_ascii_lowercase()
-            };
-            match crate::data::resolve_hint(&[group_hint_owned.as_str()], &typed) {
-                crate::data::HintResolveResult::Exact(_) => {
-                    self.focus = Focus::Map;
-                    self.map_cursor = self.current_idx;
-                    self.map_hint_level = MapHintLevel::Groups;
+            let section_refs_owned: Vec<String> = self
+                .section_hint_labels()
+                .iter()
+                .map(|h| {
+                    if case_sensitive {
+                        h.to_string()
+                    } else {
+                        h.to_ascii_lowercase().to_string()
+                    }
+                })
+                .collect();
+            let section_refs: Vec<&str> = section_refs_owned.iter().map(String::as_str).collect();
+            match crate::data::resolve_hint(&section_refs, &typed) {
+                crate::data::HintResolveResult::Exact(flat_idx) => {
+                    self.current_idx = flat_idx;
+                    self.map_cursor = flat_idx;
+                    self.map_hint_level =
+                        MapHintLevel::Sections(self.group_idx_for_section(flat_idx));
                     self.update_note_scroll();
                     self.hint_buffer.clear();
                     return;
                 }
-                crate::data::HintResolveResult::Partial(_) => return, // hold buffer
+                crate::data::HintResolveResult::Partial(_) => return,
                 crate::data::HintResolveResult::NoMatch => {}
             }
 
-            // Section hint
-            if let Some(section_hint) = labels.section.as_deref() {
-                let section_hint_owned = if case_sensitive {
-                    section_hint.to_string()
-                } else {
-                    section_hint.to_ascii_lowercase()
-                };
-                match crate::data::resolve_hint(&[section_hint_owned.as_str()], &typed) {
-                    crate::data::HintResolveResult::Exact(_) => {
-                        self.focus = Focus::Map;
-                        self.map_cursor = self.current_idx;
-                        self.map_hint_level = MapHintLevel::Sections(g_idx);
-                        self.update_note_scroll();
-                        self.hint_buffer.clear();
-                        return;
-                    }
-                    crate::data::HintResolveResult::Partial(_) => return, // hold buffer
-                    crate::data::HintResolveResult::NoMatch => {}
-                }
-
-                // Build the candidate list for field hints and resolve
-                match crate::data::resolve_hint(&field_refs, &typed) {
-                    crate::data::HintResolveResult::Exact(f_idx) => {
-                        if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
-                            s.field_index = f_idx;
-                            s.completed = false;
+            // Build the candidate list for field hints and resolve
+            match crate::data::resolve_hint(&field_refs, &typed) {
+                crate::data::HintResolveResult::Exact(row_idx) => {
+                    if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                        if let Some((field_idx, repeat_idx)) =
+                            s.field_index_for_visible_row(row_idx)
+                        {
+                            s.field_index = field_idx;
+                            if s.field_configs
+                                .get(field_idx)
+                                .is_some_and(|field| field.repeat_limit.is_some())
+                            {
+                                s.repeat_counts[field_idx] = repeat_idx;
+                            }
                         }
-                        self.hint_buffer.clear();
-                        self.open_header_modal();
-                        return;
+                        s.completed = false;
                     }
-                    crate::data::HintResolveResult::Partial(_) => return, // hold buffer
-                    crate::data::HintResolveResult::NoMatch => {
-                        self.hint_buffer.clear();
-                    }
+                    self.hint_buffer.clear();
+                    self.open_header_modal();
+                    return;
                 }
-            } else {
-                // No section hint index found - clear buffer on no match
-                self.hint_buffer.clear();
+                crate::data::HintResolveResult::Partial(_) => return, // hold buffer
+                crate::data::HintResolveResult::NoMatch => {
+                    self.hint_buffer.clear();
+                }
             }
         }
 
@@ -1013,6 +1023,16 @@ impl App {
             return;
         }
 
+        if matches!(key, AppKey::Backspace) {
+            let idx = self.current_idx;
+            if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                s.blank_active_value();
+                s.completed = false;
+                self.sync_section_into_editable_note(idx);
+            }
+            return;
+        }
+
         if self.is_back(&key) || self.is_navigate_up(&key) {
             let idx = self.current_idx;
             let went_back = if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx)
@@ -1021,9 +1041,6 @@ impl App {
                 if s.field_index >= s.field_configs.len() && !s.field_configs.is_empty() {
                     s.field_index = s.field_configs.len() - 1;
                     s.repeat_counts[s.field_index] = 0;
-                    if let Some(slot) = s.repeated_values.get_mut(s.field_index) {
-                        slot.clear();
-                    }
                     s.completed = false;
                     true
                 } else {
@@ -1045,8 +1062,8 @@ impl App {
                 if s.field_index > last {
                     // Normalize out-of-bounds (completed) index to last field
                     s.field_index = last;
-                } else if s.field_index < last {
-                    s.field_index += 1;
+                } else {
+                    let _ = s.go_forward();
                 }
             }
             return;
@@ -1070,29 +1087,12 @@ impl App {
             None
         };
         if let Some(cfg) = field_cfg {
-            let window_size = self.data.keybindings.hints.len();
-            let modal = if let Some(composite) = cfg.composite {
-                SearchModal::new_composite(
-                    field_idx,
-                    cfg.id,
-                    composite,
-                    &self.config.sticky_values,
-                    window_size,
-                )
-            } else if !cfg.options.is_empty() {
-                let mut m =
-                    SearchModal::new_simple(field_idx, cfg.id, cfg.options.clone(), window_size);
-                if let Some(ref default) = cfg.default {
-                    if let Some(pos) = cfg.options.iter().position(|e| e == default) {
-                        m.list_cursor = pos;
-                        m.sticky_cursor = pos;
-                        m.center_scroll();
-                    }
-                }
-                m
-            } else {
+            if cfg.lists.is_empty() {
                 return;
-            };
+            }
+            let window_size = self.modal_window_size();
+            let modal =
+                SearchModal::new_field(field_idx, cfg, &self.config.sticky_values, window_size);
             self.modal = Some(modal);
         }
     }
@@ -1105,20 +1105,22 @@ impl App {
         }
 
         if self.is_super_confirm(&key) {
-            let value = {
-                let modal = self.modal.as_ref().unwrap();
-                let q = modal.query.trim().to_string();
-                if !q.is_empty() {
-                    Some(q)
-                } else {
-                    modal.selected_value().map(String::from)
-                }
-            };
-            match value {
-                Some(v) => self.confirm_modal_value(v),
-                None => {
-                    self.modal = None;
-                }
+            self.super_confirm_modal_field();
+            return;
+        }
+
+        if matches!(key, AppKey::Left) {
+            self.composite_go_back();
+            return;
+        }
+
+        if matches!(key, AppKey::Right) {
+            if let Some(value) = self
+                .modal
+                .as_ref()
+                .and_then(|modal| modal.selected_value().map(str::to_string))
+            {
+                self.confirm_modal_value(value);
             }
             return;
         }
@@ -1137,7 +1139,29 @@ impl App {
                     }
                 }
                 AppKey::Enter => {
-                    if !self.modal.as_ref().unwrap().filtered.is_empty() {
+                    if self
+                        .modal
+                        .as_ref()
+                        .is_some_and(|modal| modal.should_finish_repeating_from_empty_search())
+                    {
+                        self.confirm_modal_value(String::new());
+                        return;
+                    }
+
+                    let only_value = self.modal.as_ref().and_then(|modal| {
+                        if modal.filtered.len() == 1 {
+                            modal.selected_value().map(String::from)
+                        } else {
+                            None
+                        }
+                    });
+                    if let Some(value) = only_value {
+                        self.confirm_modal_value(value);
+                    } else if self
+                        .modal
+                        .as_ref()
+                        .is_some_and(|modal| !modal.filtered.is_empty())
+                    {
                         self.modal.as_mut().unwrap().focus = ModalFocus::List;
                     }
                 }
@@ -1154,6 +1178,11 @@ impl App {
                     modal.query.push(c);
                     modal.update_filter();
                 }
+                AppKey::Space => {
+                    let modal = self.modal.as_mut().unwrap();
+                    modal.query.push(' ');
+                    modal.update_filter();
+                }
                 _ => {}
             },
             ModalFocus::List => match key {
@@ -1162,12 +1191,7 @@ impl App {
                     let can_go_back = self
                         .modal
                         .as_ref()
-                        .map(|m| {
-                            m.composite
-                                .as_ref()
-                                .map(|c| c.part_idx > 0)
-                                .unwrap_or(false)
-                        })
+                        .map(|m| m.field_flow.list_idx > 0)
                         .unwrap_or(false);
                     if can_go_back {
                         self.composite_go_back();
@@ -1262,34 +1286,46 @@ impl App {
 
     fn confirm_modal_value(&mut self, value: String) {
         let idx = self.current_idx;
-        let is_composite = self
-            .modal
-            .as_ref()
-            .map(|m| m.composite.is_some())
-            .unwrap_or(false);
-
-        if is_composite {
-            let advance = self
-                .modal
-                .as_mut()
-                .unwrap()
-                .advance_composite(value, &mut self.config.sticky_values);
+        if self.modal.is_some() {
+            let window_size = self.modal_window_size();
+            let advance = self.modal.as_mut().unwrap().advance_field(
+                value,
+                &mut self.config.sticky_values,
+                window_size,
+            );
             match advance {
-                CompositeAdvance::NextPart => {
-                    let preview = compute_composite_preview(self.modal.as_ref().unwrap());
-                    let spans = compute_composite_spans(self.modal.as_ref().unwrap());
+                FieldAdvance::NextList => {
+                    let preview = compute_field_preview(
+                        self.modal.as_ref().unwrap(),
+                        &self.config.sticky_values,
+                    );
+                    let spans = compute_field_spans(
+                        self.modal.as_ref().unwrap(),
+                        &self.config.sticky_values,
+                    );
                     if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                         s.set_preview_value(preview);
                         s.composite_spans = Some(spans);
                     }
                     let _ = self.config.save(&self.data_dir);
                 }
-                CompositeAdvance::Complete(final_value) => {
+                FieldAdvance::StayOnList => {
+                    let preview = compute_field_preview(
+                        self.modal.as_ref().unwrap(),
+                        &self.config.sticky_values,
+                    );
+                    let spans = compute_field_spans(
+                        self.modal.as_ref().unwrap(),
+                        &self.config.sticky_values,
+                    );
+                    if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                        s.set_preview_value(preview);
+                        s.composite_spans = Some(spans);
+                    }
+                }
+                FieldAdvance::Complete(final_value) => {
                     if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                         s.composite_spans = None;
-                        if let Some(slot) = s.repeated_values.get_mut(s.field_index) {
-                            slot.clear();
-                        }
                         s.set_current_value(final_value);
                         let done = s.advance();
                         self.sync_section_into_editable_note(idx);
@@ -1301,16 +1337,47 @@ impl App {
                     let _ = self.config.save(&self.data_dir);
                 }
             }
-        } else {
-            if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
-                s.set_current_value(value);
-                let done = s.advance();
-                self.sync_section_into_editable_note(idx);
-                if done {
-                    self.advance_section();
+        }
+    }
+
+    fn super_confirm_modal_field(&mut self) {
+        let idx = self.current_idx;
+        if self.modal.is_none() {
+            return;
+        }
+
+        let window_size = self.modal_window_size();
+        let advance = self
+            .modal
+            .as_mut()
+            .unwrap()
+            .super_confirm_field(&mut self.config.sticky_values, window_size);
+
+        match advance {
+            FieldAdvance::NextList | FieldAdvance::StayOnList => {
+                let preview =
+                    compute_field_preview(self.modal.as_ref().unwrap(), &self.config.sticky_values);
+                let spans =
+                    compute_field_spans(self.modal.as_ref().unwrap(), &self.config.sticky_values);
+                if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                    s.set_preview_value(preview);
+                    s.composite_spans = Some(spans);
                 }
+                let _ = self.config.save(&self.data_dir);
             }
-            self.modal = None;
+            FieldAdvance::Complete(final_value) => {
+                if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                    s.composite_spans = None;
+                    s.set_current_value(final_value);
+                    let done = s.advance();
+                    self.sync_section_into_editable_note(idx);
+                    if done {
+                        self.advance_section();
+                    }
+                }
+                self.modal = None;
+                let _ = self.config.save(&self.data_dir);
+            }
         }
     }
 
@@ -1712,48 +1779,30 @@ impl App {
             self.hint_buffer.push_str(&ch_str);
             let typed = self.hint_buffer.clone();
 
-            let g_idx = self.group_idx_for_section(self.current_idx);
-            let labels = self.wizard_hint_labels(0);
-
-            // Check group hint
-            let group_hint = labels.group.as_deref().unwrap_or("");
-            let group_hint_owned = if case_sensitive {
-                group_hint.to_string()
-            } else {
-                group_hint.to_ascii_lowercase()
-            };
-            match crate::data::resolve_hint(&[group_hint_owned.as_str()], &typed) {
-                crate::data::HintResolveResult::Exact(_) => {
-                    self.focus = Focus::Map;
-                    self.map_cursor = self.current_idx;
-                    self.map_hint_level = MapHintLevel::Groups;
+            let section_refs_owned: Vec<String> = self
+                .section_hint_labels()
+                .iter()
+                .map(|h| {
+                    if case_sensitive {
+                        h.to_string()
+                    } else {
+                        h.to_ascii_lowercase().to_string()
+                    }
+                })
+                .collect();
+            let section_refs: Vec<&str> = section_refs_owned.iter().map(String::as_str).collect();
+            match crate::data::resolve_hint(&section_refs, &typed) {
+                crate::data::HintResolveResult::Exact(flat_idx) => {
+                    self.current_idx = flat_idx;
+                    self.map_cursor = flat_idx;
+                    self.map_hint_level =
+                        MapHintLevel::Sections(self.group_idx_for_section(flat_idx));
                     self.update_note_scroll();
                     self.hint_buffer.clear();
                     return true;
                 }
-                crate::data::HintResolveResult::Partial(_) => return false, // hold buffer
+                crate::data::HintResolveResult::Partial(_) => return false,
                 crate::data::HintResolveResult::NoMatch => {}
-            }
-
-            // Check section hint
-            if let Some(section_hint) = labels.section.as_deref() {
-                let section_hint_owned = if case_sensitive {
-                    section_hint.to_string()
-                } else {
-                    section_hint.to_ascii_lowercase()
-                };
-                match crate::data::resolve_hint(&[section_hint_owned.as_str()], &typed) {
-                    crate::data::HintResolveResult::Exact(_) => {
-                        self.focus = Focus::Map;
-                        self.map_cursor = self.current_idx;
-                        self.map_hint_level = MapHintLevel::Sections(g_idx);
-                        self.update_note_scroll();
-                        self.hint_buffer.clear();
-                        return true;
-                    }
-                    crate::data::HintResolveResult::Partial(_) => return false, // hold buffer
-                    crate::data::HintResolveResult::NoMatch => {}
-                }
             }
 
             // No hint matched
@@ -1765,37 +1814,38 @@ impl App {
     fn composite_go_back(&mut self) {
         let idx = self.current_idx;
 
-        // Step 1: Pop the last confirmed value and decrement part_idx, extract new part options
-        let (new_part_idx, popped_output, new_labels, new_outputs, new_default_cursor) = {
+        let window_size = self.modal_window_size();
+        let (new_list_idx, popped_output, new_labels, new_outputs) = {
             let modal = match self.modal.as_mut() {
                 Some(m) => m,
                 None => return,
             };
-            let comp = match modal.composite.as_mut() {
-                Some(c) => c,
-                None => return,
-            };
-            if comp.part_idx == 0 {
+            if modal.field_flow.list_idx == 0 {
+                let _ = modal.restore_parent_branch(&self.config.sticky_values, window_size);
                 return;
             }
-            let popped = comp.values.pop();
-            comp.part_idx -= 1;
-            let part = &comp.config.parts[comp.part_idx];
-            let labels: Vec<String> = part.options.iter().map(|o| o.label().to_string()).collect();
-            let outputs: Vec<String> = part
-                .options
+            let popped = modal.field_flow.values.pop();
+            modal.field_flow.list_idx -= 1;
+            let list = &modal.field_flow.lists[modal.field_flow.list_idx];
+            let labels = resolved_item_labels_for_list(
+                list,
+                &modal.field_flow.values,
+                &modal.field_flow.repeat_values,
+                &modal.field_flow.lists,
+                &self.config.sticky_values,
+            );
+            let outputs: Vec<String> = list
+                .items
                 .iter()
-                .map(|o| o.output().to_string())
+                .map(|item| item.output.clone().unwrap_or_else(|| item.label.clone()))
                 .collect();
-            let dc = part.default_cursor();
-            (comp.part_idx, popped, labels, outputs, dc)
+            (modal.field_flow.list_idx, popped, labels, outputs)
         };
 
-        // Step 2: Update modal entries and cursor (restore to previously chosen value)
         let cursor = popped_output
             .as_ref()
             .and_then(|v| new_outputs.iter().position(|e| e == v))
-            .unwrap_or(new_default_cursor);
+            .unwrap_or(0);
         {
             let modal = self.modal.as_mut().unwrap();
             modal.all_entries = new_labels;
@@ -1808,21 +1858,17 @@ impl App {
             modal.update_filter();
         }
 
-        // Step 3: Update header state spans/value
-        if new_part_idx == 0 {
-            // Back to first part - clear partial state (preload will show via render)
+        if new_list_idx == 0 {
             if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                 s.composite_spans = None;
-                if let Some(slot) = s.repeated_values.get_mut(s.field_index) {
-                    slot.clear();
-                }
+                s.clear_active_value();
             }
         } else {
             let (preview, spans) = {
                 let modal = self.modal.as_ref().unwrap();
                 (
-                    compute_composite_preview(modal),
-                    compute_composite_spans(modal),
+                    compute_field_preview(modal, &self.config.sticky_values),
+                    compute_field_spans(modal, &self.config.sticky_values),
                 )
             };
             if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
@@ -1833,12 +1879,18 @@ impl App {
     }
 }
 
-fn compute_composite_spans(modal: &crate::modal::SearchModal) -> Vec<(String, bool)> {
-    let comp = match &modal.composite {
-        Some(c) => c,
-        None => return vec![],
+fn compute_field_spans(
+    modal: &crate::modal::SearchModal,
+    sticky_values: &std::collections::HashMap<String, String>,
+) -> Vec<(String, bool)> {
+    let flow = &modal.field_flow;
+    let Some(format) = &flow.format else {
+        return flow
+            .values
+            .iter()
+            .map(|value| (value.clone(), true))
+            .collect();
     };
-    let format = &comp.config.format;
     let mut spans: Vec<(String, bool)> = Vec::new();
     let mut literal = String::new();
     let mut chars = format.chars().peekable();
@@ -1855,13 +1907,26 @@ fn compute_composite_spans(modal: &crate::modal::SearchModal) -> Vec<(String, bo
                 }
                 id.push(c2);
             }
-            if let Some(i) = comp.config.parts.iter().position(|p| p.id == id) {
-                if i < comp.values.len() {
-                    spans.push((comp.values[i].clone(), true));
+            if let Some(i) = flow.lists.iter().position(|list| list.id == id) {
+                if i < flow.values.len() {
+                    spans.push((flow.values[i].clone(), true));
+                } else if i == flow.list_idx && !flow.repeat_values.is_empty() {
+                    spans.push((
+                        joined_repeating_value(&flow.lists[i], &flow.repeat_values)
+                            .unwrap_or_else(|| flow.repeat_values.join(", ")),
+                        true,
+                    ));
+                } else if let Some(value) = fallback_list_value(&flow.lists[i], sticky_values) {
+                    spans.push((value, false));
                 } else {
-                    let preview = comp.config.parts[i].preview.as_deref().unwrap_or("?");
+                    let preview = flow.lists[i].preview.as_deref().unwrap_or("?");
                     spans.push((preview.to_string(), false));
                 }
+            } else if let Some(list) = flow.format_lists.iter().find(|list| list.id == id) {
+                spans.push((
+                    fallback_list_value(list, sticky_values).unwrap_or_default(),
+                    false,
+                ));
             }
         } else {
             literal.push(c);
@@ -1873,22 +1938,61 @@ fn compute_composite_spans(modal: &crate::modal::SearchModal) -> Vec<(String, bo
     spans
 }
 
-fn compute_composite_preview(modal: &crate::modal::SearchModal) -> String {
-    let comp = match &modal.composite {
-        Some(c) => c,
-        None => return String::new(),
+fn compute_field_preview(
+    modal: &crate::modal::SearchModal,
+    sticky_values: &std::collections::HashMap<String, String>,
+) -> String {
+    let flow = &modal.field_flow;
+    let Some(format) = &flow.format else {
+        return flow.values.join(", ");
     };
-    let mut result = comp.config.format.clone();
-    for (i, val) in comp.values.iter().enumerate() {
-        let placeholder = format!("{{{}}}", comp.config.parts[i].id);
+    let mut result = format.clone();
+    for (i, val) in flow.values.iter().enumerate() {
+        let placeholder = format!("{{{}}}", flow.lists[i].id);
         result = result.replace(&placeholder, val);
     }
-    for part in &comp.config.parts[comp.part_idx..] {
-        let placeholder = format!("{{{}}}", part.id);
-        let preview_str = part.preview.as_deref().unwrap_or("?");
-        result = result.replace(&placeholder, preview_str);
+    for (i, list) in flow.lists.iter().enumerate().skip(flow.list_idx) {
+        let placeholder = format!("{{{}}}", list.id);
+        let value = if i == flow.list_idx && !flow.repeat_values.is_empty() {
+            joined_repeating_value(list, &flow.repeat_values)
+                .unwrap_or_else(|| flow.repeat_values.join(", "))
+        } else {
+            fallback_list_value(list, sticky_values)
+                .unwrap_or_else(|| list.preview.as_deref().unwrap_or("?").to_string())
+        };
+        result = result.replace(&placeholder, &value);
+    }
+    for list in &flow.format_lists {
+        let placeholder = format!("{{{}}}", list.id);
+        if result.contains(&placeholder) {
+            let value = fallback_list_value(list, sticky_values).unwrap_or_default();
+            result = result.replace(&placeholder, &value);
+        }
     }
     result
+}
+
+fn fallback_list_value(
+    list: &crate::data::HierarchyList,
+    sticky_values: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    if list.sticky {
+        if let Some(value) = sticky_values.get(&list.id) {
+            if !value.is_empty() {
+                return Some(value.clone());
+            }
+        }
+    }
+    if let Some(default) = &list.default {
+        if let Some(item) = list.items.iter().find(|item| {
+            item.id == *default
+                || item.label == *default
+                || item.output.as_deref() == Some(default.as_str())
+        }) {
+            return Some(item.output.clone().unwrap_or_else(|| item.label.clone()));
+        }
+    }
+    None
 }
 
 fn find_line_containing(text: &str, needle: &str) -> Option<u16> {
@@ -2426,5 +2530,78 @@ mod tests {
 
         assert_eq!(app.current_preview_scroll_line(), objective_line);
         assert_ne!(app.current_preview_scroll_line(), subjective_line);
+    }
+
+    #[test]
+    fn map_browsing_previews_wizard_section_but_back_restores_original() {
+        use crate::config::Config;
+        use crate::data::{AppData, KeyBindings, SectionConfig, SectionGroup};
+        use std::path::PathBuf;
+
+        let subjective = SectionConfig {
+            id: "subjective_section".to_string(),
+            name: "Subjective".to_string(),
+            map_label: "Subjective".to_string(),
+            section_type: "free_text".to_string(),
+            data_file: None,
+            date_prefix: None,
+            options: vec![],
+            composite: None,
+            fields: None,
+            is_intake: false,
+            heading_search_text: Some("## SUBJECTIVE".to_string()),
+            heading_label: None,
+            note_render_slot: Some("subjective_section".to_string()),
+        };
+        let objective = SectionConfig {
+            id: "objective_section".to_string(),
+            name: "Objective".to_string(),
+            map_label: "Objective".to_string(),
+            section_type: "free_text".to_string(),
+            data_file: None,
+            date_prefix: None,
+            options: vec![],
+            composite: None,
+            fields: None,
+            is_intake: false,
+            heading_search_text: Some("## OBJECTIVE / OBSERVATIONS".to_string()),
+            heading_label: None,
+            note_render_slot: Some("objective_section".to_string()),
+        };
+        let data = AppData {
+            groups: vec![
+                SectionGroup {
+                    id: "subjective".to_string(),
+                    num: None,
+                    name: "Subjective".to_string(),
+                    sections: vec![subjective.clone()],
+                },
+                SectionGroup {
+                    id: "objective".to_string(),
+                    num: None,
+                    name: "Objective".to_string(),
+                    sections: vec![objective.clone()],
+                },
+            ],
+            sections: vec![subjective, objective],
+            list_data: Default::default(),
+            checklist_data: Default::default(),
+            block_select_data: Default::default(),
+            boilerplate_texts: Default::default(),
+            keybindings: KeyBindings::default(),
+            data_dir: PathBuf::new(),
+        };
+
+        let mut app = App::new(data, Config::default(), PathBuf::new());
+        app.focus = Focus::Map;
+        app.map_return_idx = Some(0);
+
+        app.handle_key(AppKey::Down);
+        assert_eq!(app.current_idx, 1);
+        assert_eq!(app.focus, Focus::Map);
+
+        app.handle_key(AppKey::Esc);
+        assert_eq!(app.current_idx, 0);
+        assert_eq!(app.focus, Focus::Wizard);
     }
 }

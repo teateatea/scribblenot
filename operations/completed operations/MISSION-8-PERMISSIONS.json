@@ -1,0 +1,19 @@
+{
+  "mission": "hints-superconfirm",
+  "created": "2026-03-29",
+  "approved_actions": [
+    { "type": "Read", "pattern": "C:/Users/solar/Documents/Claude Projects/**", "rationale": "project file reads" },
+    { "type": "Write", "pattern": "C:/Users/solar/Documents/Claude Projects/**", "rationale": "project file writes" },
+    { "type": "Edit", "pattern": "C:/Users/solar/Documents/Claude Projects/**", "rationale": "project file edits" },
+    { "type": "Read", "pattern": "C:/Users/solar/.claude/**", "rationale": "read skill files, hooks, and plans during mission execution" },
+    { "type": "Edit", "pattern": "C:/Users/solar/.claude/**", "rationale": "edit skill files and hook scripts during mission execution" },
+    { "type": "Bash", "pattern": "git *", "rationale": "version control" },
+    { "type": "Bash", "pattern": "git -C *", "rationale": "version control with explicit path" },
+    { "type": "Bash", "pattern": "grep *", "rationale": "post-edit pattern verification across files" },
+    { "type": "Bash", "pattern": "date *", "rationale": "ISO 8601 timestamp generation for mission logs and ETA computation" },
+    { "type": "Bash", "pattern": "cargo build *", "rationale": "compile Rust project code" },
+    { "type": "Bash", "pattern": "cargo run *", "rationale": "run the Rust app to test changes" },
+    { "type": "Bash", "pattern": "cargo test *", "rationale": "run Rust unit and integration tests" },
+    { "type": "Bash", "pattern": "cargo clippy *", "rationale": "Rust linting" }
+  ]
+}

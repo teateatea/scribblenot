@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use anyhow::{anyhow, Context, Result};
-use iced::Color;
+use iced::font::{Family, Style, Weight};
+use iced::{Color, Font};
 use serde::{Deserialize, Deserializer};
 use serde_yaml::Value;
 use std::collections::{HashMap, HashSet};
@@ -116,6 +117,27 @@ pub const STATUS_BACKGROUND: Color = Color {
     a: 1.0,
 };
 
+pub const STICKY_DEFAULT_PREVIEW: Color = Color {
+    r: 0.50,
+    g: 0.75,
+    b: 0.85,
+    a: 1.0,
+};
+
+pub const CONFIRMED_MUTED_PREVIEW: Color = Color {
+    r: 0.31,
+    g: 0.69,
+    b: 0.31,
+    a: 1.0,
+};
+
+pub const PREVIEW_COPY_FLASH_BACKGROUND: Color = Color {
+    r: 0.10,
+    g: 0.35,
+    b: 0.18,
+    a: 1.0,
+};
+
 pub const TRANSPARENT: Color = Color {
     r: 0.0,
     g: 0.0,
@@ -170,6 +192,9 @@ pub struct AppTheme {
     pub modal_input_text: Color,
     pub modal_input_placeholder: Color,
     pub modal_input_border: Color,
+    pub sticky_default_preview: Color,
+    pub confirmed_muted_preview: Color,
+    pub preview_copy_flash_background: Color,
     pub status_background: Color,
     pub scroll_rail: Color,
     pub scroll_scroller: Color,
@@ -181,6 +206,12 @@ pub struct AppTheme {
     pub scroll_border_width: f32,
     pub scroll_width: f32,
     pub scroll_spacing: f32,
+    pub font_pane: Font,
+    pub font_heading: Font,
+    pub font_preview: Font,
+    pub font_modal: Font,
+    pub font_status: Font,
+    pub preview_copy_flash_duration_ms: u64,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -247,6 +278,12 @@ struct ThemeFile {
     #[serde(default, deserialize_with = "deserialize_color_setting")]
     modal_input_border: ColorSetting,
     #[serde(default, deserialize_with = "deserialize_color_setting")]
+    sticky_default_preview: ColorSetting,
+    #[serde(default, deserialize_with = "deserialize_color_setting")]
+    confirmed_muted_preview: ColorSetting,
+    #[serde(default, deserialize_with = "deserialize_color_setting")]
+    preview_copy_flash_background: ColorSetting,
+    #[serde(default, deserialize_with = "deserialize_color_setting")]
     status_background: ColorSetting,
     #[serde(default, deserialize_with = "deserialize_color_setting")]
     scroll_rail: ColorSetting,
@@ -265,6 +302,12 @@ struct ThemeFile {
     scroll_border_width: Option<f32>,
     scroll_width: Option<f32>,
     scroll_spacing: Option<f32>,
+    font_pane: Option<String>,
+    font_heading: Option<String>,
+    font_preview: Option<String>,
+    font_modal: Option<String>,
+    font_status: Option<String>,
+    preview_copy_flash_duration_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -309,6 +352,9 @@ impl Default for AppTheme {
             modal_input_text: TEXT,
             modal_input_placeholder: MUTED,
             modal_input_border: MODAL,
+            sticky_default_preview: STICKY_DEFAULT_PREVIEW,
+            confirmed_muted_preview: CONFIRMED_MUTED_PREVIEW,
+            preview_copy_flash_background: PREVIEW_COPY_FLASH_BACKGROUND,
             status_background: STATUS_BACKGROUND,
             scroll_rail: SCROLL_RAIL,
             scroll_scroller: SCROLL_SCROLLER,
@@ -320,6 +366,15 @@ impl Default for AppTheme {
             scroll_border_width: 1.0,
             scroll_width: 10.0,
             scroll_spacing: 6.0,
+            font_pane: Font::MONOSPACE,
+            font_heading: Font {
+                weight: Weight::Bold,
+                ..Font::MONOSPACE
+            },
+            font_preview: Font::MONOSPACE,
+            font_modal: Font::MONOSPACE,
+            font_status: Font::MONOSPACE,
+            preview_copy_flash_duration_ms: 650,
         }
     }
 }
@@ -454,6 +509,21 @@ impl AppTheme {
                 default.modal_input_border,
                 &custom_colors,
             )?,
+            sticky_default_preview: optional_color(
+                file.sticky_default_preview,
+                default.sticky_default_preview,
+                &custom_colors,
+            )?,
+            confirmed_muted_preview: optional_color(
+                file.confirmed_muted_preview,
+                default.confirmed_muted_preview,
+                &custom_colors,
+            )?,
+            preview_copy_flash_background: optional_color(
+                file.preview_copy_flash_background,
+                default.preview_copy_flash_background,
+                &custom_colors,
+            )?,
             status_background: optional_color(
                 file.status_background,
                 default.status_background,
@@ -501,7 +571,113 @@ impl AppTheme {
                 default.scroll_spacing,
                 "scroll_spacing",
             )?,
+            font_pane: optional_font(file.font_pane, default.font_pane),
+            font_heading: optional_font(file.font_heading, default.font_heading),
+            font_preview: optional_font(file.font_preview, default.font_preview),
+            font_modal: optional_font(file.font_modal, default.font_modal),
+            font_status: optional_font(file.font_status, default.font_status),
+            preview_copy_flash_duration_ms: file
+                .preview_copy_flash_duration_ms
+                .unwrap_or(default.preview_copy_flash_duration_ms),
         })
+    }
+}
+
+fn optional_font(value: Option<String>, fallback: Font) -> Font {
+    value
+        .as_deref()
+        .map(parse_font_name)
+        .filter(|font| font.family != Family::Name(""))
+        .unwrap_or(fallback)
+}
+
+fn parse_font_name(value: &str) -> Font {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Font::DEFAULT;
+    }
+
+    let mut words: Vec<&str> = trimmed.split_whitespace().collect();
+    let mut weight = Weight::Normal;
+    let mut style = Style::Normal;
+
+    loop {
+        let Some(last) = words.last().copied() else {
+            break;
+        };
+        let normalized_last = last.to_ascii_lowercase();
+        let consumed = match normalized_last.as_str() {
+            "thin" => {
+                weight = Weight::Thin;
+                true
+            }
+            "extralight" | "extra-light" => {
+                weight = Weight::ExtraLight;
+                true
+            }
+            "light" => {
+                weight = Weight::Light;
+                true
+            }
+            "regular" | "normal" => {
+                weight = Weight::Normal;
+                true
+            }
+            "medium" => {
+                weight = Weight::Medium;
+                true
+            }
+            "semibold" | "semi-bold" => {
+                weight = Weight::Semibold;
+                true
+            }
+            "bold" => {
+                weight = Weight::Bold;
+                true
+            }
+            "extrabold" | "extra-bold" => {
+                weight = Weight::ExtraBold;
+                true
+            }
+            "black" => {
+                weight = Weight::Black;
+                true
+            }
+            "italic" => {
+                style = Style::Italic;
+                true
+            }
+            "oblique" => {
+                style = Style::Oblique;
+                true
+            }
+            _ => false,
+        };
+        if consumed {
+            words.pop();
+        } else {
+            break;
+        }
+    }
+
+    let family_name = if words.is_empty() {
+        trimmed.to_string()
+    } else {
+        words.join(" ")
+    };
+    let normalized = family_name.to_ascii_lowercase();
+    let family = match normalized.as_str() {
+        "default" | "sans" | "sans-serif" | "sans serif" => Family::SansSerif,
+        "serif" => Family::Serif,
+        "mono" | "monospace" | "mono-space" => Family::Monospace,
+        _ => Family::Name(Box::leak(family_name.into_boxed_str())),
+    };
+
+    Font {
+        family,
+        weight,
+        style,
+        ..Font::DEFAULT
     }
 }
 

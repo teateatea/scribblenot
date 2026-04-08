@@ -23,6 +23,12 @@
 
 ## Sub-task Log
 
+### Compact Event - 2026-04-01T14:03:38
+- Trigger: pre-compact hook
+- Log-snapshot: none
+### Compact Event - 2026-03-30T12:14:41
+- Trigger: pre-compact hook
+- Log-snapshot: none
 ### Sub-task 5.1: Verify per-sub-task test_runner override already present in MT-3b
 - Status: Pass
 - TDD: (no tests - skill file edit)
@@ -140,3 +146,4 @@
 - End-Time: 2026-03-24T06:00:00Z
 - Duration: approx 6h
 - Completed at: 2026-03-24T06:00:00Z
+- Context at finish: 68% used
