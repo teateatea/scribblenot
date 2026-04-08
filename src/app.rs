@@ -8,6 +8,7 @@ use crate::modal::{
 use crate::sections::{
     block_select::BlockSelectState,
     checklist::ChecklistState,
+    collection::CollectionState,
     free_text::FreeTextState,
     header::HeaderState,
     list_select::{ListSelectMode, ListSelectState},
@@ -88,6 +89,7 @@ pub enum SectionState {
     FreeText(FreeTextState),
     ListSelect(ListSelectState),
     BlockSelect(BlockSelectState),
+    Collection(CollectionState),
     Checklist(ChecklistState),
 }
 
@@ -354,6 +356,14 @@ impl App {
                         .unwrap_or_default();
                     SectionState::BlockSelect(BlockSelectState::new(regions))
                 }
+                "collection" => {
+                    let collections = data
+                        .collection_data
+                        .get(&cfg.id)
+                        .cloned()
+                        .unwrap_or_default();
+                    SectionState::Collection(CollectionState::new(collections))
+                }
                 "checklist" => {
                     let items = cfg
                         .data_file
@@ -457,6 +467,7 @@ impl App {
             Some(SectionState::FreeText(s)) => !s.is_editing(),
             Some(SectionState::ListSelect(s)) => matches!(s.mode, ListSelectMode::Browsing),
             Some(SectionState::BlockSelect(s)) => !s.in_items(),
+            Some(SectionState::Collection(s)) => !s.in_items(),
             Some(SectionState::Checklist(_)) => true,
             _ => false,
         }
@@ -880,6 +891,7 @@ impl App {
             SectionState::FreeText(_) => self.handle_free_text_key(key),
             SectionState::ListSelect(_) => self.handle_list_select_key(key),
             SectionState::BlockSelect(_) => self.handle_block_select_key(key),
+            SectionState::Collection(_) => self.handle_collection_key(key),
             SectionState::Checklist(_) => self.handle_checklist_key(key),
             SectionState::Pending => {
                 if self.is_confirm(&key) || self.is_navigate_down(&key) {
@@ -1710,6 +1722,103 @@ impl App {
         }
     }
 
+    fn handle_collection_key(&mut self, key: AppKey) {
+        let idx = self.current_idx;
+        let in_items = match &self.section_states[idx] {
+            SectionState::Collection(s) => s.in_items(),
+            _ => false,
+        };
+
+        if in_items {
+            if self.is_back(&key) || self.is_confirm(&key) {
+                if let SectionState::Collection(s) = &mut self.section_states[idx] {
+                    s.exit_items();
+                }
+                return;
+            }
+            if self.is_navigate_up(&key) {
+                if let SectionState::Collection(s) = &mut self.section_states[idx] {
+                    s.navigate_up();
+                }
+                return;
+            }
+            if self.is_navigate_down(&key) {
+                if let SectionState::Collection(s) = &mut self.section_states[idx] {
+                    s.navigate_down();
+                }
+                return;
+            }
+            if self.is_select(&key) {
+                if let SectionState::Collection(s) = &mut self.section_states[idx] {
+                    s.toggle_current_item();
+                }
+                self.sync_section_into_editable_note(idx);
+                return;
+            }
+            if matches!(key, AppKey::Backspace) {
+                if let SectionState::Collection(s) = &mut self.section_states[idx] {
+                    s.reset_current_collection();
+                }
+                self.sync_section_into_editable_note(idx);
+                return;
+            }
+            return;
+        }
+
+        if self.try_navigate_to_map_via_hint(&key) {
+            return;
+        }
+        if self.is_navigate_up(&key) {
+            if let SectionState::Collection(s) = &mut self.section_states[idx] {
+                s.navigate_up();
+            }
+            return;
+        }
+        if self.is_navigate_down(&key) {
+            if let SectionState::Collection(s) = &mut self.section_states[idx] {
+                s.navigate_down();
+            }
+            return;
+        }
+        if self.is_select(&key) {
+            if let SectionState::Collection(s) = &mut self.section_states[idx] {
+                s.toggle_current_collection();
+            }
+            self.sync_section_into_editable_note(idx);
+            return;
+        }
+        if self.is_confirm(&key) {
+            if let SectionState::Collection(s) = &mut self.section_states[idx] {
+                if !s.collections.is_empty() {
+                    s.enter_collection();
+                }
+            }
+            return;
+        }
+        if matches!(key, AppKey::Backspace) {
+            if let SectionState::Collection(s) = &mut self.section_states[idx] {
+                s.reset_current_collection();
+            }
+            self.sync_section_into_editable_note(idx);
+            return;
+        }
+        if self.is_back(&key) {
+            let has_any = match &self.section_states[idx] {
+                SectionState::Collection(s) => s.has_any_active_collection(),
+                _ => false,
+            };
+            if let SectionState::Collection(s) = &mut self.section_states[idx] {
+                if has_any {
+                    s.completed = true;
+                } else {
+                    s.skipped = true;
+                }
+            }
+            self.sync_section_into_editable_note(idx);
+            self.advance_section();
+        }
+    }
+
     fn handle_checklist_key(&mut self, key: AppKey) {
         let idx = self.current_idx;
 
@@ -1751,6 +1860,7 @@ impl App {
             Some(SectionState::FreeText(s)) => s.completed,
             Some(SectionState::ListSelect(s)) => s.completed,
             Some(SectionState::BlockSelect(s)) => s.completed,
+            Some(SectionState::Collection(s)) => s.completed,
             Some(SectionState::Checklist(s)) => s.completed,
             _ => false,
         }
@@ -1761,6 +1871,7 @@ impl App {
             Some(SectionState::FreeText(s)) => s.skipped,
             Some(SectionState::ListSelect(s)) => s.skipped,
             Some(SectionState::BlockSelect(s)) => s.skipped,
+            Some(SectionState::Collection(s)) => s.skipped,
             Some(SectionState::Checklist(s)) => s.skipped,
             _ => false,
         }
@@ -2074,6 +2185,7 @@ mod tests {
             list_data: Default::default(),
             checklist_data: Default::default(),
             block_select_data: Default::default(),
+            collection_data: Default::default(),
             boilerplate_texts: Default::default(),
             keybindings: KeyBindings::default(),
             data_dir: PathBuf::new(),
@@ -2148,6 +2260,7 @@ mod tests {
             list_data: Default::default(),
             checklist_data: Default::default(),
             block_select_data: Default::default(),
+            collection_data: Default::default(),
             boilerplate_texts: Default::default(),
             keybindings: KeyBindings::default(),
             data_dir: PathBuf::new(),
@@ -2210,6 +2323,7 @@ mod tests {
             list_data: Default::default(),
             checklist_data: Default::default(),
             block_select_data: Default::default(),
+            collection_data: Default::default(),
             boilerplate_texts: Default::default(),
             keybindings: KeyBindings::default(),
             data_dir: PathBuf::new(),
@@ -2281,6 +2395,7 @@ mod tests {
             list_data: Default::default(),
             checklist_data: Default::default(),
             block_select_data: Default::default(),
+            collection_data: Default::default(),
             boilerplate_texts: Default::default(),
             keybindings: KeyBindings::default(),
             data_dir: PathBuf::new(),
@@ -2341,6 +2456,7 @@ mod tests {
             list_data: Default::default(),
             checklist_data: Default::default(),
             block_select_data: Default::default(),
+            collection_data: Default::default(),
             boilerplate_texts: Default::default(),
             keybindings: KeyBindings::default(),
             data_dir: PathBuf::new(),
@@ -2403,6 +2519,7 @@ mod tests {
             list_data,
             checklist_data: Default::default(),
             block_select_data: Default::default(),
+            collection_data: Default::default(),
             boilerplate_texts: Default::default(),
             keybindings: KeyBindings::default(),
             data_dir: PathBuf::new(),
@@ -2494,6 +2611,7 @@ mod tests {
             list_data: Default::default(),
             checklist_data: Default::default(),
             block_select_data: Default::default(),
+            collection_data: Default::default(),
             boilerplate_texts: Default::default(),
             keybindings: KeyBindings::default(),
             data_dir: PathBuf::new(),
@@ -2587,6 +2705,7 @@ mod tests {
             list_data: Default::default(),
             checklist_data: Default::default(),
             block_select_data: Default::default(),
+            collection_data: Default::default(),
             boilerplate_texts: Default::default(),
             keybindings: KeyBindings::default(),
             data_dir: PathBuf::new(),

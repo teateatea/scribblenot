@@ -128,6 +128,7 @@ pub struct AppData {
     pub list_data: HashMap<String, Vec<ListEntry>>,
     pub checklist_data: HashMap<String, Vec<String>>,
     pub block_select_data: HashMap<String, Vec<HierarchyList>>,
+    pub collection_data: HashMap<String, Vec<HierarchyList>>,
     pub boilerplate_texts: HashMap<String, String>,
     pub keybindings: KeyBindings,
     pub data_dir: PathBuf,
@@ -136,7 +137,13 @@ pub struct AppData {
 impl AppData {
     pub fn load(data_dir: PathBuf) -> Result<Self> {
         let hf = load_hierarchy_dir(&data_dir).map_err(|e| anyhow::anyhow!(e))?;
-        let (groups, sections, boilerplate_texts, mut block_select_data) =
+        let (
+            groups,
+            sections,
+            boilerplate_texts,
+            mut block_select_data,
+            mut collection_data,
+        ) =
             hierarchy_to_runtime(hf).map_err(|e| anyhow::anyhow!(e))?;
 
         let mut list_data: HashMap<String, Vec<ListEntry>> = HashMap::new();
@@ -179,6 +186,11 @@ impl AppData {
                             block_select_data
                                 .insert(section.id.clone(), parsed.lists.unwrap_or_default());
                         }
+                        "collection" => {
+                            let parsed: HierarchyFile = serde_yaml::from_str(&content)?;
+                            collection_data
+                                .insert(section.id.clone(), parsed.lists.unwrap_or_default());
+                        }
                         _ => {}
                     }
                 }
@@ -210,6 +222,7 @@ impl AppData {
             list_data,
             checklist_data,
             block_select_data,
+            collection_data,
             boilerplate_texts,
             keybindings,
             data_dir,
@@ -278,6 +291,7 @@ impl AppData {
             id,
             label: entry.label,
             default: None,
+            default_enabled: None,
             output: Some(entry.output),
             note: None,
             fields: None,
@@ -363,6 +377,7 @@ mod list_persistence_tests {
             list_data: HashMap::new(),
             checklist_data: HashMap::new(),
             block_select_data: HashMap::new(),
+            collection_data: HashMap::new(),
             boilerplate_texts: HashMap::new(),
             keybindings: KeyBindings::default(),
             data_dir: dir.clone(),
@@ -559,10 +574,8 @@ mod part_option_default_tests {
 mod tx_regions_default_tests {
     use super::*;
 
-    // ST47-3-TEST-1: The `fascial_l4l5` entry in `back_lower_prone` (LOWER BACK Prone, index 3)
-    // must start UNSELECTED (default: false) because it is rarely used per user context.
-    // This test FAILS before the yml change (no `default` field means default=true -> selected).
-    // It PASSES after `default: false` is added to the fascial_l4l5 entry in tx_regions.yml.
+    // The `fascial_l4l5` entry in `back_lower_prone` must start disabled because it is rarely
+    // used per user context.
     #[test]
     fn lower_back_prone_fascial_l4l5_starts_unselected() {
         let yaml_content = include_str!("../data/tx_regions.yml");
@@ -582,9 +595,9 @@ mod tx_regions_default_tests {
             .expect("fascial_l4l5 item must exist in back_lower_prone");
 
         assert_eq!(
-            fascial_entry.default,
+            fascial_entry.default_enabled,
             Some(false),
-            "fascial_l4l5 in LOWER BACK (Prone) must have default: Some(false)"
+            "fascial_l4l5 in LOWER BACK (Prone) must have default_enabled: Some(false)"
         );
     }
 }
@@ -656,6 +669,8 @@ pub struct HierarchyItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
@@ -682,6 +697,8 @@ impl<'de> Deserialize<'de> for HierarchyItem {
                 #[serde(default)]
                 default: Option<bool>,
                 #[serde(default)]
+                default_enabled: Option<bool>,
+                #[serde(default)]
                 output: Option<String>,
                 #[serde(default)]
                 note: Option<String>,
@@ -695,6 +712,7 @@ impl<'de> Deserialize<'de> for HierarchyItem {
                 id: String::new(),
                 label,
                 default: None,
+                default_enabled: None,
                 output: None,
                 note: None,
                 fields: None,
@@ -704,6 +722,7 @@ impl<'de> Deserialize<'de> for HierarchyItem {
                 id,
                 label,
                 default,
+                default_enabled,
                 output,
                 note,
                 fields,
@@ -716,6 +735,7 @@ impl<'de> Deserialize<'de> for HierarchyItem {
                     id,
                     label,
                     default,
+                    default_enabled,
                     output,
                     note,
                     fields,
@@ -723,6 +743,12 @@ impl<'de> Deserialize<'de> for HierarchyItem {
                 })
             }
         }
+    }
+}
+
+impl HierarchyItem {
+    pub fn default_enabled(&self) -> bool {
+        self.default_enabled.or(self.default).unwrap_or(true)
     }
 }
 
@@ -870,11 +896,12 @@ pub struct HierarchyFile {
 
 /// Converts a merged HierarchyFile into runtime structures.
 ///
-/// Returns (groups, sections, boilerplate_texts, block_select_data).
+/// Returns (groups, sections, boilerplate_texts, block_select_data, collection_data).
 pub type RuntimeHierarchy = (
     Vec<SectionGroup>,
     Vec<SectionConfig>,
     HashMap<String, String>,
+    HashMap<String, Vec<HierarchyList>>,
     HashMap<String, Vec<HierarchyList>>,
 );
 
@@ -1065,17 +1092,26 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
         boilerplate_texts.insert(bp.id.clone(), bp.text.clone());
     }
 
-    // Collect block_select_data: for each section with section_type == "block_select",
-    // insert the top-level HierarchyFile.lists keyed by that section's id.
+    // Collect nested collection data keyed by section id.
     let mut block_select_data: HashMap<String, Vec<HierarchyList>> = HashMap::new();
+    let mut collection_data: HashMap<String, Vec<HierarchyList>> = HashMap::new();
     let top_lists = hf.lists.clone().unwrap_or_default();
     for hs in h_sections {
         if hs.section_type.as_deref() == Some("block_select") {
             block_select_data.insert(hs.id.clone(), top_lists.clone());
         }
+        if hs.section_type.as_deref() == Some("collection") {
+            collection_data.insert(hs.id.clone(), top_lists.clone());
+        }
     }
 
-    Ok((groups, all_sections, boilerplate_texts, block_select_data))
+    Ok((
+        groups,
+        all_sections,
+        boilerplate_texts,
+        block_select_data,
+        collection_data,
+    ))
 }
 
 pub fn load_hierarchy_dir(dir: &std::path::Path) -> Result<HierarchyFile, String> {
@@ -2136,7 +2172,7 @@ mod tests {
 
         let hf = load_hierarchy_dir(&data_dir)
             .expect("load_hierarchy_dir on real data directory must succeed");
-        let (groups, _, _, _) =
+        let (groups, _, _, _, _) =
             hierarchy_to_runtime(hf).expect("hierarchy_to_runtime must succeed");
         assert!(
             !groups.is_empty(),
@@ -2161,7 +2197,7 @@ mod tests {
 
         let hf = load_hierarchy_dir(&data_dir)
             .expect("load_hierarchy_dir on real data directory must succeed");
-        let (_, sections, _, _) =
+        let (_, sections, _, _, _) =
             hierarchy_to_runtime(hf).expect("hierarchy_to_runtime must succeed");
         assert!(
             !sections.is_empty(),
@@ -3303,7 +3339,7 @@ mod hierarchy_runtime_tests {
         let dir = data_dir();
         let hf = load_hierarchy_dir(&dir)
             .expect("load_hierarchy_dir on real data directory must succeed");
-        let (groups, _, _, _block_select_data) = hierarchy_to_runtime(hf)
+        let (groups, _, _, _block_select_data, _collection_data) = hierarchy_to_runtime(hf)
             .expect("hierarchy_to_runtime must succeed on valid HierarchyFile");
         let ids: Vec<&str> = groups.iter().map(|g| g.id.as_str()).collect();
         assert_eq!(
@@ -3325,7 +3361,7 @@ mod hierarchy_runtime_tests {
         let dir = data_dir();
         let hf = load_hierarchy_dir(&dir)
             .expect("load_hierarchy_dir on real data directory must succeed");
-        let (_groups, _, _, block_select_data) = hierarchy_to_runtime(hf)
+        let (_groups, _, _, block_select_data, _collection_data) = hierarchy_to_runtime(hf)
             .expect("hierarchy_to_runtime must succeed on valid HierarchyFile");
         assert!(
             block_select_data.contains_key("tx_regions"),
@@ -3373,7 +3409,7 @@ mod hierarchy_runtime_tests {
         let dir = data_dir();
         let hf = load_hierarchy_dir(&dir)
             .expect("load_hierarchy_dir on real data directory must succeed");
-        let (groups, _, _, _block_select_data) = hierarchy_to_runtime(hf)
+        let (groups, _, _, _block_select_data, _collection_data) = hierarchy_to_runtime(hf)
             .expect("hierarchy_to_runtime must succeed on valid HierarchyFile");
         let all_sections: Vec<&SectionConfig> =
             groups.iter().flat_map(|g| g.sections.iter()).collect();

@@ -1,0 +1,7 @@
+boilerplate:
+  - id: treatment_plan_disclaimer
+    text: |
+      Regions and locations are bilateral unless indicated otherwise.
+      Patient is pillowed under ankles when prone, and under knees when supine.
+  - id: informed_consent
+    text: Patient has been informed of the risks and benefits of massage therapy, and has given informed consent to assessment and treatment.

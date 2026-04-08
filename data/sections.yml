@@ -9,14 +9,22 @@
 #      current app metadata: section_type, is_intake, heading_search_text,
 #        heading_label, note_render_slot
 #      legacy/transitional: map_label, data_file, date_prefix
+#      collection how-to:
+#        - use section_type: collection for a top-level toggleable collection section
+#        - the section reads top-level lists from its data file
+#        - each list becomes one collection
+#        - collection label is the list label
+#        - collection items come from list items
 #  - Field: id, label, lists
 #      modern optional: format, repeat_limit
 #  - List: id, label, items
 #      modern optional: sticky, default, preview, repeating, modal_start
+#      collection-specific item option: default_enabled (defaults to true)
 #      repeating values: comma_and, comma_and_the, comma_or, comma, semicolon, slash, newline
 #      modal_start values: list, search
 #  - Item: output
 #      modern optional: id, label, fields
+#      modern optional for collections: default_enabled
 #      legacy/transitional: default, note
 #      fields may contain existing field IDs or inline field definitions:
 #        fields:
@@ -37,6 +45,7 @@ template:
   groups:
     - intake_group
     - subjective_group
+    - treatment_group
     - objective_group
 
 
@@ -53,7 +62,10 @@ groups:
     nav_label: "SUBJECTIVE"
     sections:
       - subjective_section
-
+  - id: treatment_group
+    nav_label: "TREATMENT"
+    sections:
+      - treatment_section
 
 
 sections:

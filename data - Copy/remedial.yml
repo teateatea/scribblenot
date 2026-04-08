@@ -1,0 +1,46 @@
+lists:
+  - id: remedial_exercises
+    label: "Remedial Exercises & Self-Care"
+    items:
+      - id: psoas_kneeling_stretch
+        label: "PSOAS KNEELING STRETCH - Low Back Pain"
+        output: "PSOAS KNEELING STRETCH - Lengthen Psoas to Reduce Low Back Pain:\n- - \"Slide hips all the way forwards, then rotate all the way over the top knee.\n- - Slight lean back, and disco point to the back corner.\"\n- - 60s static stretch, bilaterally (30s-120s).\n- - 5 / week, for 2 weeks or until next appointment."
+      - id: wall_angel
+        label: "WALL ANGEL - Rhomboid Strength & Postural Awareness"
+        output: "WALL ANGEL - Increase Rhomboid Strength & Postural Awareness:\n- - 5->10 Reps, daily at work, for 3 weeks or until next appointment.\n- - \"Perfect reps, no rushing!\""
+      - id: cactus_arms
+        label: "CACTUS ARMS (Angel Wings) - Rhomboid Strength"
+        output: "CACTUS ARMS (Angel Wings) - Increase Rhomboid Strength & Postural Awareness:\n- - 5 Reps, daily at work, for 3 weeks or until next appointment."
+      - id: sphinx_stretch
+        label: "SPHINX STRETCH - Lumbar Mobility"
+        output: "SPHINX STRETCH / HOLDS - Improve Lumbar Mobility:\n- - 8-12 Reps (hold 5s) x 1 Set.\n- - 3 / week, for 2 weeks or until next appointment."
+      - id: rec_fem_kneeling_stretch
+        label: "RECTUS FEMORIS KNEELING WALL STRETCH - Knee and Calf Tightness"
+        output: "RECTUS FEMORIS KNEELING WALL STRETCH - Lengthen Rec Fem to Reduce Knee and Calf Tightness:\n- - \"Kneel against the base of the wall, then rotate one foot up.\n- - Keeping the foot against the wall, slowly raise your torso vertically to stretch.\"\n- - 60s static stretch, bilaterally (30s-120s).\n- - 2-4 / week, for 6 weeks or until next appointment."
+      - id: rainbow_arc_scm
+        label: "RAINBOW ARC SCM STRETCH - Lengthen SCM"
+        output: "RAINBOW ARC SCM STRETCH - Lengthen Sternocleidomastoid (SCM):\n- - \"Laterally flex your neck, then make an arc with your nose from front, upwards, and back.\n- - To intensify the stretch, reach down with one arm.\"\n- - 30s-60s dynamic stretch, bilaterally (60s-120s total).\n- - 1-2 daily, or as needed."
+      - id: glute_bridges
+        label: "GLUTE BRIDGES - Gluteal Strength, Core Stability"
+        output: "GLUTE BRIDGES - Increase Gluteal Strength, Core Stability:\n- - 12 Reps (hold 3 sec) x 3 Sets (Rest 60s).\n- - \"Squeeze the glutes!\"\n- - 3 / week, for 6 weeks or until next appointment."
+      - id: bw_squats
+        label: "BODYWEIGHT SQUATS - Gluteal Strength"
+        output: "BODYWEIGHT SQUATS - Increase Gluteal Strength:\n- - 8->12 Reps x 3 Sets (Rest 60s), using 80% strength.\n- - 2 / week, for 6 weeks or until next appointment."
+      - id: dumbbell_row
+        label: "BENT-OVER DUMBBELL ROW - Rhomboid Strength"
+        output: "BENT-OVER DUMBBELL ROW - Increase Rhomboid Strength:\n- - 8-10 Reps x 3 Sets (Rest 60s), using 80% strength.\n- - 4 / week, for 3 weeks or until next appointment."
+      - id: regular_walks
+        label: "REGULAR WALKS - Daily Physical Activity"
+        output: "REGULAR WALKS - Increase Daily Physical Activity:\n- - As early in the day as possible, go outside for a daily walk.\n- - Even 5 minutes is a great start! Do longer if you can, and avoid skipping entirely."
+      - id: return_to_exercise
+        label: "Recommend returning to regular exercise habits."
+        output: "Recommend returning to regular exercise habits."
+      - id: continue_physio
+        label: "Continue exercise program as directed by physiotherapist."
+        output: "Continue exercise program as directed by physiotherapist."
+      - id: continue_chiro
+        label: "Continue exercise program as directed by chiropractor."
+        output: "Continue exercise program as directed by chiropractor."
+      - id: no_goals
+        label: "No specific exercise or self-care goals discussed."
+        output: "No specific exercise or self-care goals discussed."

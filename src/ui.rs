@@ -1,6 +1,7 @@
 use crate::app::{App, Focus, MapHintLevel, SectionState};
 use crate::modal::{modal_height_for_viewport, ModalFocus};
 use crate::sections::block_select::BlockSelectFocus;
+use crate::sections::collection::CollectionFocus;
 use crate::sections::free_text::FreeTextMode;
 use crate::sections::list_select::ListSelectMode;
 use crate::Message;
@@ -146,6 +147,7 @@ fn wizard_map_hints_active(app: &App) -> bool {
         Some(SectionState::FreeText(state)) => !state.is_editing(),
         Some(SectionState::ListSelect(state)) => matches!(state.mode, ListSelectMode::Browsing),
         Some(SectionState::BlockSelect(state)) => !state.in_items(),
+        Some(SectionState::Collection(state)) => !state.in_items(),
         Some(SectionState::Checklist(_)) => true,
         Some(SectionState::Pending) | None => false,
     }
@@ -829,6 +831,107 @@ fn render_block_select_state<'a>(
         .into()
 }
 
+fn render_collection_state<'a>(
+    app: &'a App,
+    state: &'a crate::sections::collection::CollectionState,
+) -> Element<'a, Message> {
+    let mut items = section_header(app);
+
+    if state.collections.is_empty() {
+        items.push(text("[no collections loaded]").color(app.ui_theme.error).into());
+    } else {
+        let collection_range = wizard_window(app, state.collection_cursor, state.collections.len());
+        if collection_range.start > 0 {
+            items.push(text("...").color(app.ui_theme.muted).into());
+        }
+        for idx in collection_range.clone() {
+            let Some(collection) = state.collections.get(idx) else {
+                continue;
+            };
+            let enabled_count = collection.enabled_count();
+            let marker = if collection.active { "[x]" } else { "[ ]" };
+            let prefix = if idx == state.collection_cursor
+                && matches!(state.focus, CollectionFocus::Collections)
+            {
+                ">"
+            } else {
+                " "
+            };
+            let color = if idx == state.collection_cursor {
+                app.ui_theme.active
+            } else if collection.active {
+                app.ui_theme.selected
+            } else {
+                app.ui_theme.muted
+            };
+            items.push(
+                text(format!(
+                    "{prefix} {marker} {} ({}/{})",
+                    collection.label,
+                    enabled_count,
+                    collection.items.len()
+                ))
+                .color(color)
+                .into(),
+            );
+        }
+        if collection_range.end < state.collections.len() {
+            items.push(text("...").color(app.ui_theme.muted).into());
+        }
+    }
+
+    let current_collection_idx = match state.focus {
+        CollectionFocus::Items(idx) => Some(idx),
+        CollectionFocus::Collections if !state.collections.is_empty() => Some(state.collection_cursor),
+        CollectionFocus::Collections => None,
+    };
+
+    if let Some(collection_idx) = current_collection_idx {
+        if let Some(collection) = state.collections.get(collection_idx) {
+            items.push(text(format!("Items: {}", collection.label)).color(app.ui_theme.modal).into());
+            let item_range = wizard_window(app, state.item_cursor, collection.items.len());
+            if item_range.start > 0 {
+                items.push(text("...").color(app.ui_theme.muted).into());
+            }
+            for idx in item_range.clone() {
+                let Some(item) = collection.items.get(idx) else {
+                    continue;
+                };
+                let enabled = collection.item_enabled.get(idx).copied().unwrap_or(false);
+                let marker = if enabled { "[x]" } else { "[ ]" };
+                let prefix = if idx == state.item_cursor
+                    && matches!(state.focus, CollectionFocus::Items(current) if current == collection_idx)
+                {
+                    ">"
+                } else {
+                    " "
+                };
+                let color = if idx == state.item_cursor
+                    && matches!(state.focus, CollectionFocus::Items(current) if current == collection_idx)
+                {
+                    app.ui_theme.active
+                } else if enabled {
+                    app.ui_theme.selected
+                } else {
+                    app.ui_theme.muted
+                };
+                items.push(
+                    text(format!("{prefix} {marker} {}", item.label))
+                        .color(color)
+                        .into(),
+                );
+            }
+            if item_range.end < collection.items.len() {
+                items.push(text("...").color(app.ui_theme.muted).into());
+            }
+        }
+    }
+
+    themed_scrollable(app, column(items).spacing(4))
+        .id(wizard_scroll_id())
+        .into()
+}
+
 fn render_checklist_state<'a>(
     app: &'a App,
     state: &'a crate::sections::checklist::ChecklistState,
@@ -891,6 +994,7 @@ fn wizard_pane(app: &App) -> Element<'_, Message> {
         SectionState::FreeText(state) => render_free_text_state(app, state),
         SectionState::ListSelect(state) => render_list_select_state(app, state),
         SectionState::BlockSelect(state) => render_block_select_state(app, state),
+        SectionState::Collection(state) => render_collection_state(app, state),
         SectionState::Checklist(state) => render_checklist_state(app, state),
         SectionState::Pending => themed_scrollable(
             app,
@@ -1394,6 +1498,14 @@ fn wizard_status_text(app: &App) -> String {
             };
             parts.push(format!("Mode: {mode}"));
             parts.push("Enter opens group | Space toggles".to_string());
+        }
+        Some(SectionState::Collection(state)) => {
+            let mode = match state.focus {
+                CollectionFocus::Collections => "collections",
+                CollectionFocus::Items(_) => "items",
+            };
+            parts.push(format!("Mode: {mode}"));
+            parts.push("Space toggles | Enter opens | Backspace resets | Esc confirms".to_string());
         }
         Some(SectionState::Checklist(state)) => {
             let checked = state.checked.iter().filter(|&&checked| checked).count();

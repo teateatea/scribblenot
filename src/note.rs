@@ -231,7 +231,7 @@ pub fn render_note(
     // tx_regions
     for (cfg, state) in sections.iter().zip(states.iter()) {
         if cfg.note_render_slot.as_deref() == Some("tx_regions") {
-            let rendered = render_block_select(state);
+            let rendered = render_collection(state);
             if !rendered.trim().is_empty() {
                 tx_parts.push(format!("\n\n{}", rendered));
             }
@@ -439,7 +439,7 @@ pub fn render_editable_section_body(
             };
             render_multifield_section(cfg, hs, sticky_values, mode).unwrap_or_default()
         }
-        Some("tx_regions") => render_block_select(state),
+        Some("tx_regions") => render_collection(state),
         _ => render_section_content(cfg, state, &today),
     }
 }
@@ -583,6 +583,7 @@ fn is_skipped(state: &SectionState) -> bool {
         SectionState::FreeText(s) => s.skipped,
         SectionState::ListSelect(s) => s.skipped,
         SectionState::BlockSelect(s) => s.skipped,
+        SectionState::Collection(s) => s.skipped,
         SectionState::Checklist(s) => s.skipped,
         SectionState::Header(s) => !s.completed,
         SectionState::Pending => true,
@@ -621,6 +622,10 @@ fn render_section_content(cfg: &SectionConfig, state: &SectionState, today: &str
         }
         SectionState::BlockSelect(_) => {
             // Block select has its own renderer
+            String::new()
+        }
+        SectionState::Collection(_) => {
+            // Collection has its own renderer
             String::new()
         }
         SectionState::Checklist(s) => s
@@ -664,6 +669,40 @@ fn render_block_select(state: &SectionState) -> String {
         parts.join("\n\n")
     } else {
         String::new()
+    }
+}
+
+fn render_collection(state: &SectionState) -> String {
+    if let SectionState::Collection(s) = state {
+        let mut parts: Vec<String> = Vec::new();
+        for collection in &s.collections {
+            if !collection.active {
+                continue;
+            }
+
+            let enabled_items = collection
+                .item_enabled
+                .iter()
+                .enumerate()
+                .filter(|(_, enabled)| **enabled)
+                .filter_map(|(idx, _)| collection.items.get(idx))
+                .map(|item| item.output.clone().unwrap_or_else(|| item.label.clone()))
+                .collect::<Vec<_>>();
+
+            let mut block = collection.label.clone();
+            if enabled_items.is_empty() {
+                block.push('\n');
+            } else {
+                for item in enabled_items {
+                    block.push('\n');
+                    block.push_str(&item);
+                }
+            }
+            parts.push(block);
+        }
+        parts.join("\n\n")
+    } else {
+        render_block_select(state)
     }
 }
 

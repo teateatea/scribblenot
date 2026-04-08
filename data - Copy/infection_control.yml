@@ -1,0 +1,19 @@
+lists:
+  - id: infection_control
+    label: "Infection Control"
+    items:
+      - id: disinfect_contact_points
+        label: "Disinfected patient contact points before and after appointment (door knob, coat hooks, patient chair)."
+        output: "Disinfected patient contact points before and after appointment (door knob, coat hooks, patient chair)."
+      - id: disinfect_equipment
+        label: "Disinfected equipment before and after appointment (massage table, face cradle, RMT rolling stool, oil bottle)."
+        output: "Disinfected equipment before and after appointment (massage table, face cradle, RMT rolling stool, oil bottle)."
+      - id: clean_linens
+        label: "Clean Linens used (fitted sheet, flat sheet, face cradle cover, blanket)."
+        output: "Clean Linens used (fitted sheet, flat sheet, face cradle cover, blanket)."
+      - id: washed_hands
+        label: "RMT washed hands before and after treatment."
+        output: "RMT washed hands before and after treatment."
+      - id: mask_worn
+        label: "Mask worn by RMT."
+        output: "Mask worn by RMT."

@@ -136,8 +136,11 @@ mod tests_st3_default_selected {
             id: id.to_string(),
             label: label.to_string(),
             default,
+            default_enabled: default,
             output: Some(label.to_lowercase()),
             note: None,
+            fields: None,
+            branch_fields: Vec::new(),
         }
     }
 
@@ -307,8 +310,11 @@ mod tests_t46_st1_rename {
                     id: s.to_lowercase(),
                     label: s.to_string(),
                     default: None,
+                    default_enabled: None,
                     output: Some(s.to_string()),
                     note: None,
+                    fields: None,
+                    branch_fields: Vec::new(),
                 })
                 .collect(),
         }
@@ -431,8 +437,11 @@ mod tests_st2_region_state_entries_field {
                     id: s.to_lowercase(),
                     label: s.to_string(),
                     default: None,
+                    default_enabled: None,
                     output: Some(s.to_string()),
                     note: None,
+                    fields: None,
+                    branch_fields: Vec::new(),
                 })
                 .collect(),
         }

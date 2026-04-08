@@ -1,4 +1,5 @@
 pub mod block_select;
+pub mod collection;
 pub mod checklist;
 pub mod free_text;
 pub mod header;

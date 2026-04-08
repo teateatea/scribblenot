@@ -1,0 +1,76 @@
+lists:
+  - id: objective_findings
+    label: "Objective Findings"
+    items:
+      - id: bl_trap_uf_irmt
+        label: "BL Trapezius (Upper Fibers): Increased Resting Muscle Tension"
+        output: "BL Trapezius (Upper Fibers): Increased Resting Muscle Tension"
+      - id: bl_trap_uf_l_r_irmt
+        label: "BL (L > R) Trapezius (Upper Fibers): Increased Resting Muscle Tension"
+        output: "BL (L > R) Trapezius (Upper Fibers): Increased Resting Muscle Tension"
+      - id: bl_trap_uf_r_l_irmt
+        label: "BL (R > L) Trapezius (Upper Fibers): Increased Resting Muscle Tension"
+        output: "BL (R > L) Trapezius (Upper Fibers): Increased Resting Muscle Tension"
+      - id: l_trap_uf_irmt
+        label: "L Trapezius (Upper Fibers): Increased Resting Muscle Tension"
+        output: "L Trapezius (Upper Fibers): Increased Resting Muscle Tension"
+      - id: r_trap_uf_irmt
+        label: "R Trapezius (Upper Fibers): Increased Resting Muscle Tension"
+        output: "R Trapezius (Upper Fibers): Increased Resting Muscle Tension"
+      - id: rhomboids_irmt
+        label: "Rhomboids: Increased Resting Muscle Tension"
+        output: "Rhomboids: Increased Resting Muscle Tension"
+      - id: bl_ls_irmt
+        label: "BL Levator Scapula: Increased Resting Muscle Tension"
+        output: "BL Levator Scapula: Increased Resting Muscle Tension"
+      - id: bl_es_irmt
+        label: "BL Erector Spinae: Increased Resting Muscle Tension"
+        output: "BL Erector Spinae: Increased Resting Muscle Tension"
+      - id: bl_ql_l_r_tight
+        label: "BL (L > R) Quadratus Lumborum: Tightness & Tender palpated"
+        output: "BL (L > R) Quadratus Lumborum: Tightness & Tender palpated"
+      - id: bl_ql_irmt
+        label: "BL Quadratus Lumborum: Increased Resting Muscle Tension"
+        output: "BL Quadratus Lumborum: Increased Resting Muscle Tension"
+      - id: bl_pir_irmt
+        label: "BL Piriformis: Increased Resting Muscle Tension"
+        output: "BL Piriformis: Increased Resting Muscle Tension"
+      - id: bl_gmed_irmt
+        label: "BL Gluteus Medius: Increased Resting Muscle Tension"
+        output: "BL Gluteus Medius: Increased Resting Muscle Tension"
+      - id: bl_scalene_irmt
+        label: "BL Scalene Muscles: Increased Resting Muscle Tension"
+        output: "BL Scalene Muscles: Increased Resting Muscle Tension"
+      - id: bl_scm_irmt
+        label: "BL SCM: Increased Resting Muscle Tension"
+        output: "BL Sternocleidomastoid (SCM): Increased Resting Muscle Tension"
+      - id: bl_suboccip_irmt
+        label: "BL Suboccipital Group: Increased Resting Muscle Tension"
+        output: "BL Suboccipital Muscle Group: Increased Resting Muscle Tension"
+      - id: bl_pec_irmt
+        label: "BL Pectoralis Major: Increased Resting Muscle Tension"
+        output: "BL Pectoralis Major: Increased Resting Muscle Tension"
+      - id: bl_tfl_irmt
+        label: "BL TFL: Increased Resting Muscle Tension"
+        output: "BL TFL (Tensor Fasciae Latae): Increased Resting Muscle Tension"
+      - id: bl_ham_irmt
+        label: "BL Hamstrings: Increased Resting Muscle Tension"
+        output: "BL Hamstrings: Increased Resting Muscle Tension"
+      - id: bl_gastroc_irmt
+        label: "BL Gastrocnemius: Increased Resting Muscle Tension"
+        output: "BL Gastrocnemius: Increased Resting Muscle Tension"
+      - id: hypertonicity
+        label: "Hypertonicity palpated"
+        output: "Hypertonicity palpated"
+      - id: tightness_tenderness
+        label: "Tightness & Tenderness palpated"
+        output: "Tightness & Tender palpated"
+      - id: trigger_points
+        label: "Trigger points palpated"
+        output: "Trigger points palpated"
+      - id: restricted_rom
+        label: "Restricted ROM observed"
+        output: "Restricted Range of Motion observed"
+      - id: protective_guarding
+        label: "Protective guarding observed"
+        output: "Protective guarding observed"
