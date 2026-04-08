@@ -1,0 +1,183 @@
+sections:
+  - id: subjective_section
+    label: "Subjective"
+    nav_label: "Subjective"
+    map_label: "SUBJT"
+    section_type: multi_field
+    date_prefix: true
+    fields:
+      - sumuscle_field
+
+fields:
+  - id: sumuscle_field
+    label: "Muscle Signs & Symptoms"
+    format: "{year}-{month}-{day}: {place}{region}: {patientdescribes} {tag}"
+    repeat_limit: 12
+    lists:
+      - region
+      - place
+      - patientdescribes
+      - tag
+
+lists:
+  - id: region
+    label: "region"
+    default: empty_space
+    modal_start: search
+    repeating: comma
+    items:
+      - id: empty_space
+        label: "1 (Empty Space)"
+        output: ""
+        # Head Region
+      - label: "2 Head, Neck, Shoulders HNS"
+        output: "Head, Neck, Shoulders"
+      - label: "3 Head, Neck, and Shoulders HNS"
+        output: "Head, Neck, and Shoulders"
+      - label: "1 Shoulder Unilateral GH"
+        output: "Shoulder"
+      - label: "2 ShoulderS Bilateral GHS"
+        output: "Shoulders"
+      - label: "Head Only HNS"
+        output: "Head"
+      - label: "Neck Only HNS"
+        output: "Neck"
+      - label: "TMJ2 Jaw TMJ"
+        output: "Jaw"
+      - label: "TMJ3 Cranial Bones TMJ (Skull)"
+        output: "Cranial Bones"
+      - label: "TMJ1 HNS+Intraoral"
+        output: "Head, Neck, Shoulders, and Intraoral"
+      - label: "Vertebra"
+        output: "Vertbra"
+      # CHEST REGION (ANTERIOR THORACIC)
+      - label: "Pectoral Muscles Pecs"
+        output: "Pectoral Muscles"
+
+
+      # BACK REGION (POSTERIOR THORACIC)
+      - label: "1 Backk"
+        output: "Back"
+      - label: "Back & Glutes"
+        output: "Back & Glutes"
+      - label: "1 Bodyy"
+        output: "Body"
+
+      - label: "1 Scapula"
+        output: "Scapula"
+      - label: "2 ScapulaS"
+        output: "Scapulas"
+
+
+
+      - label: "1 True Ribs 1-7"
+        output: "Rib 1-7"
+      - label: "2 False Ribs 8-12"
+        output: "Rib 8-12"
+      - label: "MCL"
+        output: "MCL"
+      - label: "Paraspinals (Erector Spinae ESTS ESLS)"
+        output: "Paraspinal Muscles"
+      ## ARMS REGION
+      - "Lateral Thoracic"
+      - "Wrist"
+      - "Elbow"
+      - label: "1 Arm"
+        output: "Arm"
+      - label: "2 Arms"
+        output: "Arms"
+      - label: "1 Posterior Forearm ONE UUL (wrist extensors)"
+        output: "Posterior Forearm (over Extensors)"
+      - label: "2 Posterior ForearmS BOTH BBL (wrist extensors)"
+        output: "Posterior Forearms (over Extensors)"
+      - label: "1 Anterior Forearm ONE UUL (wrist flexors)"
+        output: "Anterior Forearm (over Flexors)"
+      - label: "2 Anterior ForearmS BOTH BBL (wrist flexors)"
+        output: "Anterior Forearms (over Flexors)"
+        ## WRIST & HAND
+      - label: "12 FingerS (MCP jt metacarpophalangeal knuckles)"
+        output: "Fingers (MCP)"
+      - label: "22 FingerS (PIP jt PROXIMAL interphalangeal)"
+        output: "Fingers (PIP)"
+      - label: "32 FingerS (DIP jt DISTAL interphalangeal)"
+        output: "Fingers (DIP)"
+      - label: "11 one Finger (MCP jt metacarpophalangeal knuckles)"
+        output: "Finger (MCP)"
+      - label: "21 one Finger (PIP jt PROXIMAL interphalangeal)"
+        output: "Finger (PIP)"
+      - label: "31 one Finger (DIP jt DISTAL interphalangeal)"
+        output: "Finger (DIP)"
+
+      ## PELVIC REGION
+      - label: "Glutes (Buttocks)"
+        output: "Glutes (Buttocks)"
+      - label: "Glutes"
+        output: "Glutes"
+      - label: "Sacroilliac Joint - SI Jt - Hip Glute"
+        output: "Sacroilliac Jt"
+      - label: "Coxofemoral Joint - CF Jt - Hip"
+        output: "Coxofemoral Jt"
+      - "Anterior Hip"
+
+      ## LEGS REGION
+      - label: "1 Knee (one UU Unilateral)"
+        output: "Knee"
+      - label: "2 Knees (both BB Bilateral)"
+        output: "Knees"
+      - "Hip"
+      - label: "1 Ankle (one UU Unilateral)"
+        output: "Ankle"
+      - label: "2 AnkleS (both BB Bilateral)"
+        output: "Ankles"
+      - label: "Iliotibial Band - IT Band - ITB"
+        output: "Iliotibial (IT) Band"
+      - label: "Lower Body"
+        output: "Lower Body"
+      - label: "Lower Leg (Calf)"
+        output: "Lower Leg (Calf)"
+      - label: "Lower LegS Both ((Calves Calf))"
+        output: "Lower Legs"
+      - label: "Anterior Lower Leg (Calf)"
+        output: "Anterior Lower Leg (Calf)"
+      - label: "Posterior Lower Leg (Calf)"
+        output: "Posterior Lower Leg (Calf)"
+      - label: "Quads"
+        output: "Quads"
+      - label: "Hamstrings"
+        output: "Hamstrings"
+      - label: "Hamstrings Posterior Thigh"
+        output: "Posterior Thigh (over Hamstrings)"
+      - label: "1 Legg Unilateral"
+        output: "Leg"
+      - label: "2 Leggs Bilateral"
+        output: "Legs"
+      - label: "Feet foots"
+        output: "Feet"
+      - label: "Foot"
+        output: "Foot"
+      - label: "Foot - Sole (Feet UU Unilateral)"
+        output: "Foot (Sole)"
+      - label: "Feet - Soles (Foot BB Bilateral)"
+        output: "Feet (Soles)"
+
+  - id: patientdescribes
+    label: "Patient describes"
+    default: pt_describes
+    items:
+      - id: pt_describes
+        label: "Pt describes"
+        output: "Pt describes"
+      - label: "Pt describes continued dcontinued"
+        output: "Pt describes continued"
+      - label: "Pt describes intermittent dintermittent"
+        output: "Pt describes intermittent"
+      - label: "Pt describes ongoing dongoing"
+        output: "Pt describes ongoing"
+      - label: "Pt reports"
+        output: "Pt reports"
+      - label: "Pt reports continued rcontinued"
+        output: "Pt reports continued"
+      - label: "Pt reports intermittent rintermittent"
+        output: "Pt reports intermittent"
+      - label: "Pt reports ongoing rongoing"
+        output: "Pt reports dongoing"

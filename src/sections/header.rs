@@ -5,6 +5,7 @@ pub struct HeaderState {
     pub field_configs: Vec<HeaderFieldConfig>,
     pub repeated_values: Vec<Vec<String>>,
     pub repeat_counts: Vec<usize>,
+    pub repeat_visible_counts: Vec<usize>,
     pub field_index: usize,
     pub completed: bool,
     /// Styled spans for composite preview: (text, is_confirmed). Present while a composite is mid-entry.
@@ -18,6 +19,7 @@ impl HeaderState {
             field_configs: fields,
             repeated_values: vec![Vec::new(); n],
             repeat_counts: vec![0; n],
+            repeat_visible_counts: vec![0; n],
             field_index: 0,
             completed: false,
             composite_spans: None,
@@ -25,19 +27,119 @@ impl HeaderState {
     }
 
     pub fn set_current_value(&mut self, value: String) {
+        let value_index = self.active_value_index();
+        self.reveal_active_value();
         if let Some(slot) = self.repeated_values.get_mut(self.field_index) {
-            slot.push(value);
+            if value_index < slot.len() {
+                slot[value_index] = value;
+            } else {
+                slot.push(value);
+            }
         }
     }
 
-    /// Overwrite (or set) the last entry in the current slot's vec for live previews.
+    /// Overwrite (or set) the active entry in the current slot's vec for live previews.
     /// Does not add a new confirmed entry.
     pub fn set_preview_value(&mut self, value: String) {
+        let value_index = self.active_value_index();
+        self.reveal_active_value();
         if let Some(slot) = self.repeated_values.get_mut(self.field_index) {
-            if slot.is_empty() {
-                slot.push(value);
+            if value_index < slot.len() {
+                slot[value_index] = value;
             } else {
-                *slot.last_mut().unwrap() = value;
+                slot.push(value);
+            }
+        }
+    }
+
+    pub fn active_value_index(&self) -> usize {
+        let Some(cfg) = self.field_configs.get(self.field_index) else {
+            return 0;
+        };
+        if let Some(limit) = cfg.repeat_limit {
+            let max_index = limit.saturating_sub(1);
+            self.repeat_counts
+                .get(self.field_index)
+                .copied()
+                .unwrap_or(0)
+                .min(max_index)
+        } else {
+            0
+        }
+    }
+
+    pub fn visible_value_count(&self, field_index: usize) -> usize {
+        let confirmed_count = self
+            .repeated_values
+            .get(field_index)
+            .map(|slot| slot.len())
+            .unwrap_or(0);
+        let visible_count = self
+            .repeat_visible_counts
+            .get(field_index)
+            .copied()
+            .unwrap_or(0);
+        confirmed_count.max(visible_count)
+    }
+
+    pub fn visible_row_count_for_field(&self, field_index: usize) -> usize {
+        let Some(cfg) = self.field_configs.get(field_index) else {
+            return 0;
+        };
+        if let Some(limit) = cfg.repeat_limit {
+            self.visible_value_count(field_index)
+                .max(1)
+                .min(limit.max(1))
+        } else {
+            1
+        }
+    }
+
+    pub fn visible_row_count(&self) -> usize {
+        (0..self.field_configs.len())
+            .map(|field_index| self.visible_row_count_for_field(field_index))
+            .sum()
+    }
+
+    pub fn field_index_for_visible_row(&self, row_index: usize) -> Option<(usize, usize)> {
+        let mut current_row = 0;
+        for field_index in 0..self.field_configs.len() {
+            let row_count = self.visible_row_count_for_field(field_index);
+            if row_index < current_row + row_count {
+                return Some((field_index, row_index - current_row));
+            }
+            current_row += row_count;
+        }
+        None
+    }
+
+    fn reveal_active_value(&mut self) {
+        let value_index = self.active_value_index();
+        if let Some(visible_count) = self.repeat_visible_counts.get_mut(self.field_index) {
+            *visible_count = (*visible_count).max(value_index + 1);
+        }
+    }
+
+    pub fn clear_active_value(&mut self) {
+        let value_index = self.active_value_index();
+        if let Some(slot) = self.repeated_values.get_mut(self.field_index) {
+            if value_index < slot.len() {
+                slot.remove(value_index);
+            }
+        }
+    }
+
+    pub fn blank_active_value(&mut self) {
+        let value_index = self.active_value_index();
+        self.reveal_active_value();
+        if let Some(slot) = self.repeated_values.get_mut(self.field_index) {
+            if value_index < slot.len() {
+                slot[value_index].clear();
+            } else {
+                while slot.len() < value_index {
+                    slot.push(String::new());
+                }
+                slot.push(String::new());
             }
         }
     }
@@ -51,6 +153,10 @@ impl HeaderState {
         if let Some(lim) = limit {
             let count = self.repeat_counts[self.field_index] + 1;
             self.repeat_counts[self.field_index] = count;
+            if let Some(visible_count) = self.repeat_visible_counts.get_mut(self.field_index) {
+                let next_visible_count = if count < lim { count + 1 } else { count };
+                *visible_count = (*visible_count).max(next_visible_count.min(lim));
+            }
             if count < lim {
                 return false; // re-queue: stay at same field_index
             }
@@ -58,18 +164,75 @@ impl HeaderState {
         self.field_index += 1;
         if self.field_index >= self.field_configs.len() {
             self.completed = true;
+            if !self.field_configs.is_empty() {
+                self.field_index = self.field_configs.len() - 1;
+            }
         }
         self.completed
     }
 
     /// Go back one field. Returns true if went back, false if already at first field.
     pub fn go_back(&mut self) -> bool {
+        let can_step_back_within_repeat = self
+            .field_configs
+            .get(self.field_index)
+            .is_some_and(|cfg| cfg.repeat_limit.is_some())
+            && self
+                .repeat_counts
+                .get(self.field_index)
+                .is_some_and(|count| *count > 0);
+        if can_step_back_within_repeat {
+            self.repeat_counts[self.field_index] -= 1;
+            self.completed = false;
+            return true;
+        }
+
         if self.field_index > 0 {
             self.field_index -= 1;
-            self.repeat_counts[self.field_index] = 0;
-            if let Some(slot) = self.repeated_values.get_mut(self.field_index) {
-                slot.clear();
-            }
+            self.repeat_counts[self.field_index] = self
+                .field_configs
+                .get(self.field_index)
+                .and_then(|cfg| cfg.repeat_limit)
+                .map(|limit| {
+                    self.repeated_values
+                        .get(self.field_index)
+                        .map(|slot| slot.len().saturating_sub(1))
+                        .unwrap_or(0)
+                        .min(limit.saturating_sub(1))
+                })
+                .unwrap_or(0);
+            self.completed = false;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Move forward within already revealed repeat rows or to the next field.
+    pub fn go_forward(&mut self) -> bool {
+        if self.field_configs.is_empty() {
+            return false;
+        }
+
+        let can_step_forward_within_repeat = self
+            .field_configs
+            .get(self.field_index)
+            .and_then(|cfg| cfg.repeat_limit)
+            .is_some_and(|limit| {
+                let active_index = self.active_value_index();
+                let visible_count = self.visible_value_count(self.field_index).min(limit);
+                active_index + 1 < visible_count
+            });
+        if can_step_forward_within_repeat {
+            self.repeat_counts[self.field_index] += 1;
+            self.completed = false;
+            return true;
+        }
+
+        let last = self.field_configs.len().saturating_sub(1);
+        if self.field_index < last {
+            self.field_index += 1;
+            self.completed = false;
             true
         } else {
             false
@@ -86,9 +249,9 @@ mod header_state_repeat_limit_tests {
         HeaderFieldConfig {
             id: id.to_string(),
             name: id.to_string(),
-            options: vec![],
-            composite: None,
-            default: None,
+            format: None,
+            lists: vec![],
+            format_lists: vec![],
             repeat_limit,
         }
     }
@@ -148,9 +311,10 @@ mod header_state_repeat_limit_tests {
     // ST49-2-TEST-4: set_current_value appends to current slot's vec, not overwrites
     #[test]
     fn set_current_value_appends_to_slot() {
-        let fields = vec![make_field("a", None)];
+        let fields = vec![make_field("a", Some(2)), make_field("b", None)];
         let mut state = HeaderState::new(fields);
         state.set_current_value("first".to_string());
+        state.advance();
         state.set_current_value("second".to_string());
         assert_eq!(
             state.repeated_values[0].len(),
@@ -221,24 +385,38 @@ mod header_state_repeat_limit_tests {
         assert!(state.completed, "completed flag should be set");
     }
 
-    // ST49-2-TEST-9: go_back() clears repeat_count for the current slot (exits repeat loop)
+    // ST49-2-TEST-9: go_back() returns to the last confirmed repeat slot
     #[test]
-    fn go_back_clears_repeat_count_for_current_slot() {
+    fn go_back_returns_to_last_confirmed_repeat_slot() {
         let fields = vec![make_field("a", Some(3)), make_field("b", None)];
         let mut state = HeaderState::new(fields);
         // Simulate being at field 1 with some repeat count set for field 0
+        state.repeated_values[0] = vec!["first".to_string(), "second".to_string()];
         state.field_index = 1;
         state.repeat_counts[0] = 2; // pretend we repeated twice
-                                    // go_back from field 1 goes to field 0 and should clear its repeat_count
+                                    // go_back from field 1 goes to field 0 and should select the last repeat value
         state.go_back();
         assert_eq!(
             state.field_index, 0,
             "field_index should be 0 after go_back from field 1"
         );
         assert_eq!(
-            state.repeat_counts[0], 0,
-            "repeat_count for the slot being returned to should be cleared"
+            state.repeat_counts[0], 1,
+            "repeat_count for the slot being returned to should select the last confirmed value"
         );
+    }
+
+    #[test]
+    fn go_back_preserves_confirmed_values_for_returned_field() {
+        let fields = vec![make_field("a", Some(3)), make_field("b", None)];
+        let mut state = HeaderState::new(fields);
+        state.repeated_values[0].push("keep me".to_string());
+        state.field_index = 1;
+
+        state.go_back();
+
+        assert_eq!(state.field_index, 0);
+        assert_eq!(state.repeated_values[0], vec!["keep me".to_string()]);
     }
 
     // ST49-2-TEST-10: go_back() at field 0 returns false and does not change state

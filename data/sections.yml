@@ -1,186 +1,106 @@
+# Authoring reference:
+#  - Template: id, groups
+#      planned modern, not fully wired yet: label, nav_label, header, footer
+#  - Group: id, sections
+#      current app metadata: nav_label
+#      planned modern, not fully wired yet: label, header, footer
+#  - Section: id, fields
+#      modern optional: label, nav_label, header, footer
+#      current app metadata: section_type, is_intake, heading_search_text,
+#        heading_label, note_render_slot
+#      legacy/transitional: map_label, data_file, date_prefix
+#  - Field: id, label, lists
+#      modern optional: format, repeat_limit
+#  - List: id, label, items
+#      modern optional: sticky, default, preview, repeating, modal_start
+#      repeating values: comma_and, comma_and_the, comma_or, comma, semicolon, slash, newline
+#      modal_start values: list, search
+#  - Item: output
+#      modern optional: id, label, fields
+#      legacy/transitional: default, note
+#      fields may contain existing field IDs or inline field definitions:
+#        fields:
+#          - existing_field_id
+#          - id: inline_field_id
+#            label: "Inline Field"
+#            format: "{list_id} text {other_list_id}"
+#            lists:
+#              - list_id
+#              - other_list_id
+#            repeat_limit: 3
+#      When an item has fields, its output may include {field_id} placeholders
+#      that are filled from those branch field answers.
+#  - Labels may include {list_id} placeholders for modal display only.
+#      Resolution order: current field values, sticky values, default values.
 template:
   id: patient_standard_template
   groups:
-    - intake
-    - subjective
-    - treatment
-    - objective
-    - post_tx
+    - intake_group
+    - subjective_group
+    - objective_group
+
 
 groups:
-  - id: intake
+  - id: intake_group
     nav_label: "INTAKE"
     sections:
-      - header
-      - adl
-      - exercise
-      - sleep_diet
-      - social
-      - history
-      - specialists
-
-  - id: subjective
+      - appointment_section
+  - id: objective_group
+    nav_label: "OBJECTIVE"
+    sections:
+      - objective_section
+  - id: subjective_group
     nav_label: "SUBJECTIVE"
     sections:
       - subjective_section
 
-  - id: treatment
-    nav_label: "TREATMENT"
-    sections:
-      - tx_mods
-      - tx_regions
 
-  - id: objective
-    nav_label: "OBJECTIVE"
-    sections:
-      - objective_section
 
-  - id: post_tx
-    nav_label: "POST-TX"
-    sections:
-      - post_treatment
-      - remedial_section
-      - tx_plan
-      - infection_control_section
+sections:
+  - id: appointment_section
+    label: "Appointment"
+    nav_label: "APPNT"
+    section_type: multi_field
+    fields:
+      - date_field
+      - appointment_date_field
+      - appointment_requested_field
+
+
+
+fields:
+  - id: date_field
+    label: "Entry Date"
+    format: "" # Intentionally left blank, we'll see what happens.
+    lists:
+      - day
+      - month
+      - year
+  - id: appointment_date_field
+    label: "Appointment Date"
+    format: "{date_month_wor_list} {day}, {year} at {start_hour_list}:{start_minute_list}{am_pm_list} ({duration_list} min)"
+    lists:
+      - duration_list
+      - start_hour_list
+      - start_minute_list
+      - am_pm_list
+      - day
+      - date_month_wor_list
+  - id: appointment_requested_field
+    label: "Request"
+    format: "{year}-{month}-{day}: Pt requested a {appointment_type_list}{the_region}."
+    lists:
+      - appointment_type_list
+      - the_region
+
+
 
 lists:
-  - id: day_numbers_list
-    label: "Day"
-    items:
-      - id: day_01
-        label: "01"
-        output: "01"
-      - id: day_02
-        label: "02"
-        output: "02"
-      - id: day_03
-        label: "03"
-        output: "03"
-      - id: day_04
-        label: "04"
-        output: "04"
-      - id: day_05
-        label: "05"
-        output: "05"
-      - id: day_06
-        label: "06"
-        output: "06"
-      - id: day_07
-        label: "07"
-        output: "07"
-      - id: day_08
-        label: "08"
-        output: "08"
-      - id: day_09
-        label: "09"
-        output: "09"
-      - id: day_10
-        label: "10"
-        output: "10"
-      - id: day_11
-        label: "11"
-        output: "11"
-      - id: day_12
-        label: "12"
-        output: "12"
-      - id: day_13
-        label: "13"
-        output: "13"
-      - id: day_14
-        label: "14"
-        output: "14"
-      - id: day_15
-        label: "15"
-        output: "15"
-      - id: day_16
-        label: "16"
-        output: "16"
-      - id: day_17
-        label: "17"
-        output: "17"
-      - id: day_18
-        label: "18"
-        output: "18"
-      - id: day_19
-        label: "19"
-        output: "19"
-      - id: day_20
-        label: "20"
-        output: "20"
-      - id: day_21
-        label: "21"
-        output: "21"
-      - id: day_22
-        label: "22"
-        output: "22"
-      - id: day_23
-        label: "23"
-        output: "23"
-      - id: day_24
-        label: "24"
-        output: "24"
-      - id: day_25
-        label: "25"
-        output: "25"
-      - id: day_26
-        label: "26"
-        output: "26"
-      - id: day_27
-        label: "27"
-        output: "27"
-      - id: day_28
-        label: "28"
-        output: "28"
-      - id: day_29
-        label: "29"
-        output: "29"
-      - id: day_30
-        label: "30"
-        output: "30"
-      - id: day_31
-        label: "31"
-        output: "31"
-  - id: month_numbers_list
-    label: "Month"
-    items:
-      - id: month_01
-        label: "01"
-        output: "01"
-      - id: month_02
-        label: "02"
-        output: "02"
-      - id: month_03
-        label: "03"
-        output: "03"
-      - id: month_04
-        label: "04"
-        output: "04"
-      - id: month_05
-        label: "05"
-        output: "05"
-      - id: month_06
-        label: "06"
-        output: "06"
-      - id: month_07
-        label: "07"
-        output: "07"
-      - id: month_08
-        label: "08"
-        output: "08"
-      - id: month_09
-        label: "09"
-        output: "09"
-      - id: month_10
-        label: "10"
-        output: "10"
-      - id: month_11
-        label: "11"
-        output: "11"
-      - id: month_12
-        label: "12"
-        output: "12"
-  - id: year_numbers_list
+  - id: year
     label: "Year"
+    preview: "YYYY"
+    sticky: true
+    default: year_2026
     items:
       - id: year_2025
         label: "2025"
@@ -189,248 +109,289 @@ lists:
         label: "2026"
         output: "2026"
 
-sections:
-  - id: header
-    nav_label: "Header"
-    section_type: multi_field
-    note_render_slot: "header"
-    fields:
-      - id: date
-        label: "Date"
-        field_type: composite
-        composite:
-          format: "{year}-{month}-{day}"
-          parts:
-            - id: day
-              label: "Day"
-              preview: "DD"
-              sticky: true
-              options: ["01","02","03","04","05","06","07","08","09","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31"]
-            - id: month
-              label: "Month"
-              preview: "MM"
-              sticky: true
-              options: ["01","02","03","04","05","06","07","08","09","10","11","12"]
-            - id: year
-              label: "Year"
-              preview: "YYYY"
-              sticky: true
-              options: ["2025","2026"]
-      - id: start_time
-        label: "Start Time"
-        field_type: composite
-        composite:
-          format: "{hour}:{minute}"
-          parts:
-            - id: hour
-              label: "Hour"
-              preview: "H"
-              default: "1"
-              options: ["9","10","11","12","1","2","3","4","5","6","7","8"]
-            - id: minute
-              label: "Minute"
-              preview: "MM"
-              default: 00-2
-              options:
-                - id: 00-1
-                  label: "00"
-                  output: "00"
-                - id: 15-1
-                  label: "15"
-                  output: "15"
-                - id: 30-1
-                  label: "30"
-                  output: "30"
-                - id: 45-1
-                  label: "45"
-                  output: "45"
-                - id: 00-2
-                  label: "00"
-                  output: "00"
-                - id: 15-2
-                  label: "15"
-                  output: "15"
-                - id: 30-2
-                  label: "30"
-                  output: "30"
-                - id: 45-2
-                  label: "45"
-                  output: "45"
-                - id: 00-3
-                  label: "00"
-                  output: "00"
-      - id: appointment_duration
-        label: "Duration (min)"
-        field_type: select
-        options: ["30","45","60","75","90"]
-        default: "60"
-      - id: appointment_type
-        label: "Appointment Type"
-        field_type: composite
-        composite:
-          format: "{treatment}"
-          parts:
-            - id: treatment
-              label: "Appointment Type"
-              default: "Treatment"
-              options:
-                - label: "Treatment"
-                  output: "Treatment focused massage"
-                - label: "Relaxation"
-                  output: "Relaxation"
-                - label: "General"
-                  output: "General massage"
+  - id: date_month_wor_list
+    label: "Month"
+    preview: "MMM"
+    sticky: true
+    items:
+      - { id: month_01, label: "Jan 1", output: "Jan" }
+      - { id: month_02, label: "Feb 2", output: "Feb" }
+      - { id: month_03, label: "Mar 3", output: "Mar" }
+      - { id: month_04, label: "Apr 4", output: "Apr" }
+      - { id: month_05, label: "May 5", output: "May" }
+      - { id: month_06, label: "Jun 6", output: "Jun" }
+      - { id: month_07, label: "Jul 7", output: "Jul" }
+      - { id: month_08, label: "Aug 8", output: "Aug" }
+      - { id: month_09, label: "Sep 9", output: "Sep" }
+      - { id: month_10, label: "Oct 10", output: "Oct" }
+      - { id: month_11, label: "Nov 11", output: "Nov" }
+      - { id: month_12, label: "Dec 12", output: "Dec" }
 
-  - id: adl
-    nav_label: "ADL"
-    section_type: free_text
-    is_intake: true
-    heading_label: "#### ACTIVITIES OF DAILY LIVING"
-    heading_search_text: "ACTIVITIES OF DAILY LIVING"
+  - id: month
+    label: "Month"
+    preview: "MM"
+    sticky: true
+    items:
+      - { id: month_num_01, label: "01", output: "01" }
+      - { id: month_num_02, label: "02", output: "02" }
+      - { id: month_num_03, label: "03", output: "03" }
+      - { id: month_num_04, label: "04", output: "04" }
+      - { id: month_num_05, label: "05", output: "05" }
+      - { id: month_num_06, label: "06", output: "06" }
+      - { id: month_num_07, label: "07", output: "07" }
+      - { id: month_num_08, label: "08", output: "08" }
+      - { id: month_num_09, label: "09", output: "09" }
+      - { id: month_num_10, label: "10", output: "10" }
+      - { id: month_num_11, label: "11", output: "11" }
+      - { id: month_num_12, label: "12", output: "12" }
 
-  - id: exercise
-    nav_label: "Exer"
-    section_type: free_text
-    is_intake: true
-    heading_label: "#### EXERCISE HABITS"
-    heading_search_text: "EXERCISE HABITS"
+  - id: day
+    label: "Day"
+    preview: "DD"
+    sticky: true
+    items:
+      - { id: day_01, label: "01", output: "01" }
+      - { id: day_02, label: "02", output: "02" }
+      - { id: day_03, label: "03", output: "03" }
+      - { id: day_04, label: "04", output: "04" }
+      - { id: day_05, label: "05", output: "05" }
+      - { id: day_06, label: "06", output: "06" }
+      - { id: day_07, label: "07", output: "07" }
+      - { id: day_08, label: "08", output: "08" }
+      - { id: day_09, label: "09", output: "09" }
+      - { id: day_10, label: "10", output: "10" }
+      - { id: day_11, label: "11", output: "11" }
+      - { id: day_12, label: "12", output: "12" }
+      - { id: day_13, label: "13", output: "13" }
+      - { id: day_14, label: "14", output: "14" }
+      - { id: day_15, label: "15", output: "15" }
+      - { id: day_16, label: "16", output: "16" }
+      - { id: day_17, label: "17", output: "17" }
+      - { id: day_18, label: "18", output: "18" }
+      - { id: day_19, label: "19", output: "19" }
+      - { id: day_20, label: "20", output: "20" }
+      - { id: day_21, label: "21", output: "21" }
+      - { id: day_22, label: "22", output: "22" }
+      - { id: day_23, label: "23", output: "23" }
+      - { id: day_24, label: "24", output: "24" }
+      - { id: day_25, label: "25", output: "25" }
+      - { id: day_26, label: "26", output: "26" }
+      - { id: day_27, label: "27", output: "27" }
+      - { id: day_28, label: "28", output: "28" }
+      - { id: day_29, label: "29", output: "29" }
+      - { id: day_30, label: "30", output: "30" }
+      - { id: day_31, label: "31", output: "31" }
 
-  - id: sleep_diet
-    nav_label: "Slp/Dt"
-    section_type: free_text
-    is_intake: true
-    heading_label: "#### SLEEP & DIET"
-    heading_search_text: "SLEEP & DIET"
+  - id: start_hour_list
+    label: "Start Time [mm / XM / (x)]"
+    preview: "hh"
+    sticky: true
+    items:
+      - { id: hour_9, label: "9:mm", output: "9" }
+      - { id: hour_10, label: "10:mm", output: "10" }
+      - { id: hour_11, label: "11:mm", output: "11" }
+      - { id: hour_12, label: "12:mm", output: "12" }
+      - { id: hour_1, label: "1:mm", output: "1" }
+      - { id: hour_2, label: "2:mm", output: "2" }
+      - { id: hour_3, label: "3:mm", output: "3" }
+      - { id: hour_4, label: "4:mm", output: "4" }
+      - { id: hour_5, label: "5:mm", output: "5" }
+      - { id: hour_6, label: "6:mm", output: "6" }
+      - { id: hour_7, label: "7:mm", output: "7" }
+      - { id: hour_8, label: "8:mm", output: "8" }
 
-  - id: social
-    nav_label: "Social"
-    section_type: free_text
-    is_intake: true
-    heading_label: "#### SOCIAL & STRESS"
-    heading_search_text: "SOCIAL & STRESS"
+  - id: start_minute_list
+    label: "Start Time {start_hour_list}:## [XM / (x)]"
+    preview: "mm"
+    default: minute_00
+    items:
+      - { id: minute_00, label: "{start_hour_list}:00", output: "00" }
+      - { id: minute_15, label: "{start_hour_list}:15", output: "15" }
+      - { id: minute_30, label: "{start_hour_list}:30", output: "30" }
+      - { id: minute_45, label: "{start_hour_list}:45", output: "45" }
 
-  - id: history
-    nav_label: "History"
-    section_type: free_text
-    is_intake: true
-    heading_label: "#### HISTORY & PREVIOUS DIAGNOSES"
-    heading_search_text: "HISTORY & PREVIOUS DIAGNOSES"
+  - id: am_pm_list
+    label: "{start_hour_list}:{start_minute_list}XM (x)"
+    preview: "XM"
+    default: pm_item
+    items:
+      - { id: am_item, label: "{start_hour_list}:{start_minute_list}AM morning", output: "AM" }
+      - { id: pm_item, label: "{start_hour_list}:{start_minute_list}PM afternoon", output: "PM" }
 
-  - id: specialists
-    nav_label: "Specialists"
-    section_type: free_text
-    is_intake: true
-    heading_label: "#### SPECIALISTS & TREATMENT"
-    heading_search_text: "SPECIALISTS & TREATMENT"
+  - id: duration_list
+    label: "Duration (## min)"
+    preview: "##"
+    default: duration_60
+    items:
+      - { id: duration_30, label: "30 min", output: "30" }
+      - { id: duration_45, label: "45 min", output: "45" }
+      - { id: duration_60, label: "60 min", output: "60" }
+      - { id: duration_75, label: "75 min", output: "75" }
+      - { id: duration_90, label: "90 min", output: "90" }
 
-  - id: subjective_section
-    nav_label: "Subjective"
-    section_type: free_text
-    heading_search_text: "## SUBJECTIVE"
-    note_render_slot: "subjective_section"
+# Appointment Request
 
-  - id: tx_mods
-    nav_label: "Tx Mods"
-    section_type: multi_field
-    heading_search_text: "TREATMENT MODIFICATIONS"
-    note_render_slot: "tx_mods"
-    fields:
-      - id: pressure
-        label: "Pressure"
-        field_type: select
-        options:
-          - "- LIGHT PRESSURE: Pt prefers much less than Mr. Gormley's usual working pressure."
-          - "- MODERATE PRESSURE: Pt prefers slightly less than Mr. Gormley's usual working pressure."
-          - "- REGULAR PRESSURE: Pt is comfortable with Mr. Gormley's usual working pressure."
-          - "- FIRM PRESSURE: Pt prefers slightly more than Mr. Gormley's usual working pressure."
-          - "- HEAVY PRESSURE: Pt prefers much more than Mr. Gormley's usual pressure."
-          - "- FULL PRESSURE: Pt prefers the maximum pressure that Mr. Gormley can apply safely. Consider lowering the massage table."
-      - id: challenge
-        label: "Challenge"
-        field_type: select
-        options:
-          - "- VERY GENTLE TREATMENT: Pt prefers a gentle treatment: Avoid all challenging techniques."
-          - "- GENTLE TREATMENT: Pt prefers a gentle treatment: Avoid challenging techniques."
-          - "- RELAXED TREATMENT: Pt prefers a relaxed treatment, but may tolerate some challenge."
-          - "- COMFORTABLE TREATMENT: Pt prefers a challenge only when necessary for treatment."
-          - "- STRONG TREATMENT: Pt prefers a strong treatment, with some challenge expected."
-          - "- CHALLENGING TREATMENT: Pt prefers a challenging treatment, with pressure that approaches discomfort."
-      - id: mood
-        label: "Mood"
-        field_type: select
-        options:
-          - "- CALMING: Pt responds well to slow-paced techniques with limited conversation.\n- - Give time to breathe and feel muscles relax, without distraction!"
-          - "- RELAXING: Pt responds well to limited or casual conversation."
-          - "- CONVERSATIONAL: Pt responds well to a social atmosphere during treatment.\n- - Remember to interrupt conversation for check ins; allow time for quiet."
-          - "- SOCIAL: Pt responds well to ongoing sociable conversation during treatment.\n- - If necessary, interrupt conversation to check in!"
-      - id: communication
-        label: "Communication"
-        field_type: select
-        options:
-          - "- CONCISE: Pt responds well to clear, direct language, with limited conversation."
-          - "- INTROSPECTIVE: Pt responds well to limited conversation.\n- - Give space for slowing down without distraction."
-          - "- STOIC: Pt may suppress their responses to pain or discomfort. Check in as needed."
-          - "- STOIC: Pt responds well to frequent verbal check ins.\n- - Pt may suppress their responses to pain or discomfort."
-          - "- CONTROLLED: Pt prefers a very specific amount of pressure.\n- - Check in frequently, even with each muscle change."
-          - "- COMMUNICATIVE: Pt speaks up about their needs or discomfort. Check in regularly anyways!"
-          - "- RESTFUL: Pt prefers resting during appointment. Limit conversation, focus on recovery."
-      - id: modifications
-        label: "Modifications"
-        field_type: select
-        repeat_limit: 10
-        options:
-          - "- PREGNANCY: Patient is treated in sidelying whenever possible, and pillowed under the head, in front of the chest, and between the knees.\n- - Patient may be treated in supine for up to 5 minutes.\n- - Lower table at the beginning and end of treatment."
-          - "- POST-CONCUSSION: Patient is treated supine only, and pillowed under head and knees.\n- - Avoid using prone position.\n- - Avoid the neck.\n- - Dim lighting when possible.\n- - No music.\n- - No air filter fan."
-          - "- VERTIGO: Encourage taking time to turn over slowly.\n- - Allow extra time to settle after changing positions before continuing treatment.\n- - Encourage pausing at each step when sitting up from the massage table."
-          - "- LOW LIGHT: Pt prefers as lights as dimmed as possible."
-          - "- NO PRONE: Do not put Pt in prone position."
-          - "- SUPINE ONLY: Treat Pt only in supine position."
-          - "- HEAD PILLOW: Pt accepts pillow for head while supine."
-          - "- HEAD PILLOW REQUIRED: Pillow must be immediately available when supine."
-          - "- LOWER TABLE: Lower massage table before & after treatment."
-          - "- TALL: Recommend using height extender on massage table."
-          - "- CLOTHED: Patient prefers to be clothed, using no oil during treatment."
-          - "- RAYNAUD'S: Pt may be sensitive to cold."
-          - "- TIMELY: Patient prefers finishing treatment strictly on schedule."
+  - id: appointment_type_list
+    label: "Pt requested a "
+    default: appointment_type_treatment
+    items:
+      - id: appointment_type_treatment
+        label: "Treatment massage, focusing on ..."
+        output: "Treatment massage, focusing on "
+      - label: "Relaxation massage, focusing on ..."
+        output: "Relaxation massage, focusing on "
+      - label: "Relaxation massage, with emphasis on ..."
+        output: "Relaxation massage, with emphasis on "
+      - label: "General relaxation massage (x)"
+        output: "general relaxation massage"
 
-  - id: tx_regions
-    nav_label: "Regions"
-    section_type: block_select
-    data_file: "tx_regions.yml"
-    heading_search_text: "TREATMENT / PLAN"
-    note_render_slot: "tx_regions"
+  #- id: focused_list
+  #  label: "focusing on"
+  #  default: focused_on
+  #  items:
+  #    - id: focused_on
+  #      label: "focusing on [...]"
+  #      output: ", focusing on "
+  #    - id: emphasis_on
+  #      label: "with emphasis on [...]"
+  #      output: ", with emphasis on "
 
-  - id: objective_section
-    nav_label: "Objective"
-    section_type: list_select
-    data_file: "objective_findings.yml"
-    date_prefix: true
-    heading_search_text: "## OBJECTIVE / OBSERVATIONS"
-    note_render_slot: "objective_section"
+  - id: the_region
+    label: "region"
+    default: empty_space
+    modal_start: search
+    repeating: comma_and_the
+    items:
+      - id: empty_space
+        label: "1 (Empty Space)"
+        output: ""
+        # Head Region
+      - label: "2 Head, Neck, Shoulders HNS"
+        output: "Head, Neck, Shoulders"
+      - label: "3 Head, Neck, and Shoulders HNS"
+        output: "Head, Neck, and Shoulders"
+      - label: "1 Shoulder Unilateral GH"
+        output: "Shoulder"
+      - label: "2 ShoulderS Bilateral GHS"
+        output: "Shoulders"
+      - label: "Head Only HNS"
+        output: "Head"
+      - label: "Neck Only HNS"
+        output: "Neck"
+      - label: "TMJ2 Jaw TMJ"
+        output: "Jaw"
+      - label: "TMJ3 Cranial Bones TMJ (Skull)"
+        output: "Cranial Bones"
+      - label: "TMJ1 HNS+Intraoral"
+        output: "Head, Neck, Shoulders, and Intraoral"
+      - label: "Vertebra"
+        output: "Vertbra"
+      # CHEST REGION (ANTERIOR THORACIC)
+      - label: "Pectoral Muscles Pecs"
+        output: "Pectoral Muscles"
 
-  - id: post_treatment
-    nav_label: "Post-Tx"
-    section_type: free_text
-    heading_search_text: "## POST-TREATMENT"
-    note_render_slot: "post_treatment"
 
-  - id: remedial_section
-    nav_label: "Remedial"
-    section_type: list_select
-    data_file: "remedial.yml"
-    date_prefix: true
-    heading_search_text: "REMEDIAL EXERCISES"
-    note_render_slot: "remedial_section"
+      # BACK REGION (POSTERIOR THORACIC)
+      - label: "1 Backk"
+        output: "Back"
+      - label: "Back & Glutes"
+        output: "Back & Glutes"
+      - label: "1 Bodyy"
+        output: "Body"
 
-  - id: tx_plan
-    nav_label: "Tx Plan"
-    section_type: free_text
-    heading_search_text: "TREATMENT PLAN"
-    note_render_slot: "tx_plan"
+      - label: "1 Scapula"
+        output: "Scapula"
+      - label: "2 ScapulaS"
+        output: "Scapulas"
 
-  - id: infection_control_section
-    nav_label: "Infection Ctrl"
-    section_type: checklist
-    data_file: "infection_control.yml"
-    heading_search_text: "INFECTION CONTROL"
-    note_render_slot: "infection_control_section"
+
+
+      - label: "1 True Ribs 1-7"
+        output: "Rib 1-7"
+      - label: "2 False Ribs 8-12"
+        output: "Rib 8-12"
+      - label: "MCL"
+        output: "MCL"
+      - label: "Paraspinals (Erector Spinae ESTS ESLS)"
+        output: "Paraspinal Muscles"
+      ## ARMS REGION
+      - "Lateral Thoracic"
+      - "Wrist"
+      - "Elbow"
+      - label: "1 Arm"
+        output: "Arm"
+      - label: "2 Arms"
+        output: "Arms"
+      - label: "1 Posterior Forearm ONE UUL (wrist extensors)"
+        output: "Posterior Forearm (over Extensors)"
+      - label: "2 Posterior ForearmS BOTH BBL (wrist extensors)"
+        output: "Posterior Forearms (over Extensors)"
+      - label: "1 Anterior Forearm ONE UUL (wrist flexors)"
+        output: "Anterior Forearm (over Flexors)"
+      - label: "2 Anterior ForearmS BOTH BBL (wrist flexors)"
+        output: "Anterior Forearms (over Flexors)"
+        ## WRIST & HAND
+      - label: "12 FingerS (MCP jt metacarpophalangeal knuckles)"
+        output: "Fingers (MCP)"
+      - label: "22 FingerS (PIP jt PROXIMAL interphalangeal)"
+        output: "Fingers (PIP)"
+      - label: "32 FingerS (DIP jt DISTAL interphalangeal)"
+        output: "Fingers (DIP)"
+      - label: "11 one Finger (MCP jt metacarpophalangeal knuckles)"
+        output: "Finger (MCP)"
+      - label: "21 one Finger (PIP jt PROXIMAL interphalangeal)"
+        output: "Finger (PIP)"
+      - label: "31 one Finger (DIP jt DISTAL interphalangeal)"
+        output: "Finger (DIP)"
+
+      ## PELVIC REGION
+      - label: "Glutes (Buttocks)"
+        output: "Glutes (Buttocks)"
+      - label: "Glutes"
+        output: "Glutes"
+      - label: "Sacroilliac Joint - SI Jt - Hip Glute"
+        output: "Sacroilliac Jt"
+      - label: "Coxofemoral Joint - CF Jt - Hip"
+        output: "Coxofemoral Jt"
+      - "Anterior Hip"
+
+      ## LEGS REGION
+      - label: "1 Knee (one UU Unilateral)"
+        output: "Knee"
+      - label: "2 Knees (both BB Bilateral)"
+        output: "Knees"
+      - "Hip"
+      - label: "1 Ankle (one UU Unilateral)"
+        output: "Ankle"
+      - label: "2 AnkleS (both BB Bilateral)"
+        output: "Ankles"
+      - label: "Iliotibial Band - IT Band - ITB"
+        output: "Iliotibial (IT) Band"
+      - label: "Lower Body"
+        output: "Lower Body"
+      - label: "Lower Leg (Calf)"
+        output: "Lower Leg (Calf)"
+      - label: "Lower LegS Both ((Calves Calf))"
+        output: "Lower Legs"
+      - label: "Anterior Lower Leg (Calf)"
+        output: "Anterior Lower Leg (Calf)"
+      - label: "Posterior Lower Leg (Calf)"
+        output: "Posterior Lower Leg (Calf)"
+      - label: "Quads"
+        output: "Quads"
+      - label: "Hamstrings"
+        output: "Hamstrings"
+      - label: "Hamstrings Posterior Thigh"
+        output: "Posterior Thigh (over Hamstrings)"
+      - label: "1 Legg Unilateral"
+        output: "Leg"
+      - label: "2 Leggs Bilateral"
+        output: "Legs"
+      - label: "Feet foots"
+        output: "Feet"
+      - label: "Foot"
+        output: "Foot"
+      - label: "Foot - Sole (Feet UU Unilateral)"
+        output: "Foot (Sole)"
+      - label: "Feet - Soles (Foot BB Bilateral)"
+        output: "Feet (Soles)"

@@ -1,10 +1,10 @@
-use crate::data::{HierarchyList, PartOption};
+use crate::data::{HierarchyItem, HierarchyList};
 
 #[derive(Debug, Clone)]
 pub struct BlockSelectGroup {
     pub label: String,
     pub header: String,
-    pub entries: Vec<PartOption>,
+    pub entries: Vec<HierarchyItem>,
     pub item_selected: Vec<bool>,
 }
 
@@ -18,16 +18,7 @@ impl BlockSelectGroup {
         Self {
             label: cfg.label.clone().unwrap_or_default(),
             header: cfg.label.clone().unwrap_or_default(),
-            entries: cfg
-                .items
-                .iter()
-                .map(|item| PartOption::Full {
-                    id: item.id.clone(),
-                    label: item.label.clone(),
-                    output: item.output.clone().unwrap_or_else(|| item.label.clone()),
-                    default: item.default.unwrap_or(false),
-                })
-                .collect(),
+            entries: cfg.items.iter().cloned().collect(),
             item_selected,
         }
     }
@@ -154,6 +145,11 @@ mod tests_st3_default_selected {
         HierarchyList {
             id: id.to_string(),
             label: Some(label.to_string()),
+            preview: None,
+            sticky: false,
+            default: None,
+            modal_start: crate::data::ModalStart::List,
+            repeating: None,
             items,
         }
     }
@@ -300,6 +296,11 @@ mod tests_t46_st1_rename {
         HierarchyList {
             id: label.to_lowercase().replace(' ', "_"),
             label: Some(label.to_string()),
+            preview: None,
+            sticky: false,
+            default: None,
+            modal_start: crate::data::ModalStart::List,
+            repeating: None,
             items: opts
                 .iter()
                 .map(|s| HierarchyItem {
@@ -419,6 +420,11 @@ mod tests_st2_region_state_entries_field {
         HierarchyList {
             id: label.to_lowercase().replace(' ', "_"),
             label: Some(label.to_string()),
+            preview: None,
+            sticky: false,
+            default: None,
+            modal_start: crate::data::ModalStart::List,
+            repeating: None,
             items: opts
                 .iter()
                 .map(|s| HierarchyItem {

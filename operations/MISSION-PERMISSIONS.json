@@ -1,22 +1,22 @@
 {
-  "mission": "skill-log-quality",
+  "mission": "mission-log-infra",
   "created": "2026-03-25",
   "approved_actions": [
     { "type": "Read", "pattern": "C:/Users/solar/Documents/Claude Projects/scribblenot/**", "rationale": "project file reads" },
     { "type": "Write", "pattern": "C:/Users/solar/Documents/Claude Projects/scribblenot/**", "rationale": "project file writes (plans, logs, permissions, CLOSED-TASKS.md, pathfinder/ dir)" },
     { "type": "Edit", "pattern": "C:/Users/solar/Documents/Claude Projects/scribblenot/**", "rationale": "project file edits" },
     { "type": "Read", "pattern": "C:/Users/solar/.claude/skills/**", "rationale": "read global skill files before editing" },
-    { "type": "Edit", "pattern": "C:/Users/solar/.claude/skills/pathfinder-mission-team/SKILL.md", "rationale": "core mission skill - updated by most tasks this mission (#40, #41, #43, #45, #46, #46-2, #47, #50, #51, #52, #53, #54)" },
-    { "type": "Edit", "pattern": "C:/Users/solar/.claude/skills/pathfinder-premission/SKILL.md", "rationale": "premission skill - updated by #39, #42, #49, #53" },
-    { "type": "Edit", "pattern": "C:/Users/solar/.claude/skills/add-task/SKILL.md", "rationale": "add-task skill - updated by #19" },
+    { "type": "Edit", "pattern": "C:/Users/solar/.claude/skills/pathfinder-mission-team/SKILL.md", "rationale": "core mission skill - updated by #60, #61, #62, #64, #65, #67, #68, #69" },
+    { "type": "Edit", "pattern": "C:/Users/solar/.claude/skills/pathfinder-premission/SKILL.md", "rationale": "premission skill - updated by #55, #56, #56-2, #58" },
+    { "type": "Edit", "pattern": "C:/Users/solar/.claude/skills/add-task/SKILL.md", "rationale": "add-task skill - updated by #63" },
     { "type": "Edit", "pattern": "C:/Users/solar/.claude/skills/plan-review-team/SKILL.md", "rationale": "carried forward from prior mission" },
     { "type": "Edit", "pattern": "C:/Users/solar/.claude/skills/propose-plan/SKILL.md", "rationale": "carried forward from prior mission" },
     { "type": "Edit", "pattern": "C:/Users/solar/.claude/skills/review-plan/SKILL.md", "rationale": "carried forward from prior mission" },
     { "type": "Read", "pattern": "C:/Users/solar/.claude/hooks/**", "rationale": "read existing hook scripts for pattern consistency" },
-    { "type": "Edit", "pattern": "C:/Users/solar/.claude/hooks/check-mission-permissions.sh", "rationale": "hook may need update for #48 diff suppression" },
-    { "type": "Write", "pattern": "C:/Users/solar/.claude/hooks/pre-compact-mission-log.sh", "rationale": "carried forward from prior mission" },
+    { "type": "Edit", "pattern": "C:/Users/solar/.claude/hooks/check-mission-permissions.sh", "rationale": "carried forward from prior mission" },
+    { "type": "Write", "pattern": "C:/Users/solar/.claude/hooks/pre-compact-mission-log.sh", "rationale": "hook updated by #59 (mirror PreCompact to numbered log)" },
     { "type": "Read", "pattern": "C:/Users/solar/.claude/settings.json", "rationale": "read hooks/settings configuration before editing" },
-    { "type": "Edit", "pattern": "C:/Users/solar/.claude/settings.json", "rationale": "diff-view suppression toggle (#48) may require settings change" },
+    { "type": "Edit", "pattern": "C:/Users/solar/.claude/settings.json", "rationale": "carried forward from prior mission" },
     { "type": "Bash", "pattern": "git *", "rationale": "version control" },
     { "type": "Bash", "pattern": "git -C *", "rationale": "version control with explicit path" },
     { "type": "Bash", "pattern": "cargo build*", "rationale": "Rust build verification (carried forward)" },
@@ -28,7 +28,9 @@
     { "type": "Bash", "pattern": "bash /c/Users/solar/.claude/hooks/pre-compact-mission-log.sh", "rationale": "hook smoke-test (carried forward)" },
     { "type": "Bash", "pattern": "date *", "rationale": "ISO 8601 timestamp generation for mission logs" },
     { "type": "Bash", "pattern": "TZ=America/Toronto date *", "rationale": "Toronto-timezone timestamp" },
-    { "type": "Bash", "pattern": "python -c *", "rationale": "inline JSON read/merge/write for toggling autoAcceptEdits in settings.local.json (#48)" },
-    { "type": "Bash", "pattern": "python3 -c *", "rationale": "Python3 fallback for JSON manipulation (#48)" }
+    { "type": "Bash", "pattern": "python -c *", "rationale": "inline JSON read/merge/write" },
+    { "type": "Bash", "pattern": "python3 -c *", "rationale": "Python3 fallback for JSON manipulation" },
+    { "type": "Bash", "pattern": "truncate *", "rationale": "task #69: empty MISSION-LOG-active.md at mission end (truncate -s 0)" },
+    { "type": "Bash", "pattern": "chmod *", "rationale": "task #59: re-apply executable bit on hook script after editing" }
   ]
 }
