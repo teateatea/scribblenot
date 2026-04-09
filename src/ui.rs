@@ -1,13 +1,12 @@
 use crate::app::{App, Focus, MapHintLevel, SectionState};
 use crate::modal::{modal_height_for_viewport, ModalFocus};
-use crate::sections::block_select::BlockSelectFocus;
 use crate::sections::collection::CollectionFocus;
 use crate::sections::free_text::FreeTextMode;
 use crate::sections::list_select::ListSelectMode;
 use crate::Message;
 use iced::widget::{
-    button, column, container, rich_text, row, scrollable, span, text, text_input, Scrollable,
-    Space, Stack,
+    button, column, container, mouse_area, rich_text, row, scrollable, span, text, text_input,
+    Scrollable, Space, Stack,
 };
 use iced::{Background, Border, Color};
 use iced::{Element, Length};
@@ -46,7 +45,7 @@ fn map_pane(app: &App) -> Element<'_, Message> {
     for (group_idx, group) in app.data.groups.iter().enumerate() {
         let group_color = app.ui_theme.text;
         items.push(
-            text(group.name.clone())
+            text(group.nav_label.clone())
                 .font(app.ui_theme.font_pane)
                 .color(group_color)
                 .into(),
@@ -146,7 +145,6 @@ fn wizard_map_hints_active(app: &App) -> bool {
         Some(SectionState::Header(_)) => true,
         Some(SectionState::FreeText(state)) => !state.is_editing(),
         Some(SectionState::ListSelect(state)) => matches!(state.mode, ListSelectMode::Browsing),
-        Some(SectionState::BlockSelect(state)) => !state.in_items(),
         Some(SectionState::Collection(state)) => !state.in_items(),
         Some(SectionState::Checklist(_)) => true,
         Some(SectionState::Pending) | None => false,
@@ -399,10 +397,38 @@ fn wizard_window(app: &App, cursor: usize, len: usize) -> std::ops::Range<usize>
 fn field_display_value(
     app: &App,
     field: &crate::data::HeaderFieldConfig,
-    confirmed_values: &[String],
+    confirmed_values: &[crate::sections::header::HeaderFieldValue],
 ) -> String {
+    let has_explicit_empty = confirmed_values
+        .iter()
+        .any(|value| matches!(value, crate::sections::header::HeaderFieldValue::ExplicitEmpty));
+    let confirmed_values: Vec<&crate::sections::header::HeaderFieldValue> = confirmed_values
+        .iter()
+        .filter(|value| !matches!(value, crate::sections::header::HeaderFieldValue::ExplicitEmpty))
+        .collect();
+
+    if !field.collections.is_empty() && field.lists.is_empty() {
+        if has_explicit_empty {
+            return "[empty]".to_string();
+        }
+        let labels = collection_field_display_labels(field, &confirmed_values);
+        if labels.is_empty() {
+            return "[empty]".to_string();
+        }
+        return if field.format.is_none() {
+            labels.join("\n")
+        } else {
+            labels.join("; ")
+        };
+    }
+
     if !confirmed_values.is_empty() {
-        return confirmed_values.join(", ");
+        let rendered = confirmed_values
+            .iter()
+            .filter_map(|value| value.as_text())
+            .collect::<Vec<_>>()
+            .join(if field.format.is_none() { "\n" } else { ", " });
+        return rendered;
     }
 
     let mut values = Vec::new();
@@ -418,12 +444,12 @@ fn field_display_value(
         if let Some(default) = &list.default {
             if let Some(item) = list.items.iter().find(|item| {
                 item.id == *default
-                    || item.label == *default
+                    || item.ui_label() == *default
                     || item.output.as_deref() == Some(default.as_str())
             }) {
                 values.push((
                     list.id.clone(),
-                    item.output.clone().unwrap_or_else(|| item.label.clone()),
+                    item.output().to_string(),
                 ));
                 continue;
             }
@@ -462,10 +488,10 @@ fn field_display_value(
                         .iter()
                         .find(|item| {
                             item.id == *default
-                                || item.label == *default
+                                || item.ui_label() == *default
                                 || item.output.as_deref() == Some(default.as_str())
                         })
-                        .map(|item| item.output.clone().unwrap_or_else(|| item.label.clone()))
+                        .map(|item| item.output().to_string())
                 })
             })
             .unwrap_or_default();
@@ -478,6 +504,37 @@ fn field_display_value(
         .first()
         .map(|(_, value)| value.clone())
         .unwrap_or_else(|| "[empty]".to_string())
+}
+
+fn collection_field_display_labels(
+    field: &crate::data::HeaderFieldConfig,
+    confirmed_values: &[&crate::sections::header::HeaderFieldValue],
+) -> Vec<String> {
+    let active_ids: Vec<String> = confirmed_values
+        .iter()
+        .filter_map(|value| match value {
+            crate::sections::header::HeaderFieldValue::CollectionState(value) => Some(value),
+            _ => None,
+        })
+        .flat_map(crate::modal::active_collection_ids)
+        .collect();
+    let mut labels = Vec::new();
+    for collection in &field.collections {
+        let matches_confirmed = active_ids.iter().any(|id| id == &collection.id)
+            || confirmed_values.iter().any(|value| {
+                value.as_text().is_some_and(|value| value.contains(&collection.label))
+                || collection
+                    .note_label
+                    .as_ref()
+                    .is_some_and(|note_label| value.as_text().is_some_and(|value| value.contains(note_label)))
+            });
+        if matches_confirmed || (confirmed_values.is_empty() && collection.default_enabled) {
+            if !labels.iter().any(|existing| existing == &collection.label) {
+                labels.push(collection.label.clone());
+            }
+        }
+    }
+    labels
 }
 
 fn section_header(app: &App) -> Vec<Element<'_, Message>> {
@@ -537,7 +594,7 @@ fn render_header_state<'a>(
         } else {
             app.ui_theme.muted
         };
-        if let Some(limit) = field.repeat_limit {
+        if let Some(limit) = field.max_entries {
             let active_value_index = state
                 .repeat_counts
                 .get(idx)
@@ -564,6 +621,22 @@ fn render_header_state<'a>(
                     .get(repeat_idx)
                     .map(|value| field_display_value(app, field, std::slice::from_ref(value)))
                     .unwrap_or_else(|| field_display_value(app, field, &[]));
+                let field_label = confirmed_values
+                    .get(repeat_idx)
+                    .map(|value| {
+                        crate::sections::multi_field::resolve_field_label(
+                            value,
+                            field,
+                            &app.config.sticky_values,
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        crate::sections::multi_field::resolve_field_label(
+                            &crate::sections::header::HeaderFieldValue::Text(String::new()),
+                            field,
+                            &app.config.sticky_values,
+                        )
+                    });
                 let hint = field_hints
                     .get(hint_idx)
                     .map(|hint| display_hint_label(app, hint))
@@ -572,7 +645,7 @@ fn render_header_state<'a>(
                 items.push(hinted_line(
                     prefix,
                     hint,
-                    format!("{} {}: {}", field.name, repeat_idx + 1, value),
+                    format!("{} {}:\n{}", field_label, repeat_idx + 1, value),
                     field_hint_color,
                     field_hint_active,
                     color,
@@ -583,6 +656,12 @@ fn render_header_state<'a>(
         }
 
         let values = field_display_value(app, field, confirmed_values);
+        let confirmed = confirmed_values
+            .first()
+            .cloned()
+            .unwrap_or(crate::sections::header::HeaderFieldValue::Text(String::new()));
+        let field_label =
+            crate::sections::multi_field::resolve_field_label(&confirmed, field, &app.config.sticky_values);
         let prefix = if idx == state.field_index { ">" } else { " " };
         let field_hint = field_hints
             .get(hint_idx)
@@ -592,7 +671,7 @@ fn render_header_state<'a>(
         items.push(hinted_line(
             prefix,
             field_hint,
-            format!("{}: {}", field.name, values),
+            format!("{}:\n{}", field_label, values),
             field_hint_color,
             field_hint_active,
             base_color,
@@ -667,24 +746,6 @@ fn render_list_select_state<'a>(
 ) -> Element<'a, Message> {
     let mut items = section_header(app);
 
-    match state.mode {
-        ListSelectMode::AddingLabel => {
-            items.push(text("New label").color(app.ui_theme.modal).into());
-            items.push(text(&state.add_label_buf).color(app.ui_theme.active).into());
-        }
-        ListSelectMode::AddingOutput => {
-            items.push(text("New label").color(app.ui_theme.selected).into());
-            items.push(text(&state.add_label_buf).into());
-            items.push(text("New output").color(app.ui_theme.modal).into());
-            items.push(
-                text(&state.add_output_buf)
-                    .color(app.ui_theme.active)
-                    .into(),
-            );
-        }
-        ListSelectMode::Browsing => {}
-    }
-
     if state.entries.is_empty() {
         items.push(text("[no options loaded]").color(app.ui_theme.error).into());
     } else {
@@ -724,113 +785,6 @@ fn render_list_select_state<'a>(
         .into()
 }
 
-fn render_block_select_state<'a>(
-    app: &'a App,
-    state: &'a crate::sections::block_select::BlockSelectState,
-) -> Element<'a, Message> {
-    let mut items = section_header(app);
-
-    if state.groups.is_empty() {
-        items.push(text("[no groups loaded]").color(app.ui_theme.error).into());
-    } else {
-        let group_range = wizard_window(app, state.group_cursor, state.groups.len());
-        if group_range.start > 0 {
-            items.push(text("...").color(app.ui_theme.muted).into());
-        }
-        for idx in group_range.clone() {
-            let Some(group) = state.groups.get(idx) else {
-                continue;
-            };
-            let selected_count = group
-                .item_selected
-                .iter()
-                .filter(|&&selected| selected)
-                .count();
-            let prefix =
-                if idx == state.group_cursor && matches!(state.focus, BlockSelectFocus::Groups) {
-                    ">"
-                } else {
-                    " "
-                };
-            let color = if idx == state.group_cursor {
-                app.ui_theme.active
-            } else if selected_count > 0 {
-                app.ui_theme.selected
-            } else {
-                app.ui_theme.muted
-            };
-            items.push(
-                text(format!(
-                    "{prefix} {} ({}/{})",
-                    group.label,
-                    selected_count,
-                    group.entries.len()
-                ))
-                .color(color)
-                .into(),
-            );
-        }
-        if group_range.end < state.groups.len() {
-            items.push(text("...").color(app.ui_theme.muted).into());
-        }
-    }
-
-    if let Some(group_idx) = state.current_group_idx().or({
-        if state.groups.is_empty() {
-            None
-        } else {
-            Some(state.group_cursor)
-        }
-    }) {
-        if let Some(group) = state.groups.get(group_idx) {
-            items.push(
-                text(format!("Items: {}", group.header))
-                    .color(app.ui_theme.modal)
-                    .into(),
-            );
-            let item_range = wizard_window(app, state.item_cursor, group.entries.len());
-            if item_range.start > 0 {
-                items.push(text("...").color(app.ui_theme.muted).into());
-            }
-            for idx in item_range.clone() {
-                let Some(item) = group.entries.get(idx) else {
-                    continue;
-                };
-                let checked = group.item_selected.get(idx).copied().unwrap_or(false);
-                let marker = if checked { "[x]" } else { "[ ]" };
-                let prefix = if idx == state.item_cursor
-                    && matches!(state.focus, BlockSelectFocus::Items(current) if current == group_idx)
-                {
-                    ">"
-                } else {
-                    " "
-                };
-                let color = if idx == state.item_cursor
-                    && matches!(state.focus, BlockSelectFocus::Items(current) if current == group_idx)
-                {
-                    app.ui_theme.active
-                } else if checked {
-                    app.ui_theme.selected
-                } else {
-                    app.ui_theme.muted
-                };
-                items.push(
-                    text(format!("{prefix} {marker} {}", item.label))
-                        .color(color)
-                        .into(),
-                );
-            }
-            if item_range.end < group.entries.len() {
-                items.push(text("...").color(app.ui_theme.muted).into());
-            }
-        }
-    }
-
-    themed_scrollable(app, column(items).spacing(4))
-        .id(wizard_scroll_id())
-        .into()
-}
-
 fn render_collection_state<'a>(
     app: &'a App,
     state: &'a crate::sections::collection::CollectionState,
@@ -857,13 +811,17 @@ fn render_collection_state<'a>(
             } else {
                 " "
             };
-            let color = if idx == state.collection_cursor {
+            let base_color = if idx == state.collection_cursor {
                 app.ui_theme.active
             } else if collection.active {
                 app.ui_theme.selected
             } else {
                 app.ui_theme.muted
             };
+            let color = app
+                .collection_text_flash_amount(&collection.id)
+                .map(|amount| blend_color(base_color, app.ui_theme.text_color_flash, amount))
+                .unwrap_or(base_color);
             items.push(
                 text(format!(
                     "{prefix} {marker} {} ({}/{})",
@@ -916,7 +874,7 @@ fn render_collection_state<'a>(
                     app.ui_theme.muted
                 };
                 items.push(
-                    text(format!("{prefix} {marker} {}", item.label))
+                    text(format!("{prefix} {marker} {}", item.ui_label()))
                         .color(color)
                         .into(),
                 );
@@ -993,7 +951,6 @@ fn wizard_pane(app: &App) -> Element<'_, Message> {
         SectionState::Header(state) => render_header_state(app, sec, state),
         SectionState::FreeText(state) => render_free_text_state(app, state),
         SectionState::ListSelect(state) => render_list_select_state(app, state),
-        SectionState::BlockSelect(state) => render_block_select_state(app, state),
         SectionState::Collection(state) => render_collection_state(app, state),
         SectionState::Checklist(state) => render_checklist_state(app, state),
         SectionState::Pending => themed_scrollable(
@@ -1157,36 +1114,11 @@ fn preview_line_color(app: &App, line: &str, group_idx: Option<usize>) -> Color 
 }
 
 fn preview_group_for_line(app: &App, line: &str) -> Option<usize> {
-    match line {
-        "## SUBJECTIVE" => {
-            return app
-                .data
-                .groups
-                .iter()
-                .position(|group| group.id == "subjective")
+    for (idx, group) in app.data.groups.iter().enumerate() {
+        let heading = group.note.note_label.as_deref();
+        if heading == Some(line) {
+            return Some(idx);
         }
-        "## TREATMENT / PLAN" => {
-            return app
-                .data
-                .groups
-                .iter()
-                .position(|group| group.id == "treatment")
-        }
-        "## OBJECTIVE / OBSERVATIONS" => {
-            return app
-                .data
-                .groups
-                .iter()
-                .position(|group| group.id == "objective")
-        }
-        "## POST-TREATMENT" => {
-            return app
-                .data
-                .groups
-                .iter()
-                .position(|group| group.id == "post_tx")
-        }
-        _ => {}
     }
 
     for (section_idx, section) in app.sections.iter().enumerate() {
@@ -1206,7 +1138,7 @@ fn appointment_header_line_spans<'a>(
     let header_idx = app
         .sections
         .iter()
-        .position(|section| section.note_render_slot.as_deref() == Some("header"))?;
+        .position(|section| section.id == "appointment_section")?;
     let SectionState::Header(state) = app.section_states.get(header_idx)? else {
         return None;
     };
@@ -1290,10 +1222,10 @@ fn rendered_header_field_value(
         .repeated_values
         .get(field_idx)
         .and_then(|values| values.first())
-        .map(|value| value.as_str())
-        .unwrap_or("");
+        .cloned()
+        .unwrap_or(crate::sections::header::HeaderFieldValue::Text(String::new()));
     let value = crate::sections::multi_field::resolve_multifield_value(
-        confirmed,
+        &confirmed,
         field,
         &app.config.sticky_values,
     );
@@ -1359,7 +1291,7 @@ fn header_field_preview_color(
         return app.ui_theme.text;
     };
     let resolved = crate::sections::multi_field::resolve_multifield_value(
-        "",
+        &crate::sections::header::HeaderFieldValue::Text(String::new()),
         field,
         &app.config.sticky_values,
     );
@@ -1421,6 +1353,15 @@ fn status_bar(app: &App) -> Element<'_, Message> {
 
 fn panel_status_text(app: &App) -> String {
     if let Some(modal) = app.modal.as_ref() {
+        if let Some(state) = modal.collection_state.as_ref() {
+            let focus = match state.focus {
+                CollectionFocus::Collections => "collections",
+                CollectionFocus::Items(_) => "items",
+            };
+            return format!(
+                "Modal: {focus} | Enter toggles | Space/Right moves in | Left/Esc moves out | Shift+Enter confirms"
+            );
+        }
         let focus = match modal.focus {
             ModalFocus::SearchBar => "search",
             ModalFocus::List => "list",
@@ -1465,9 +1406,9 @@ fn wizard_status_text(app: &App) -> String {
         Some(SectionState::Header(state)) => {
             if let Some(field) = state.field_configs.get(state.field_index) {
                 parts.push(format!("Field: {}", field.name));
-                if let Some(limit) = field.repeat_limit {
+                if let Some(limit) = field.max_entries {
                     parts.push(format!(
-                        "Repeat: {}/{}",
+                        "Entries: {}/{}",
                         state.repeat_counts[state.field_index], limit
                     ));
                 }
@@ -1483,21 +1424,8 @@ fn wizard_status_text(app: &App) -> String {
             parts.push(format!("Entries: {}", state.entries.len()));
         }
         Some(SectionState::ListSelect(state)) => {
-            let mode = match state.mode {
-                ListSelectMode::Browsing => "browsing",
-                ListSelectMode::AddingLabel => "adding label",
-                ListSelectMode::AddingOutput => "adding output",
-            };
-            parts.push(format!("Mode: {mode}"));
+            parts.push("Mode: browsing".to_string());
             parts.push(format!("Selected: {}", state.selected_indices.len()));
-        }
-        Some(SectionState::BlockSelect(state)) => {
-            let mode = match state.focus {
-                BlockSelectFocus::Groups => "groups",
-                BlockSelectFocus::Items(_) => "items",
-            };
-            parts.push(format!("Mode: {mode}"));
-            parts.push("Enter opens group | Space toggles".to_string());
         }
         Some(SectionState::Collection(state)) => {
             let mode = match state.focus {
@@ -1569,136 +1497,402 @@ fn main_layout(app: &App) -> Element<'_, Message> {
 
 /// Build the modal overlay when a search modal is active.
 fn modal_overlay<'a>(app: &'a App, modal: &'a crate::modal::SearchModal) -> Element<'a, Message> {
+    const COLLECTION_MODAL_MIN_HEIGHT: f32 = 220.0;
+    const COLLECTION_MODAL_MAX_HEIGHT: f32 = 460.0;
+    const COLLECTION_MODAL_CHROME_HEIGHT: f32 = 96.0;
+    const COLLECTION_MODAL_ROW_HEIGHT: f32 = 28.0;
+
     let mut modal_items: Vec<Element<'a, Message>> = Vec::new();
+    let show_collection_preview =
+        modal.is_collection_mode() && collection_modal_supports_preview(app);
 
-    if let Some(part_label) = modal.current_part_label(&app.config.sticky_values) {
-        modal_items.push(
-            text(part_label)
-                .font(app.ui_theme.font_modal)
-                .color(app.ui_theme.modal_text)
-                .into(),
-        );
-    }
-
-    let app_theme = app.ui_theme.clone();
-    modal_items.push(
-        text_input("Search", &modal.query)
-            .on_input(Message::ModalQueryChanged)
-            .font(app.ui_theme.font_modal)
-            .width(Length::Fill)
-            .style(move |_theme, status| modal_input_style(&app_theme, status))
-            .into(),
-    );
-
-    let end = (modal.list_scroll + modal.window_size).min(modal.filtered.len());
-    let mut list_items: Vec<Element<'a, Message>> = Vec::new();
-    let modal_hints: Vec<String> = app
-        .data
-        .keybindings
-        .hints
-        .iter()
-        .take(end.saturating_sub(modal.list_scroll))
-        .cloned()
-        .collect();
-    for window_pos in modal.list_scroll..end {
-        if let Some(&entry_idx) = modal.filtered.get(window_pos) {
-            let label = &modal.all_entries[entry_idx];
-            let color = if window_pos == modal.list_cursor {
-                app.ui_theme.active
-            } else {
-                app.ui_theme.modal_muted_text
-            };
-            let hint = modal_hints
-                .get(window_pos - modal.list_scroll)
-                .map(|hint| display_hint_label(app, hint))
-                .unwrap_or_default();
-            let hint_color = if matches!(modal.focus, ModalFocus::List) {
-                app.ui_theme.modal_hint_text
-            } else {
-                app.ui_theme.modal_muted_text
-            };
-            let marker = if window_pos == modal.list_cursor {
-                ">"
-            } else {
-                " "
-            };
-            let marker_color =
-                if matches!(modal.focus, ModalFocus::List) && window_pos == modal.list_cursor {
-                    app.ui_theme.active
-                } else {
-                    app.ui_theme.modal_muted_text
-                };
-            let button_label = row![
-                container(
-                    text(marker)
-                        .font(app.ui_theme.font_modal)
-                        .color(marker_color),
-                )
-                .align_left(Length::Fixed(14.0)),
-                container(
-                    text(format!("{hint:<4}"))
-                        .font(app.ui_theme.font_modal)
-                        .color(hint_color),
-                )
-                .align_left(Length::Fixed(24.0)),
-                text(label).font(app.ui_theme.font_modal).color(color),
-            ]
-            .spacing(0);
-            let app_theme = app.ui_theme.clone();
-            list_items.push(
-                button(button_label)
-                    .width(Length::Fill)
-                    .on_press(Message::ModalSelect(window_pos))
-                    .style(move |_theme, status| modal_item_button_style(&app_theme, status))
+    if !modal.is_collection_mode() {
+        if let Some(part_label) = modal.current_part_label(&app.config.sticky_values) {
+            modal_items.push(
+                text(part_label)
+                    .font(app.ui_theme.font_modal)
+                    .color(app.ui_theme.modal_text)
                     .into(),
             );
         }
     }
 
-    modal_items.push(
-        themed_scrollable(app, column(list_items))
-            .height(Length::Fill)
-            .into(),
-    );
+    if modal.is_collection_mode() {
+        if show_collection_preview {
+            modal_items.push(collection_modal_split_panes(app, modal));
+        } else {
+            let mut list_items: Vec<Element<'a, Message>> = Vec::new();
+            render_collection_modal_items(app, modal, &mut list_items);
+            modal_items.push(
+                collection_left_panel(
+                    app,
+                    modal,
+                    container(column(list_items).spacing(2)).height(Length::Fill),
+                )
+                .into(),
+            );
+        }
+    } else {
+        let mut list_items: Vec<Element<'a, Message>> = Vec::new();
+        let app_theme = app.ui_theme.clone();
+        modal_items.push(
+            text_input("Search", &modal.query)
+                .on_input(Message::ModalQueryChanged)
+                .font(app.ui_theme.font_modal)
+                .width(Length::Fill)
+                .style(move |_theme, status| modal_input_style(&app_theme, status))
+                .into(),
+        );
 
-    let modal_size = modal_size_for_labels(&modal.all_entries);
-    let (modal_width, fallback_height) = modal_size.dimensions();
-    let modal_height =
-        modal_height_for_viewport(app.viewport_size.map(|size| size.height), fallback_height);
+        let end = (modal.list_scroll + modal.window_size).min(modal.filtered.len());
+        let modal_hints: Vec<String> = app
+            .data
+            .keybindings
+            .hints
+            .iter()
+            .take(end.saturating_sub(modal.list_scroll))
+            .cloned()
+            .collect();
+        for window_pos in modal.list_scroll..end {
+            if let Some(&entry_idx) = modal.filtered.get(window_pos) {
+                let label = &modal.all_entries[entry_idx];
+                let color = if window_pos == modal.list_cursor {
+                    app.ui_theme.active
+                } else {
+                    app.ui_theme.modal_muted_text
+                };
+                let hint = modal_hints
+                    .get(window_pos - modal.list_scroll)
+                    .map(|hint| display_hint_label(app, hint))
+                    .unwrap_or_default();
+                let hint_color = if matches!(modal.focus, ModalFocus::List) {
+                    app.ui_theme.modal_hint_text
+                } else {
+                    app.ui_theme.modal_muted_text
+                };
+                let marker = if window_pos == modal.list_cursor {
+                    ">"
+                } else {
+                    " "
+                };
+                let marker_color =
+                    if matches!(modal.focus, ModalFocus::List) && window_pos == modal.list_cursor {
+                        app.ui_theme.active
+                    } else {
+                        app.ui_theme.modal_muted_text
+                    };
+                let button_label = row![
+                    container(
+                        text(marker)
+                            .font(app.ui_theme.font_modal)
+                            .color(marker_color),
+                    )
+                    .align_left(Length::Fixed(14.0)),
+                    container(
+                        text(format!("{hint:<4}"))
+                            .font(app.ui_theme.font_modal)
+                            .color(hint_color),
+                    )
+                    .align_left(Length::Fixed(24.0)),
+                    text(label).font(app.ui_theme.font_modal).color(color),
+                ]
+                .spacing(0);
+                let app_theme = app.ui_theme.clone();
+                list_items.push(
+                    button(button_label)
+                        .width(Length::Fill)
+                        .on_press(Message::ModalSelect(window_pos))
+                        .style(move |_theme, status| modal_item_button_style(&app_theme, status))
+                        .into(),
+                );
+            }
+        }
+        modal_items.push(
+            themed_scrollable(app, column(list_items))
+                .height(Length::Fill)
+                .into(),
+        );
+    }
+
+    let (modal_width, fallback_height) =
+        modal_dimensions_for_content(app, modal, show_collection_preview);
+    let modal_height = if modal.is_collection_mode() {
+        let collection_count = modal
+            .collection_state
+            .as_ref()
+            .map(|state| state.collections.len())
+            .unwrap_or(0);
+        let item_count = modal
+            .collection_state
+            .as_ref()
+            .map(|state| collection_preview_metrics(&state.collections).1)
+            .unwrap_or(0);
+        let content_rows = collection_count.max(item_count).max(1) as f32;
+        let content_height = (COLLECTION_MODAL_CHROME_HEIGHT
+            + content_rows * COLLECTION_MODAL_ROW_HEIGHT)
+            .clamp(COLLECTION_MODAL_MIN_HEIGHT, COLLECTION_MODAL_MAX_HEIGHT);
+        app.viewport_size
+            .map(|size| content_height.min(size.height * crate::modal::MODAL_HEIGHT_RATIO))
+            .unwrap_or(fallback_height)
+    } else {
+        modal_height_for_viewport(app.viewport_size.map(|size| size.height), fallback_height)
+    };
     let top_offset = modal_top_offset(app);
     let modal_background = app.ui_theme.modal_panel_background;
     let text_color = app.ui_theme.text;
-    let modal_panel = container(
+    let modal_panel = mouse_area(
+        container(
         column(modal_items)
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(8),
     )
-    .width(Length::Fixed(modal_width))
-    .height(Length::Fixed(modal_height))
-    .style(move |_| {
-        background_style(modal_background, text_color).border(Border {
-            color: text_color,
-            width: 1.0,
-            radius: 6.0.into(),
-        })
-    });
+        .width(Length::Fixed(modal_width))
+        .height(Length::Fixed(modal_height))
+        .style(move |_| {
+            background_style(modal_background, text_color).border(Border {
+                color: text_color,
+                width: 1.0,
+                radius: 6.0.into(),
+            })
+        }),
+    )
+    .on_press(Message::ModalPanelPressed);
 
     let base = main_layout(app);
     Stack::new()
         .push(base)
         .push(
-            container(column![
-                Space::with_height(Length::Fixed(top_offset)),
-                modal_panel
-            ])
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x(Length::Fill),
+            mouse_area(
+                container(column![
+                    Space::with_height(Length::Fixed(top_offset)),
+                    modal_panel
+                ])
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .center_x(Length::Fill),
+            )
+            .on_press(Message::ModalBackdropPressed),
         )
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
+}
+
+fn render_collection_modal_items<'a>(
+    app: &'a App,
+    modal: &'a crate::modal::SearchModal,
+    list_items: &mut Vec<Element<'a, Message>>,
+) {
+    let Some(state) = modal.collection_state.as_ref() else {
+        return;
+    };
+    let rows = state
+        .collections
+        .iter()
+        .map(|collection| {
+            let marker = if collection.active { "[x]" } else { "[ ]" };
+            format!("{marker} {}", collection.label)
+        })
+        .collect::<Vec<_>>();
+    let row_colors = state
+        .collections
+        .iter()
+        .enumerate()
+        .map(|(idx, collection)| {
+            let base_color = if idx == state.collection_cursor {
+                app.ui_theme.active
+            } else if collection.active {
+                app.ui_theme.modal_selected_text
+            } else {
+                app.ui_theme.modal_muted_text
+            };
+            app.collection_text_flash_amount(&collection.id)
+                .map(|amount| blend_color(base_color, app.ui_theme.text_color_flash, amount))
+                .unwrap_or(base_color)
+        })
+        .collect::<Vec<_>>();
+    let cursor = state.collection_cursor;
+    let pane_focused = matches!(state.focus, CollectionFocus::Collections);
+    let range = wizard_window(app, cursor, rows.len());
+    render_modal_rows(
+        app,
+        list_items,
+        &rows,
+        Some(&row_colors),
+        cursor,
+        range,
+        pane_focused,
+        crate::app::ModalPaneTarget::Left,
+    );
+}
+
+fn collection_modal_split_panes<'a>(
+    app: &'a App,
+    modal: &'a crate::modal::SearchModal,
+) -> Element<'a, Message> {
+    let Some(_state) = modal.collection_state.as_ref() else {
+        return Space::with_height(Length::Shrink).into();
+    };
+    let mut left_items = Vec::new();
+    render_collection_modal_items(app, modal, &mut left_items);
+    let right_panel = collection_modal_preview(app, modal);
+    let left_panel =
+        collection_left_panel(app, modal, container(column(left_items).spacing(2)).height(Length::Fill));
+    row![left_panel.width(Length::FillPortion(7)), right_panel]
+        .spacing(4)
+        .height(Length::Fill)
+        .into()
+}
+
+fn collection_left_panel<'a>(
+    app: &'a App,
+    modal: &'a crate::modal::SearchModal,
+    content: impl Into<Element<'a, Message>>,
+) -> iced::widget::Container<'a, Message> {
+    let left_focused = modal
+        .collection_state
+        .as_ref()
+        .is_some_and(|state| matches!(state.focus, CollectionFocus::Collections));
+    let title = modal
+        .current_part_label(&app.config.sticky_values)
+        .unwrap_or_else(|| modal.field_name.clone());
+    modal_subpanel(
+        app,
+        column![
+            text(title)
+                .font(app.ui_theme.font_modal)
+                .color(app.ui_theme.modal_hint_text),
+            content.into()
+        ]
+        .spacing(4)
+        .height(Length::Fill),
+        left_focused,
+        crate::app::ModalPaneTarget::Left,
+    )
+}
+
+fn render_modal_rows<'a>(
+    app: &'a App,
+    list_items: &mut Vec<Element<'a, Message>>,
+    rows: &[String],
+    row_colors: Option<&[Color]>,
+    cursor: usize,
+    range: std::ops::Range<usize>,
+    pane_focused: bool,
+    target: crate::app::ModalPaneTarget,
+) {
+    let modal_hints: Vec<String> = app
+        .data
+        .keybindings
+        .hints
+        .iter()
+        .take(range.end.saturating_sub(range.start))
+        .cloned()
+        .collect();
+
+    for window_pos in range.clone() {
+        let Some(label) = rows.get(window_pos).cloned() else {
+            continue;
+        };
+        let is_current = window_pos == cursor;
+        let marker = if is_current { ">" } else { " " };
+        let color = row_colors
+            .and_then(|colors| colors.get(window_pos).copied())
+            .unwrap_or_else(|| {
+                if is_current {
+                    app.ui_theme.active
+                } else {
+                    app.ui_theme.modal_muted_text
+                }
+            });
+        let hint = modal_hints
+            .get(window_pos - range.start)
+            .map(|hint| display_hint_label(app, hint))
+            .unwrap_or_default();
+        let hint_color = if pane_focused {
+            app.ui_theme.modal_hint_text
+        } else {
+            app.ui_theme.modal_muted_text
+        };
+        let marker_color = if is_current {
+            if pane_focused {
+                app.ui_theme.active
+            } else {
+                app.ui_theme.modal_text
+            }
+        } else {
+            app.ui_theme.modal_muted_text
+        };
+        let button_label = row![
+            container(text(marker).font(app.ui_theme.font_modal).color(marker_color))
+                .align_left(Length::Fixed(14.0)),
+            container(
+                text(format!("{hint:<4}"))
+                    .font(app.ui_theme.font_modal)
+                    .color(hint_color),
+            )
+            .align_left(Length::Fixed(24.0)),
+            text(label).font(app.ui_theme.font_modal).color(color),
+        ]
+        .spacing(0);
+        let app_theme = app.ui_theme.clone();
+        list_items.push(
+            mouse_area(
+                button(button_label)
+                    .width(Length::Fill)
+                    .on_press(Message::ModalRowPressed(target, window_pos))
+                    .style(move |_theme, status| modal_item_button_style(&app_theme, status)),
+            )
+            .on_enter(Message::ModalRowHovered(target, window_pos))
+            .interaction(iced::mouse::Interaction::Pointer)
+            .into(),
+        );
+    }
+}
+
+fn collection_modal_preview<'a>(
+    app: &'a App,
+    modal: &'a crate::modal::SearchModal,
+) -> Element<'a, Message> {
+    let (preview_title, preview_lines) = modal
+        .preview_collection()
+        .map(crate::modal::authored_collection_preview)
+        .unwrap_or_else(|| ("Preview".to_string(), vec!["No collection selected".to_string()]));
+    let Some(state) = modal.collection_state.as_ref() else {
+        return Space::with_height(Length::Shrink).into();
+    };
+    let mut items: Vec<Element<'a, Message>> = Vec::with_capacity(preview_lines.len() + 1);
+    items.push(
+        text(preview_title)
+            .font(app.ui_theme.font_modal)
+            .color(app.ui_theme.modal_hint_text)
+            .into(),
+    );
+    let rows = preview_lines;
+    let cursor = state.item_cursor;
+    let item_len = rows.len();
+    let range = wizard_window(app, cursor, item_len);
+    let pane_focused = matches!(state.focus, CollectionFocus::Items(_));
+    render_modal_rows(
+        app,
+        &mut items,
+        &rows,
+        None,
+        cursor,
+        range,
+        pane_focused,
+        crate::app::ModalPaneTarget::Right,
+    );
+
+    modal_subpanel(
+        app,
+        container(column(items).spacing(4)).height(Length::Fill),
+        pane_focused,
+        crate::app::ModalPaneTarget::Right,
+    )
+    .width(Length::FillPortion(5))
+    .into()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1706,6 +1900,7 @@ enum ModalSize {
     Small,
     Medium,
     Large,
+    ExtraWide,
 }
 
 impl ModalSize {
@@ -1714,16 +1909,29 @@ impl ModalSize {
             Self::Small => (320.0, 220.0),
             Self::Medium => (520.0, 360.0),
             Self::Large => (760.0, 520.0),
+            Self::ExtraWide => (980.0, 560.0),
         }
     }
 }
 
-fn modal_size_for_labels(labels: &[String]) -> ModalSize {
+fn modal_size_for_labels(
+    labels: &[String],
+    is_collection_mode: bool,
+    show_collection_preview: bool,
+) -> ModalSize {
+    if show_collection_preview {
+        return ModalSize::ExtraWide;
+    }
     let max_label_len = labels
         .iter()
         .map(|label| label.chars().count())
         .max()
         .unwrap_or(0);
+    let max_label_len = if is_collection_mode {
+        max_label_len.saturating_add(12)
+    } else {
+        max_label_len
+    };
     if max_label_len <= 34 {
         ModalSize::Small
     } else if max_label_len <= 90 {
@@ -1731,6 +1939,89 @@ fn modal_size_for_labels(labels: &[String]) -> ModalSize {
     } else {
         ModalSize::Large
     }
+}
+
+fn collection_modal_supports_preview(app: &App) -> bool {
+    app.viewport_size
+        .map(|size| size.width >= 900.0)
+        .unwrap_or(true)
+}
+
+fn collection_preview_metrics(
+    collections: &[crate::sections::collection::CollectionEntry],
+) -> (usize, usize) {
+    let mut max_chars = "No collection selected".chars().count();
+    let mut max_rows = 1usize;
+
+    for collection in collections {
+        let (title, lines) = crate::modal::authored_collection_preview(collection);
+        max_chars = max_chars.max(title.chars().count());
+        max_rows = max_rows.max(lines.len() + 1);
+        for line in lines {
+            max_chars = max_chars.max(line.chars().count());
+        }
+    }
+
+    (max_chars, max_rows)
+}
+
+fn modal_dimensions_for_content(
+    app: &App,
+    modal: &crate::modal::SearchModal,
+    show_collection_preview: bool,
+) -> (f32, f32) {
+    if show_collection_preview {
+        let left_chars = modal
+            .all_entries
+            .iter()
+            .map(|label| label.chars().count())
+            .max()
+            .unwrap_or(0) as f32;
+        let right_chars = modal
+            .collection_state
+            .as_ref()
+            .map(|state| collection_preview_metrics(&state.collections).0)
+            .unwrap_or("No collection selected".chars().count()) as f32;
+        let left_width = (left_chars * 8.0 + 92.0).clamp(340.0, 520.0);
+        let right_width = (right_chars * 7.2 + 48.0).clamp(260.0, 420.0);
+        let width = left_width + right_width + 34.0;
+        let capped = app
+            .viewport_size
+            .map(|size| width.min((size.width - 40.0).max(720.0)))
+            .unwrap_or(width);
+        return (capped, 320.0);
+    }
+
+    let modal_size = modal_size_for_labels(&modal.all_entries, modal.is_collection_mode(), false);
+    modal_size.dimensions()
+}
+
+fn modal_subpanel<'a>(
+    app: &'a App,
+    content: impl Into<Element<'a, Message>>,
+    focused: bool,
+    target: crate::app::ModalPaneTarget,
+) -> iced::widget::Container<'a, Message> {
+    let panel_background = app.ui_theme.modal_input_background;
+    let border_color = if focused {
+        app.ui_theme.active
+    } else {
+        app.ui_theme.modal_input_border
+    };
+    let text_color = app.ui_theme.modal_text;
+    container(
+        mouse_area(container(content).height(Length::Fill).padding(6))
+            .on_press(Message::ModalPanePressed(target))
+            .interaction(iced::mouse::Interaction::Pointer),
+    )
+    .height(Length::Fill)
+    .style(move |_| {
+        background_style(panel_background, text_color).border(Border {
+            color: border_color,
+            width: 1.0,
+            radius: 4.0.into(),
+        })
+    })
 }
 
 fn modal_top_offset(app: &App) -> f32 {
@@ -1750,5 +2041,73 @@ pub fn view(app: &App) -> Element<'_, Message> {
         modal_overlay(app, modal)
     } else {
         main_layout(app)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collection_preview_metrics;
+    use crate::data::{HierarchyItem, HierarchyList, ModalStart, ResolvedCollectionConfig};
+    use crate::sections::collection::CollectionEntry;
+
+    fn item(id: &str, label: &str) -> HierarchyItem {
+        HierarchyItem {
+            id: id.to_string(),
+            label: Some(label.to_string()),
+            default_enabled: false,
+            output: Some(label.to_string()),
+            fields: None,
+            branch_fields: Vec::new(),
+        }
+    }
+
+    fn collection(id: &str, label: &str, items: Vec<HierarchyItem>) -> CollectionEntry {
+        CollectionEntry::from_config(&ResolvedCollectionConfig {
+            id: id.to_string(),
+            label: label.to_string(),
+            note_label: None,
+            default_enabled: false,
+            joiner_style: None,
+            lists: vec![HierarchyList {
+                id: format!("{id}_list"),
+                label: Some(label.to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items,
+            }],
+        })
+    }
+
+    #[test]
+    fn collection_preview_metrics_use_largest_preview_across_all_collections() {
+        let collections = vec![
+            collection("short", "Short", vec![item("a", "A")]),
+            collection(
+                "long",
+                "Long",
+                vec![
+                    item("b", "A much longer preview row"),
+                    item("c", "C"),
+                    item("d", "D"),
+                ],
+            ),
+        ];
+
+        let (max_chars, max_rows) = collection_preview_metrics(&collections);
+
+        assert_eq!(max_chars, "[ ] A much longer preview row".chars().count());
+        assert_eq!(max_rows, 4);
+    }
+
+    #[test]
+    fn collection_preview_metrics_keep_empty_state_fallbacks() {
+        let (max_chars, max_rows) = collection_preview_metrics(&[]);
+
+        assert_eq!(max_chars, "No collection selected".chars().count());
+        assert_eq!(max_rows, 1);
     }
 }

@@ -6,14 +6,14 @@ use crate::modal::{
     resolved_item_labels_for_list, FieldAdvance, ModalFocus, SearchModal,
 };
 use crate::sections::{
-    block_select::BlockSelectState,
     checklist::ChecklistState,
     collection::CollectionState,
     free_text::FreeTextState,
-    header::HeaderState,
+    header::{HeaderFieldValue, HeaderState},
     list_select::{ListSelectMode, ListSelectState},
 };
 use iced::keyboard::{key::Named, Key, Modifiers};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -82,13 +82,26 @@ pub enum MapHintLevel {
     Sections(usize),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModalPaneTarget {
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone)]
+struct ModalRestoreSnapshot {
+    field_idx: usize,
+    value_index: usize,
+    original_value: Option<HeaderFieldValue>,
+    original_spans: Option<Vec<(String, bool)>>,
+}
+
 #[derive(Debug, Clone)]
 pub enum SectionState {
     Pending,
     Header(HeaderState),
     FreeText(FreeTextState),
     ListSelect(ListSelectState),
-    BlockSelect(BlockSelectState),
     Collection(CollectionState),
     Checklist(ChecklistState),
 }
@@ -131,6 +144,7 @@ pub struct App {
     pub quit: bool,
     pub copy_requested: bool,
     pub copy_flash_until: Option<Instant>,
+    pub evicted_collection_flash_until: HashMap<String, Instant>,
     pub data_dir: PathBuf,
     pub focus: Focus,
     pub map_cursor: usize,
@@ -139,6 +153,8 @@ pub struct App {
     pub note_scroll: u16,
     pub modal: Option<SearchModal>,
     pub hint_buffer: String,
+    pub modal_mouse_mode: bool,
+    modal_restore_snapshot: Option<ModalRestoreSnapshot>,
     pub editable_note: String,
     pub note_headings_valid: bool,
     pub note_structure_warning: Option<String>,
@@ -188,6 +204,7 @@ impl App {
         let section_states = Self::init_states(&sections, &data);
         let pane_swapped = config.is_swapped();
         let editable_note = build_initial_document(
+            &data.groups,
             &sections,
             &section_states,
             &config.sticky_values,
@@ -215,6 +232,7 @@ impl App {
             quit: false,
             copy_requested: false,
             copy_flash_until: None,
+            evicted_collection_flash_until: HashMap::new(),
             data_dir,
             focus: Focus::Wizard,
             map_cursor: 0,
@@ -223,6 +241,8 @@ impl App {
             note_scroll: 0,
             modal: None,
             hint_buffer: String::new(),
+            modal_mouse_mode: false,
+            modal_restore_snapshot: None,
             editable_note,
             note_headings_valid,
             note_structure_warning,
@@ -250,14 +270,86 @@ impl App {
         self.refresh_note_structure();
     }
 
+    pub fn activate_modal_mouse_mode(&mut self) {
+        if self.modal.is_some() {
+            self.modal_mouse_mode = true;
+        }
+    }
+
+    pub fn close_modal(&mut self) {
+        self.modal = None;
+        self.modal_mouse_mode = false;
+        self.modal_restore_snapshot = None;
+        self.hint_buffer.clear();
+    }
+
+    pub fn dismiss_modal(&mut self) {
+        if let Some(snapshot) = self.modal_restore_snapshot.take() {
+            let idx = self.current_idx;
+            if let Some(SectionState::Header(state)) = self.section_states.get_mut(idx) {
+                if let Some(slot) = state.repeated_values.get_mut(snapshot.field_idx) {
+                    match snapshot.original_value {
+                        Some(value) => {
+                            if snapshot.value_index < slot.len() {
+                                slot[snapshot.value_index] = value;
+                            } else {
+                                slot.push(value);
+                            }
+                        }
+                        None => {
+                            if snapshot.value_index < slot.len() {
+                                slot.remove(snapshot.value_index);
+                            }
+                        }
+                    }
+                }
+                state.composite_spans = snapshot.original_spans;
+            }
+        }
+        self.modal = None;
+        self.modal_mouse_mode = false;
+        self.hint_buffer.clear();
+    }
+
     pub fn set_modal_query(&mut self, new_text: String) {
         if let Some(modal) = self.modal.as_mut() {
+            if modal.is_collection_mode() {
+                return;
+            }
             modal.query = new_text;
             modal.update_filter();
         }
     }
 
     pub fn select_modal_filtered_index(&mut self, filtered_index: usize) {
+        if self
+            .modal
+            .as_ref()
+            .is_some_and(|modal| modal.is_collection_mode())
+        {
+            if let Some(modal) = self.modal.as_mut() {
+                if let Some(state) = modal.collection_state.as_mut() {
+                    match state.focus {
+                        crate::sections::collection::CollectionFocus::Collections => {
+                            if filtered_index < state.collections.len() {
+                                state.collection_cursor = filtered_index;
+                            }
+                        }
+                        crate::sections::collection::CollectionFocus::Items(collection_idx) => {
+                            let item_len = state
+                                .collections
+                                .get(collection_idx)
+                                .map(|collection| collection.items.len())
+                                .unwrap_or(0);
+                            if filtered_index < item_len {
+                                state.item_cursor = filtered_index;
+                            }
+                        }
+                    }
+                }
+            }
+            return;
+        }
         let value = {
             let Some(modal) = self.modal.as_mut() else {
                 return;
@@ -273,6 +365,74 @@ impl App {
         if let Some(value) = value {
             self.confirm_modal_value(value);
         }
+    }
+
+    pub fn focus_modal_pane(&mut self, target: ModalPaneTarget) {
+        let Some(modal) = self.modal.as_mut() else {
+            return;
+        };
+        let Some(state) = modal.collection_state.as_mut() else {
+            return;
+        };
+        match target {
+            ModalPaneTarget::Left => state.exit_items(),
+            ModalPaneTarget::Right => state.enter_collection(),
+        }
+        self.update_collection_modal_preview();
+    }
+
+    pub fn hover_modal_row(&mut self, target: ModalPaneTarget, row_index: usize) {
+        if !self.modal_mouse_mode {
+            return;
+        }
+        self.set_modal_row(target, row_index, false);
+    }
+
+    pub fn press_modal_row(&mut self, target: ModalPaneTarget, row_index: usize) {
+        self.set_modal_row(target, row_index, true);
+    }
+
+    fn set_modal_row(&mut self, target: ModalPaneTarget, row_index: usize, activate: bool) {
+        let Some(modal) = self.modal.as_mut() else {
+            return;
+        };
+        let Some(state) = modal.collection_state.as_mut() else {
+            if activate {
+                self.select_modal_filtered_index(row_index);
+            }
+            return;
+        };
+
+        match target {
+            ModalPaneTarget::Left => {
+                if row_index >= state.collections.len() {
+                    return;
+                }
+                let was_focused = matches!(state.focus, crate::sections::collection::CollectionFocus::Collections);
+                let same_row = state.collection_cursor == row_index;
+                state.collection_cursor = row_index;
+                state.exit_items();
+                if activate && was_focused && same_row {
+                    state.toggle_current_collection();
+                }
+            }
+            ModalPaneTarget::Right => {
+                let Some(collection) = state.collections.get(state.collection_cursor) else {
+                    return;
+                };
+                if row_index >= collection.items.len() {
+                    return;
+                }
+                let was_focused = matches!(state.focus, crate::sections::collection::CollectionFocus::Items(_));
+                let same_row = state.item_cursor == row_index;
+                state.enter_collection();
+                state.item_cursor = row_index;
+                if activate && was_focused && same_row {
+                    state.toggle_current_item();
+                }
+            }
+        }
+        self.update_collection_modal_preview();
     }
 
     fn refresh_note_structure(&mut self) {
@@ -344,17 +504,10 @@ impl App {
                         .data_file
                         .as_ref()
                         .and_then(|f| data.list_data.get(f))
+                        .or_else(|| data.list_data.get(&cfg.id))
                         .cloned()
                         .unwrap_or_default();
                     SectionState::ListSelect(ListSelectState::new(entries))
-                }
-                "block_select" => {
-                    let regions = data
-                        .block_select_data
-                        .get(&cfg.id)
-                        .cloned()
-                        .unwrap_or_default();
-                    SectionState::BlockSelect(BlockSelectState::new(regions))
                 }
                 "collection" => {
                     let collections = data
@@ -369,6 +522,7 @@ impl App {
                         .data_file
                         .as_ref()
                         .and_then(|f| data.checklist_data.get(f))
+                        .or_else(|| data.checklist_data.get(&cfg.id))
                         .cloned()
                         .unwrap_or_default();
                     SectionState::Checklist(ChecklistState::new(items))
@@ -389,6 +543,38 @@ impl App {
             .is_some_and(|until| Instant::now() >= until)
         {
             self.copy_flash_until = None;
+        }
+        self.evicted_collection_flash_until
+            .retain(|_, until| Instant::now() < *until);
+    }
+
+    pub fn has_active_text_flash(&self) -> bool {
+        !self.evicted_collection_flash_until.is_empty()
+    }
+
+    pub fn collection_text_flash_amount(&self, collection_id: &str) -> Option<f32> {
+        let until = *self.evicted_collection_flash_until.get(collection_id)?;
+        let duration_ms = self.ui_theme.text_color_flash_duration.max(1);
+        let remaining_ms = until
+            .saturating_duration_since(Instant::now())
+            .as_millis()
+            .min(u128::from(duration_ms)) as f32;
+        if remaining_ms <= 0.0 {
+            return None;
+        }
+        let t = remaining_ms / duration_ms as f32;
+        Some(t * t * (3.0 - 2.0 * t))
+    }
+
+    fn flash_evicted_collections(&mut self, collection_ids: Vec<String>) {
+        if collection_ids.is_empty() {
+            return;
+        }
+        let until =
+            Instant::now() + std::time::Duration::from_millis(self.ui_theme.text_color_flash_duration);
+        for collection_id in collection_ids {
+            self.evicted_collection_flash_until
+                .insert(collection_id, until);
         }
     }
 
@@ -466,7 +652,6 @@ impl App {
         match self.section_states.get(self.current_idx) {
             Some(SectionState::FreeText(s)) => !s.is_editing(),
             Some(SectionState::ListSelect(s)) => matches!(s.mode, ListSelectMode::Browsing),
-            Some(SectionState::BlockSelect(s)) => !s.in_items(),
             Some(SectionState::Collection(s)) => !s.in_items(),
             Some(SectionState::Checklist(_)) => true,
             _ => false,
@@ -653,9 +838,11 @@ impl App {
         self.map_return_idx = None;
         self.map_hint_level = MapHintLevel::Sections(self.group_idx_for_section(self.current_idx));
         self.modal = None;
+        self.modal_mouse_mode = false;
         self.hint_buffer.clear();
         self.data = data;
         self.editable_note = build_initial_document(
+            &self.data.groups,
             &self.sections,
             &self.section_states,
             &self.config.sticky_values,
@@ -686,32 +873,28 @@ impl App {
         }
 
         if let Some(line) = section
-            .heading_search_text
+            .note_label
             .as_deref()
             .and_then(|heading| find_line_containing(&preview, heading))
         {
             return line;
         }
 
-        let Some(group_id) = self
+        let Some(group) = self
             .data
             .groups
             .iter()
             .find(|group| group.sections.iter().any(|cfg| cfg.id == section.id))
-            .map(|group| group.id.as_str())
         else {
             return 0;
         };
 
-        let group_anchor = match group_id {
-            "subjective" => "## SUBJECTIVE",
-            "treatment" => "## TREATMENT / PLAN",
-            "objective" => "## OBJECTIVE / OBSERVATIONS",
-            "post_tx" => "## POST-TREATMENT",
-            _ => "",
-        };
-
-        find_line_containing(&preview, group_anchor).unwrap_or(0)
+        group
+            .note
+            .note_label
+            .as_deref()
+            .and_then(|heading| find_line_containing(&preview, heading))
+            .unwrap_or(0)
     }
 
     pub fn current_map_scroll_line(&self) -> u16 {
@@ -731,10 +914,6 @@ impl App {
         matches!(
             self.section_states.get(self.current_idx),
             Some(SectionState::FreeText(s)) if s.is_editing()
-        ) || matches!(
-            self.section_states.get(self.current_idx),
-            Some(SectionState::ListSelect(s))
-                if matches!(s.mode, ListSelectMode::AddingLabel | ListSelectMode::AddingOutput)
         )
     }
 
@@ -762,6 +941,7 @@ impl App {
         }
 
         if !self.text_entry_active() && self.is_copy_note(&key) {
+            self.modal_mouse_mode = false;
             self.modal = None;
             self.show_help = false;
             self.copy_requested = true;
@@ -890,7 +1070,6 @@ impl App {
             SectionState::Header(_) => self.handle_header_key(key),
             SectionState::FreeText(_) => self.handle_free_text_key(key),
             SectionState::ListSelect(_) => self.handle_list_select_key(key),
-            SectionState::BlockSelect(_) => self.handle_block_select_key(key),
             SectionState::Collection(_) => self.handle_collection_key(key),
             SectionState::Checklist(_) => self.handle_checklist_key(key),
             SectionState::Pending => {
@@ -983,7 +1162,7 @@ impl App {
                             s.field_index = field_idx;
                             if s.field_configs
                                 .get(field_idx)
-                                .is_some_and(|field| field.repeat_limit.is_some())
+                                .is_some_and(|field| field.max_entries.is_some())
                             {
                                 s.repeat_counts[field_idx] = repeat_idx;
                             }
@@ -1009,10 +1188,10 @@ impl App {
                         .repeated_values
                         .get(s.field_index)
                         .and_then(|v| v.last())
-                        .map(|v| v.as_str())
-                        .unwrap_or("");
+                        .cloned()
+                        .unwrap_or(HeaderFieldValue::Text(String::new()));
                     crate::sections::multi_field::resolve_multifield_value(
-                        confirmed,
+                        &confirmed,
                         cfg,
                         &self.config.sticky_values,
                     )
@@ -1024,7 +1203,7 @@ impl App {
                 resolved
             {
                 if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
-                    s.set_current_value(value);
+                    s.set_current_value(HeaderFieldValue::Text(value));
                     let done = s.advance();
                     self.sync_section_into_editable_note(idx);
                     if done {
@@ -1088,36 +1267,65 @@ impl App {
 
     fn open_header_modal(&mut self) {
         let idx = self.current_idx;
-        let field_idx = if let Some(SectionState::Header(s)) = self.section_states.get(idx) {
-            s.field_index
-        } else {
-            return;
-        };
-        let field_cfg = if let Some(SectionState::Header(s)) = self.section_states.get(idx) {
-            s.field_configs.get(field_idx).cloned()
-        } else {
-            None
-        };
+        let (field_idx, field_cfg, current_value, value_index, original_spans) =
+            if let Some(SectionState::Header(s)) = self.section_states.get(idx) {
+                let field_idx = s.field_index;
+                let value_index = s.active_value_index();
+                let current_value = s
+                    .repeated_values
+                    .get(field_idx)
+                    .and_then(|values| values.get(value_index))
+                    .cloned();
+                (
+                    field_idx,
+                    s.field_configs.get(field_idx).cloned(),
+                    current_value,
+                    value_index,
+                    s.composite_spans.clone(),
+                )
+            } else {
+                return;
+            };
         if let Some(cfg) = field_cfg {
-            if cfg.lists.is_empty() {
+            if cfg.lists.is_empty() && cfg.collections.is_empty() {
                 return;
             }
             let window_size = self.modal_window_size();
-            let modal =
-                SearchModal::new_field(field_idx, cfg, &self.config.sticky_values, window_size);
+            let modal = SearchModal::new_field(
+                field_idx,
+                cfg,
+                current_value.as_ref(),
+                &self.config.sticky_values,
+                window_size,
+            );
             self.modal = Some(modal);
+            self.modal_mouse_mode = false;
+            self.modal_restore_snapshot = Some(ModalRestoreSnapshot {
+                field_idx,
+                value_index,
+                original_value: current_value,
+                original_spans,
+            });
         }
     }
 
     fn handle_modal_key(&mut self, key: AppKey) {
-        if matches!(key, AppKey::Esc) {
-            self.hint_buffer.clear();
-            self.modal = None;
+        if self.is_super_confirm(&key) {
+            self.super_confirm_modal_field();
             return;
         }
 
-        if self.is_super_confirm(&key) {
-            self.super_confirm_modal_field();
+        if self
+            .modal
+            .as_ref()
+            .is_some_and(|modal| modal.is_collection_mode())
+        {
+            self.handle_collection_modal_key(key);
+            return;
+        }
+
+        if matches!(key, AppKey::Esc) {
+            self.dismiss_modal();
             return;
         }
 
@@ -1209,7 +1417,7 @@ impl App {
                         self.composite_go_back();
                     } else {
                         // First part or simple field: exit modal, return to wizard
-                        self.modal = None;
+                        self.dismiss_modal();
                     }
                 }
                 AppKey::Space => {
@@ -1296,6 +1504,190 @@ impl App {
         }
     }
 
+    fn handle_collection_modal_key(&mut self, key: AppKey) {
+        match key {
+            AppKey::Esc => {
+                self.hint_buffer.clear();
+                let went_back = self
+                    .modal
+                    .as_mut()
+                    .is_some_and(|modal| modal.collection_back());
+                if !went_back {
+                    self.dismiss_modal();
+                }
+            }
+            AppKey::Left => {
+                self.hint_buffer.clear();
+                if self
+                    .modal
+                    .as_mut()
+                    .is_some_and(|modal| modal.collection_back())
+                {
+                    self.update_collection_modal_preview();
+                }
+            }
+            AppKey::Right => {
+                self.hint_buffer.clear();
+                if let Some(modal) = self.modal.as_mut() {
+                    modal.collection_enter();
+                }
+                self.update_collection_modal_preview();
+            }
+            AppKey::Space => {
+                self.hint_buffer.clear();
+                let in_items = self
+                    .modal
+                    .as_ref()
+                    .and_then(|modal| modal.collection_state.as_ref())
+                    .is_some_and(|state| state.in_items());
+                if in_items {
+                    if let Some(modal) = self.modal.as_mut() {
+                        let _ = modal.collection_back();
+                    }
+                } else if let Some(modal) = self.modal.as_mut() {
+                    modal.collection_enter();
+                }
+                self.update_collection_modal_preview();
+            }
+            AppKey::Backspace => {
+                self.hint_buffer.clear();
+                let went_back = self
+                    .modal
+                    .as_mut()
+                    .is_some_and(|modal| modal.collection_back());
+                if !went_back {
+                    self.dismiss_modal();
+                }
+            }
+            AppKey::Enter => {
+                self.hint_buffer.clear();
+                if let Some(modal) = self.modal.as_mut() {
+                    let evicted = modal.collection_toggle_current();
+                    self.flash_evicted_collections(evicted);
+                }
+                self.update_collection_modal_preview();
+            }
+            AppKey::Up => {
+                self.hint_buffer.clear();
+                if let Some(modal) = self.modal.as_mut() {
+                    modal.collection_navigate_up();
+                }
+            }
+            AppKey::Down => {
+                self.hint_buffer.clear();
+                if let Some(modal) = self.modal.as_mut() {
+                    modal.collection_navigate_down();
+                }
+            }
+            AppKey::Char(c) => {
+                let case_sensitive = self.config.hint_labels_case_sensitive;
+                let ch_str: String = if case_sensitive {
+                    c.to_string()
+                } else {
+                    c.to_ascii_lowercase().to_string()
+                };
+                let visible_count = self.collection_modal_visible_count();
+                let labels: Vec<String> = self
+                    .data
+                    .keybindings
+                    .hints
+                    .iter()
+                    .take(visible_count)
+                    .cloned()
+                    .collect();
+                let folded_labels: Vec<String> = labels
+                    .iter()
+                    .map(|h| {
+                        if case_sensitive {
+                            h.to_string()
+                        } else {
+                            h.to_ascii_lowercase()
+                        }
+                    })
+                    .collect();
+                if let Some(hint_pos) = folded_labels.iter().position(|label| label == &ch_str) {
+                    self.hint_buffer.clear();
+                    self.toggle_collection_modal_hint(hint_pos);
+                    self.update_collection_modal_preview();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn collection_modal_visible_count(&self) -> usize {
+        let Some(modal) = self.modal.as_ref() else {
+            return 0;
+        };
+        let Some(state) = modal.collection_state.as_ref() else {
+            return 0;
+        };
+        let len = match state.focus {
+            crate::sections::collection::CollectionFocus::Collections => state.collections.len(),
+            crate::sections::collection::CollectionFocus::Items(collection_idx) => state
+                .collections
+                .get(collection_idx)
+                .map(|collection| collection.items.len())
+                .unwrap_or(0),
+        };
+        let cursor = match state.focus {
+            crate::sections::collection::CollectionFocus::Collections => state.collection_cursor,
+            crate::sections::collection::CollectionFocus::Items(_) => state.item_cursor,
+        };
+        let range = modal_hint_window(cursor, len, self.data.keybindings.hints.len());
+        range.end.saturating_sub(range.start)
+    }
+
+    fn toggle_collection_modal_hint(&mut self, hint_pos: usize) {
+        let Some(modal) = self.modal.as_mut() else {
+            return;
+        };
+        let Some(state) = modal.collection_state.as_mut() else {
+            return;
+        };
+        let hint_pool = self.data.keybindings.hints.len();
+        match state.focus {
+            crate::sections::collection::CollectionFocus::Collections => {
+                let range = modal_hint_window(state.collection_cursor, state.collections.len(), hint_pool);
+                let target = range.start + hint_pos;
+                if target < state.collections.len() {
+                    state.collection_cursor = target;
+                    let evicted = state.toggle_current_collection();
+                    self.flash_evicted_collections(evicted);
+                }
+            }
+            crate::sections::collection::CollectionFocus::Items(collection_idx) => {
+                let item_len = state
+                    .collections
+                    .get(collection_idx)
+                    .map(|collection| collection.items.len())
+                    .unwrap_or(0);
+                let range = modal_hint_window(state.item_cursor, item_len, hint_pool);
+                let target = range.start + hint_pos;
+                if target < item_len {
+                    state.item_cursor = target;
+                    state.toggle_current_item();
+                }
+            }
+        }
+    }
+
+    fn update_collection_modal_preview(&mut self) {
+        let idx = self.current_idx;
+        let Some(modal) = self.modal.as_ref() else {
+            return;
+        };
+        if !modal.is_collection_mode() {
+            return;
+        }
+        let preview = modal.preview_field_value(&self.config.sticky_values);
+        let spans = compute_field_spans(modal, &self.config.sticky_values);
+        if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+            s.set_preview_value(preview);
+            s.composite_spans = Some(spans);
+        }
+    }
+
     fn confirm_modal_value(&mut self, value: String) {
         let idx = self.current_idx;
         if self.modal.is_some() {
@@ -1307,10 +1699,7 @@ impl App {
             );
             match advance {
                 FieldAdvance::NextList => {
-                    let preview = compute_field_preview(
-                        self.modal.as_ref().unwrap(),
-                        &self.config.sticky_values,
-                    );
+                    let preview = self.modal.as_ref().unwrap().preview_field_value(&self.config.sticky_values);
                     let spans = compute_field_spans(
                         self.modal.as_ref().unwrap(),
                         &self.config.sticky_values,
@@ -1322,10 +1711,7 @@ impl App {
                     let _ = self.config.save(&self.data_dir);
                 }
                 FieldAdvance::StayOnList => {
-                    let preview = compute_field_preview(
-                        self.modal.as_ref().unwrap(),
-                        &self.config.sticky_values,
-                    );
+                    let preview = self.modal.as_ref().unwrap().preview_field_value(&self.config.sticky_values);
                     let spans = compute_field_spans(
                         self.modal.as_ref().unwrap(),
                         &self.config.sticky_values,
@@ -1345,7 +1731,7 @@ impl App {
                             self.advance_section();
                         }
                     }
-                    self.modal = None;
+                    self.close_modal();
                     let _ = self.config.save(&self.data_dir);
                 }
             }
@@ -1367,8 +1753,7 @@ impl App {
 
         match advance {
             FieldAdvance::NextList | FieldAdvance::StayOnList => {
-                let preview =
-                    compute_field_preview(self.modal.as_ref().unwrap(), &self.config.sticky_values);
+                let preview = self.modal.as_ref().unwrap().preview_field_value(&self.config.sticky_values);
                 let spans =
                     compute_field_spans(self.modal.as_ref().unwrap(), &self.config.sticky_values);
                 if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
@@ -1387,7 +1772,7 @@ impl App {
                         self.advance_section();
                     }
                 }
-                self.modal = None;
+                self.close_modal();
                 let _ = self.config.save(&self.data_dir);
             }
         }
@@ -1479,242 +1864,53 @@ impl App {
 
     fn handle_list_select_key(&mut self, key: AppKey) {
         let idx = self.current_idx;
-        let mode = match &self.section_states[idx] {
-            SectionState::ListSelect(s) => match s.mode {
-                ListSelectMode::Browsing => 0,
-                ListSelectMode::AddingLabel => 1,
-                ListSelectMode::AddingOutput => 2,
-            },
-            _ => return,
-        };
-
-        match mode {
-            1 | 2 => {
-                // Adding mode
-                if self.is_back(&key) {
-                    if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
-                        s.cancel_add();
-                    }
-                    return;
-                }
-                // In text input: only Enter confirms, not letter aliases like 't'
-                if matches!(key, AppKey::Enter) {
-                    if mode == 1 {
-                        if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
-                            s.confirm_label();
-                        }
-                    } else {
-                        let new_entry =
-                            if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
-                                s.confirm_output()
-                            } else {
-                                None
-                            };
-                        if let Some(entry) = new_entry {
-                            let data_file = self.sections[idx].data_file.clone();
-                            if let Some(ref df) = data_file {
-                                match self.data.append_list_entry(df, entry.clone()) {
-                                    Ok(_) => {
-                                        if let SectionState::ListSelect(s) =
-                                            &mut self.section_states[idx]
-                                        {
-                                            s.entries = self
-                                                .data
-                                                .list_data
-                                                .get(df)
-                                                .cloned()
-                                                .unwrap_or_default();
-                                            // Select the newly added entry
-                                            let new_idx = s.entries.len().saturating_sub(1);
-                                            s.cursor = new_idx;
-                                            s.selected_indices.push(new_idx);
-                                        }
-                                        self.sync_section_into_editable_note(idx);
-                                        self.status = Some(StatusMsg::success("Entry added."));
-                                    }
-                                    Err(e) => {
-                                        self.status = Some(StatusMsg::error(format!(
-                                            "Failed to save: {}",
-                                            e
-                                        )));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    return;
-                }
-                if matches!(key, AppKey::Backspace) {
-                    if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
-                        s.handle_backspace();
-                    }
-                    return;
-                }
-                if let AppKey::Char(c) = key {
-                    if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
-                        s.handle_char(c);
-                    }
-                }
-            }
-            _ => {
-                // Browsing mode
-                if self.try_navigate_to_map_via_hint(&key) {
-                    return;
-                }
-                if self.is_navigate_up(&key) {
-                    if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
-                        s.navigate_up();
-                    }
-                    return;
-                }
-                if self.is_navigate_down(&key) {
-                    if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
-                        s.navigate_down();
-                    }
-                    return;
-                }
-                if self.is_select(&key) {
-                    if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
-                        s.toggle_current();
-                    }
-                    self.sync_section_into_editable_note(idx);
-                    return;
-                }
-                if self.is_add_entry(&key) {
-                    if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
-                        s.start_add_label();
-                    }
-                    return;
-                }
-                if self.is_confirm(&key) {
-                    let (has_selection, has_entries) = match &self.section_states[idx] {
-                        SectionState::ListSelect(s) => {
-                            (!s.selected_indices.is_empty(), !s.entries.is_empty())
-                        }
-                        _ => (false, false),
-                    };
-                    if has_selection {
-                        if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
-                            s.completed = true;
-                        }
-                        self.sync_section_into_editable_note(idx);
-                        self.advance_section();
-                    } else if has_entries {
-                        if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
-                            s.toggle_current();
-                        }
-                        self.sync_section_into_editable_note(idx);
-                    } else {
-                        if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
-                            s.skipped = true;
-                        }
-                        self.sync_section_into_editable_note(idx);
-                        self.advance_section();
-                    }
-                }
-            }
+        if self.try_navigate_to_map_via_hint(&key) {
+            return;
         }
-    }
-
-    fn handle_block_select_key(&mut self, key: AppKey) {
-        let idx = self.current_idx;
-        let in_items = match &self.section_states[idx] {
-            SectionState::BlockSelect(s) => s.in_items(),
-            _ => false,
-        };
-
-        if in_items {
-            if self.is_back(&key) {
-                if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
-                    s.exit_items();
-                }
-                return;
+        if self.is_navigate_up(&key) {
+            if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
+                s.navigate_up();
             }
-            if self.is_navigate_up(&key) {
-                if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
-                    s.navigate_up();
-                }
-                return;
+            return;
+        }
+        if self.is_navigate_down(&key) {
+            if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
+                s.navigate_down();
             }
-            if self.is_navigate_down(&key) {
-                if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
-                    s.navigate_down();
-                }
-                return;
+            return;
+        }
+        if self.is_select(&key) {
+            if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
+                s.toggle_current();
             }
-            if self.is_select(&key) {
-                if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
-                    s.toggle_item();
+            self.sync_section_into_editable_note(idx);
+            return;
+        }
+        if self.is_add_entry(&key) {
+            self.status = Some(StatusMsg::error(
+                "Custom list entry creation was removed in the typed hierarchy cutover.",
+            ));
+            return;
+        }
+        if self.is_confirm(&key) {
+            let (has_selection, has_entries) = match &self.section_states[idx] {
+                SectionState::ListSelect(s) => (!s.selected_indices.is_empty(), !s.entries.is_empty()),
+                _ => (false, false),
+            };
+            if has_selection {
+                if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
+                    s.completed = true;
                 }
                 self.sync_section_into_editable_note(idx);
-                return;
-            }
-            if self.is_confirm(&key) {
-                if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
-                    s.exit_items();
+                self.advance_section();
+            } else if has_entries {
+                if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
+                    s.toggle_current();
                 }
-            }
-        } else {
-            // Group list
-            if self.try_navigate_to_map_via_hint(&key) {
-                return;
-            }
-            if self.is_navigate_up(&key) {
-                if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
-                    s.navigate_up();
-                }
-                return;
-            }
-            if self.is_navigate_down(&key) {
-                if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
-                    s.navigate_down();
-                }
-                return;
-            }
-            if self.is_confirm(&key) || self.is_select(&key) {
-                // Enter group to select items
-                if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
-                    if !s.groups.is_empty() {
-                        s.enter_group();
-                    }
-                }
-                return;
-            }
-            if self.is_add_entry(&key) {
-                // Confirm all and advance
-                let has_any = match &self.section_states[idx] {
-                    SectionState::BlockSelect(s) => s.groups.iter().any(|r| r.has_selection()),
-                    _ => false,
-                };
-                if has_any {
-                    if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
-                        s.completed = true;
-                    }
-                    self.sync_section_into_editable_note(idx);
-                    self.advance_section();
-                } else {
-                    if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
-                        s.skipped = true;
-                    }
-                    self.sync_section_into_editable_note(idx);
-                    self.advance_section();
-                }
-                return;
-            }
-            if self.is_back(&key) {
-                // Confirm and advance if any selections
-                let has_any = match &self.section_states[idx] {
-                    SectionState::BlockSelect(s) => s.groups.iter().any(|r| r.has_selection()),
-                    _ => false,
-                };
-                if has_any {
-                    if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
-                        s.completed = true;
-                    }
-                } else {
-                    if let SectionState::BlockSelect(s) = &mut self.section_states[idx] {
-                        s.skipped = true;
-                    }
+                self.sync_section_into_editable_note(idx);
+            } else {
+                if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
+                    s.skipped = true;
                 }
                 self.sync_section_into_editable_note(idx);
                 self.advance_section();
@@ -1782,7 +1978,8 @@ impl App {
         }
         if self.is_select(&key) {
             if let SectionState::Collection(s) = &mut self.section_states[idx] {
-                s.toggle_current_collection();
+                let evicted = s.toggle_current_collection();
+                self.flash_evicted_collections(evicted);
             }
             self.sync_section_into_editable_note(idx);
             return;
@@ -1859,7 +2056,6 @@ impl App {
             Some(SectionState::Header(s)) => s.completed,
             Some(SectionState::FreeText(s)) => s.completed,
             Some(SectionState::ListSelect(s)) => s.completed,
-            Some(SectionState::BlockSelect(s)) => s.completed,
             Some(SectionState::Collection(s)) => s.completed,
             Some(SectionState::Checklist(s)) => s.completed,
             _ => false,
@@ -1870,7 +2066,6 @@ impl App {
         match self.section_states.get(idx) {
             Some(SectionState::FreeText(s)) => s.skipped,
             Some(SectionState::ListSelect(s)) => s.skipped,
-            Some(SectionState::BlockSelect(s)) => s.skipped,
             Some(SectionState::Collection(s)) => s.skipped,
             Some(SectionState::Checklist(s)) => s.skipped,
             _ => false,
@@ -1948,7 +2143,7 @@ impl App {
             let outputs: Vec<String> = list
                 .items
                 .iter()
-                .map(|item| item.output.clone().unwrap_or_else(|| item.label.clone()))
+                .map(|item| item.output().to_string())
                 .collect();
             (modal.field_flow.list_idx, popped, labels, outputs)
         };
@@ -1983,7 +2178,7 @@ impl App {
                 )
             };
             if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
-                s.set_preview_value(preview);
+                s.set_preview_value(HeaderFieldValue::Text(preview));
                 s.composite_spans = Some(spans);
             }
         }
@@ -1994,6 +2189,13 @@ fn compute_field_spans(
     modal: &crate::modal::SearchModal,
     sticky_values: &std::collections::HashMap<String, String>,
 ) -> Vec<(String, bool)> {
+    if modal.is_collection_mode() {
+        let preview = modal.collection_preview();
+        if preview.is_empty() {
+            return Vec::new();
+        }
+        return vec![(preview, true)];
+    }
     let flow = &modal.field_flow;
     let Some(format) = &flow.format else {
         return flow
@@ -2053,6 +2255,9 @@ fn compute_field_preview(
     modal: &crate::modal::SearchModal,
     sticky_values: &std::collections::HashMap<String, String>,
 ) -> String {
+    if modal.is_collection_mode() {
+        return modal.collection_preview();
+    }
     let flow = &modal.field_flow;
     let Some(format) = &flow.format else {
         return flow.values.join(", ");
@@ -2097,10 +2302,10 @@ fn fallback_list_value(
     if let Some(default) = &list.default {
         if let Some(item) = list.items.iter().find(|item| {
             item.id == *default
-                || item.label == *default
+                || item.ui_label() == *default
                 || item.output.as_deref() == Some(default.as_str())
         }) {
-            return Some(item.output.clone().unwrap_or_else(|| item.label.clone()));
+            return Some(item.output().to_string());
         }
     }
     None
@@ -2115,7 +2320,21 @@ fn find_line_containing(text: &str, needle: &str) -> Option<u16> {
         .map(|idx| idx as u16)
 }
 
-#[cfg(test)]
+fn modal_hint_window(cursor: usize, len: usize, hint_count: usize) -> std::ops::Range<usize> {
+    if len == 0 {
+        return 0..0;
+    }
+    let window_size = hint_count.max(1);
+    let start = if cursor >= window_size {
+        cursor + 1 - window_size
+    } else {
+        0
+    };
+    let end = (start + window_size).min(len);
+    start..end
+}
+
+#[cfg(all(test, any()))]
 mod tests {
     use super::*;
 
@@ -2222,7 +2441,8 @@ mod tests {
                 options: vec![],
                 composite: None,
                 default: Some("hello".to_string()),
-                repeat_limit: None,
+                max_entries: None,
+                max_actives: None,
             },
             HeaderFieldConfig {
                 id: "f2".to_string(),
@@ -2230,7 +2450,8 @@ mod tests {
                 options: vec![],
                 composite: None,
                 default: None,
-                repeat_limit: None,
+                max_entries: None,
+                max_actives: None,
             },
         ];
         let section = SectionConfig {
@@ -2294,7 +2515,8 @@ mod tests {
             options: vec![],
             composite: None,
             default: None,
-            repeat_limit: None,
+            max_entries: None,
+            max_actives: None,
         }];
         let section = SectionConfig {
             id: "s1".to_string(),

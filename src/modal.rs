@@ -1,10 +1,13 @@
-use crate::data::{HeaderFieldConfig, HierarchyList, ModalStart, RepeatJoinStyle};
+use crate::data::{
+    HeaderFieldConfig, HierarchyList, JoinerStyle, ModalStart, ResolvedCollectionConfig,
+};
+use crate::sections::collection::CollectionState;
+use crate::sections::header::{CollectionFieldValue, CollectionSelection, HeaderFieldValue};
 use std::collections::HashMap;
 
 pub const MODAL_HEIGHT_RATIO: f32 = 0.8;
 const MODAL_CHROME_HEIGHT: f32 = 80.0;
 const MODAL_ROW_HEIGHT: f32 = 28.0;
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModalFocus {
     SearchBar,
@@ -36,6 +39,7 @@ pub struct SearchModal {
     pub field_idx: usize,
     #[allow(dead_code)]
     pub field_id: String,
+    pub field_name: String,
     pub query: String,
     pub all_entries: Vec<String>,
     pub all_outputs: Vec<String>,
@@ -45,13 +49,15 @@ pub struct SearchModal {
     pub sticky_cursor: usize,
     pub focus: ModalFocus,
     pub field_flow: FieldModal,
+    pub collection_state: Option<CollectionState>,
+    pub collection_format: Option<String>,
     pub branch_stack: Vec<BranchFrame>,
     pub window_size: usize,
 }
 
 pub enum FieldAdvance {
     NextList,
-    Complete(String),
+    Complete(HeaderFieldValue),
     StayOnList,
 }
 
@@ -59,9 +65,13 @@ impl SearchModal {
     pub fn new_field(
         field_idx: usize,
         field: HeaderFieldConfig,
+        current_value: Option<&HeaderFieldValue>,
         sticky_values: &HashMap<String, String>,
         window_size: usize,
     ) -> Self {
+        if !field.collections.is_empty() && field.lists.is_empty() {
+            return Self::new_collection_field(field_idx, field, current_value, window_size);
+        }
         let first_list = &field.lists[0];
         let outputs: Vec<String> = first_list.items.iter().map(item_output).collect();
         let list_cursor = list_initial_cursor(first_list, &outputs, sticky_values);
@@ -71,6 +81,7 @@ impl SearchModal {
         let mut modal = Self {
             field_idx,
             field_id: field.id,
+            field_name: field.name,
             query: String::new(),
             all_entries: labels,
             all_outputs: outputs,
@@ -87,6 +98,8 @@ impl SearchModal {
                 values: Vec::new(),
                 repeat_values: Vec::new(),
             },
+            collection_state: None,
+            collection_format: None,
             branch_stack: Vec::new(),
             window_size,
         };
@@ -94,12 +107,69 @@ impl SearchModal {
         modal
     }
 
+    fn new_collection_field(
+        field_idx: usize,
+        field: HeaderFieldConfig,
+        current_value: Option<&HeaderFieldValue>,
+        window_size: usize,
+    ) -> Self {
+        let labels = collection_labels(&field.collections);
+        let n = labels.len();
+        let use_default_activation = !matches!(current_value, Some(HeaderFieldValue::ExplicitEmpty));
+        let mut collection_state =
+            CollectionState::new_with_limits(field.collections, use_default_activation, field.max_actives);
+        if let Some(HeaderFieldValue::CollectionState(value)) = current_value {
+            restore_collection_state(&mut collection_state, value);
+        }
+        Self {
+            field_idx,
+            field_id: field.id,
+            field_name: field.name,
+            query: String::new(),
+            all_entries: labels,
+            all_outputs: Vec::new(),
+            filtered: (0..n).collect(),
+            list_cursor: 0,
+            list_scroll: 0,
+            sticky_cursor: 0,
+            focus: ModalFocus::List,
+            field_flow: FieldModal {
+                format: field.format.clone(),
+                format_lists: field.format_lists,
+                lists: field.lists,
+                list_idx: 0,
+                values: Vec::new(),
+                repeat_values: Vec::new(),
+            },
+            collection_state: Some(collection_state),
+            collection_format: field.format,
+            branch_stack: Vec::new(),
+            window_size,
+        }
+    }
+
+    pub fn is_collection_mode(&self) -> bool {
+        self.collection_state.is_some()
+    }
+
     pub fn current_part_label(&self, sticky_values: &HashMap<String, String>) -> Option<String> {
+        if let Some(state) = &self.collection_state {
+            return Some(collection_part_label(self, state));
+        }
         self.field_flow
             .lists
             .get(self.field_flow.list_idx)
             .and_then(|list| list.label.as_deref())
             .map(|label| resolve_display_template(label, &self.field_flow, sticky_values))
+    }
+
+    pub fn preview_collection(&self) -> Option<&crate::sections::collection::CollectionEntry> {
+        let state = self.collection_state.as_ref()?;
+        let idx = match state.focus {
+            crate::sections::collection::CollectionFocus::Collections => state.collection_cursor,
+            crate::sections::collection::CollectionFocus::Items(collection_idx) => collection_idx,
+        };
+        state.collections.get(idx)
     }
 
     #[allow(dead_code)]
@@ -146,6 +216,9 @@ impl SearchModal {
     }
 
     pub fn selected_value(&self) -> Option<&str> {
+        if self.collection_state.is_some() {
+            return None;
+        }
         self.filtered
             .get(self.list_cursor)
             .and_then(|&i| self.all_outputs.get(i))
@@ -160,7 +233,7 @@ impl SearchModal {
             .lists
             .get(self.field_flow.list_idx)
             .is_some_and(|list| {
-                list.repeating.is_some()
+                effective_joiner_style(list).is_some()
                     && matches!(&list.modal_start, ModalStart::Search)
                     && !self.field_flow.repeat_values.is_empty()
                     && self.focus == ModalFocus::SearchBar
@@ -168,6 +241,9 @@ impl SearchModal {
     }
 
     pub fn hint_value(&self, hint_pos: usize) -> Option<&str> {
+        if self.collection_state.is_some() {
+            return None;
+        }
         self.filtered
             .get(self.list_scroll + hint_pos)
             .and_then(|&i| self.all_outputs.get(i))
@@ -179,6 +255,9 @@ impl SearchModal {
         sticky_values: &HashMap<String, String>,
         window_size: usize,
     ) -> bool {
+        if self.collection_state.is_some() {
+            return false;
+        }
         let Some(frame) = self.branch_stack.pop() else {
             return false;
         };
@@ -193,11 +272,14 @@ impl SearchModal {
         sticky_values: &mut HashMap<String, String>,
         window_size: usize,
     ) -> FieldAdvance {
+        if self.collection_state.is_some() {
+            return FieldAdvance::Complete(self.collection_value());
+        }
         let list = &self.field_flow.lists[self.field_flow.list_idx];
         if let Some((output_format, branch_fields)) = branch_for_value(list, &value) {
             return self.start_branch(output_format, branch_fields, sticky_values, window_size);
         }
-        if list.repeating.is_some() {
+        if effective_joiner_style(list).is_some() {
             if value.trim().is_empty() {
                 return self
                     .finish_repeating_current_list(Some(value), sticky_values, window_size)
@@ -207,6 +289,14 @@ impl SearchModal {
                 sticky_values.insert(list.id.clone(), value.clone());
             }
             self.field_flow.repeat_values.push(value);
+            if list
+                .max_entries
+                .is_some_and(|limit| self.field_flow.repeat_values.len() >= limit)
+            {
+                return self
+                    .finish_repeating_current_list(None, sticky_values, window_size)
+                    .unwrap_or(FieldAdvance::StayOnList);
+            }
             self.all_entries = resolved_item_labels_for_list(
                 list,
                 &self.field_flow.values,
@@ -228,6 +318,9 @@ impl SearchModal {
         sticky_values: &mut HashMap<String, String>,
         window_size: usize,
     ) -> FieldAdvance {
+        if self.collection_state.is_some() {
+            return FieldAdvance::Complete(self.collection_value());
+        }
         let selected = self.selected_value().map(str::to_string);
         if let Some(advance) =
             self.finish_repeating_current_list(selected, sticky_values, window_size)
@@ -274,7 +367,7 @@ impl SearchModal {
         let Some(list) = self.field_flow.lists.get(self.field_flow.list_idx) else {
             return None;
         };
-        let Some(style) = &list.repeating else {
+        let Some(style) = effective_joiner_style(list) else {
             return None;
         };
         let mut values = self.field_flow.repeat_values.clone();
@@ -303,14 +396,17 @@ impl SearchModal {
         window_size: usize,
     ) -> FieldAdvance {
         let list = &self.field_flow.lists[self.field_flow.list_idx];
-        if list.sticky && list.repeating.is_none() {
+        if list.sticky && effective_joiner_style(list).is_none() {
             sticky_values.insert(list.id.clone(), value.clone());
         }
         self.field_flow.values.push(value);
         self.field_flow.list_idx += 1;
 
         if self.field_flow.list_idx >= self.field_flow.lists.len() {
-            return FieldAdvance::Complete(format_field_value(&self.field_flow, sticky_values));
+            return FieldAdvance::Complete(HeaderFieldValue::Text(format_field_value(
+                &self.field_flow,
+                sticky_values,
+            )));
         }
 
         let next_list = &self.field_flow.lists[self.field_flow.list_idx];
@@ -387,6 +483,35 @@ impl SearchModal {
         sticky_values: &HashMap<String, String>,
         window_size: usize,
     ) {
+        if !field.collections.is_empty() && field.lists.is_empty() {
+            let labels = collection_labels(&field.collections);
+            let n = labels.len();
+            self.field_id = field.id;
+            self.query = String::new();
+            self.all_entries = labels;
+            self.all_outputs = Vec::new();
+            self.filtered = (0..n).collect();
+            self.list_cursor = 0;
+            self.list_scroll = 0;
+            self.sticky_cursor = 0;
+            self.focus = ModalFocus::List;
+            self.field_flow = FieldModal {
+                format: field.format.clone(),
+                format_lists: field.format_lists,
+                lists: field.lists,
+                list_idx: 0,
+                values: Vec::new(),
+                repeat_values: Vec::new(),
+            };
+            self.collection_state = Some(CollectionState::new_with_limits(
+                field.collections,
+                true,
+                field.max_actives,
+            ));
+            self.collection_format = field.format;
+            self.window_size = window_size;
+            return;
+        }
         let Some(first_list) = field.lists.first() else {
             return;
         };
@@ -412,6 +537,8 @@ impl SearchModal {
             values: Vec::new(),
             repeat_values: Vec::new(),
         };
+        self.collection_state = None;
+        self.collection_format = None;
         self.window_size = window_size;
         self.update_filter();
     }
@@ -426,7 +553,11 @@ impl SearchModal {
             if self.branch_stack.is_empty() {
                 return FieldAdvance::Complete(value);
             }
-            advance = self.complete_branch_field(value, sticky_values, window_size);
+            advance = self.complete_branch_field(
+                value.as_text().unwrap_or_default().to_string(),
+                sticky_values,
+                window_size,
+            );
         }
         advance
     }
@@ -438,7 +569,7 @@ impl SearchModal {
         window_size: usize,
     ) -> FieldAdvance {
         let Some(frame) = self.branch_stack.last_mut() else {
-            return FieldAdvance::Complete(value);
+            return FieldAdvance::Complete(HeaderFieldValue::Text(value));
         };
         let field_id = frame
             .branch_fields
@@ -459,6 +590,93 @@ impl SearchModal {
         self.field_flow = frame.parent_flow;
         self.advance_field(branch_value, sticky_values, window_size)
     }
+
+    pub fn collection_navigate_up(&mut self) {
+        if let Some(state) = self.collection_state.as_mut() {
+            state.navigate_up();
+        }
+    }
+
+    pub fn collection_navigate_down(&mut self) {
+        if let Some(state) = self.collection_state.as_mut() {
+            state.navigate_down();
+        }
+    }
+
+    pub fn collection_toggle_current(&mut self) -> Vec<String> {
+        if let Some(state) = self.collection_state.as_mut() {
+            if state.in_items() {
+                state.toggle_current_item();
+                return Vec::new();
+            } else {
+                return state.toggle_current_collection();
+            }
+        }
+        Vec::new()
+    }
+
+    pub fn collection_enter(&mut self) {
+        if let Some(state) = self.collection_state.as_mut() {
+            if !state.in_items() {
+                state.enter_collection();
+            }
+        }
+    }
+
+    pub fn collection_back(&mut self) -> bool {
+        if let Some(state) = self.collection_state.as_mut() {
+            if state.in_items() {
+                state.exit_items();
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn collection_preview(&self) -> String {
+        self.collection_display_value()
+    }
+
+    fn collection_display_value(&self) -> String {
+        let Some(state) = &self.collection_state else {
+            return String::new();
+        };
+        if let Some(format) = &self.collection_format {
+            let groups = collection_group_values(&state.collections, true);
+            let mut result = format.clone();
+            let mut replaced_any = false;
+            for (id, value) in &groups {
+                let placeholder = format!("{{{id}}}");
+                if result.contains(&placeholder) {
+                    result = result.replace(&placeholder, value);
+                    replaced_any = true;
+                }
+            }
+            if replaced_any {
+                return result;
+            }
+            return groups
+                .into_iter()
+                .map(|(_, value)| value)
+                .collect::<Vec<_>>()
+                .join("; ");
+        }
+        format_collection_field_value(&state.collections, false)
+    }
+
+    pub fn preview_field_value(&self, sticky_values: &HashMap<String, String>) -> HeaderFieldValue {
+        if self.collection_state.is_some() {
+            return self.collection_value();
+        }
+        HeaderFieldValue::text(compute_preview_text(self, sticky_values))
+    }
+
+    fn collection_value(&self) -> HeaderFieldValue {
+        let Some(state) = &self.collection_state else {
+            return HeaderFieldValue::ExplicitEmpty;
+        };
+        HeaderFieldValue::CollectionState(collection_field_value_from_state(state))
+    }
 }
 
 fn branch_for_value(list: &HierarchyList, value: &str) -> Option<(String, Vec<HeaderFieldConfig>)> {
@@ -467,7 +685,7 @@ fn branch_for_value(list: &HierarchyList, value: &str) -> Option<(String, Vec<He
         .find(|item| item_output(item) == value && !item.branch_fields.is_empty())
         .map(|item| {
             (
-                item.output.clone().unwrap_or_else(|| item.label.clone()),
+                item.output().to_string(),
                 item.branch_fields.clone(),
             )
         })
@@ -505,7 +723,7 @@ pub fn resolved_item_labels_for_list(
     };
     list.items
         .iter()
-        .map(|item| resolve_display_template(&item.label, &flow, sticky_values))
+        .map(|item| resolve_display_template(item.ui_label(), &flow, sticky_values))
         .collect()
 }
 
@@ -613,7 +831,7 @@ fn list_initial_cursor(
     if let Some(default) = &list.default {
         if let Some(pos) = list.items.iter().position(|item| {
             item.id == *default
-                || item.label == *default
+                || item.ui_label() == *default
                 || item.output.as_deref() == Some(default.as_str())
         }) {
             return pos;
@@ -636,38 +854,257 @@ fn fallback_list_value(
     if let Some(default) = &list.default {
         if let Some(item) = list.items.iter().find(|item| {
             item.id == *default
-                || item.label == *default
+                || item.ui_label() == *default
                 || item.output.as_deref() == Some(default.as_str())
         }) {
-            return Some(item.output.clone().unwrap_or_else(|| item.label.clone()));
+            return Some(item.output().to_string());
         }
     }
     None
 }
 
-pub fn joined_repeating_value(list: &HierarchyList, values: &[String]) -> Option<String> {
-    list.repeating
-        .as_ref()
-        .map(|style| join_repeat_values(values, style))
+fn collection_labels(collections: &[ResolvedCollectionConfig]) -> Vec<String> {
+    collections
+        .iter()
+        .map(|collection| collection.label.clone())
+        .collect()
 }
 
-fn join_repeat_values(values: &[String], style: &RepeatJoinStyle) -> String {
+fn collection_part_label(modal: &SearchModal, _state: &CollectionState) -> String {
+    modal.field_name.clone()
+}
+
+pub fn authored_collection_preview(
+    collection: &crate::sections::collection::CollectionEntry,
+) -> (String, Vec<String>) {
+    let title = collection
+        .list_labels
+        .first()
+        .cloned()
+        .unwrap_or_else(|| collection.label.clone());
+    let lines = collection
+        .items
+        .iter()
+        .zip(collection.item_enabled.iter())
+        .map(|(item, enabled)| {
+            let marker = if *enabled { "[x]" } else { "[ ]" };
+            format!("{marker} {}", item.ui_label())
+        })
+        .collect();
+    (title, lines)
+}
+
+pub fn decode_collection_display_value(
+    value: &CollectionFieldValue,
+    cfg: &HeaderFieldConfig,
+) -> Option<String> {
+    let mut state = CollectionState::new_with_limits(cfg.collections.clone(), false, cfg.max_actives);
+    if restore_collection_state(&mut state, value) {
+        Some(format_collection_field_value(&state.collections, cfg.format.is_some()))
+    } else {
+        None
+    }
+}
+
+pub fn active_collection_ids(value: &CollectionFieldValue) -> Vec<String> {
+    value
+        .collections
+        .iter()
+        .filter_map(|collection| collection.active.then_some(collection.id.clone()))
+        .collect()
+}
+
+fn collection_field_value_from_state(state: &CollectionState) -> CollectionFieldValue {
+    CollectionFieldValue {
+        collections: state
+            .collections
+            .iter()
+            .map(|collection| CollectionSelection {
+                id: collection.id.clone(),
+                active: collection.active,
+                enabled_item_ids: collection
+                    .items
+                    .iter()
+                    .zip(collection.item_enabled.iter())
+                    .filter_map(|(item, enabled)| enabled.then_some(item.id.clone()))
+                    .collect(),
+                })
+            .collect(),
+        activation_order: state
+            .activation_order
+            .iter()
+            .filter_map(|&idx| state.collections.get(idx))
+            .map(|collection| collection.id.clone())
+            .collect(),
+    }
+}
+
+fn restore_collection_state(state: &mut CollectionState, value: &CollectionFieldValue) -> bool {
+    state.activation_order.clear();
+    for saved in &value.collections {
+        let Some(collection) = state
+            .collections
+            .iter_mut()
+            .find(|collection| collection.id == saved.id)
+        else {
+            continue;
+        };
+        collection.active = saved.active;
+        collection.initialized = collection.active || !saved.enabled_item_ids.is_empty();
+        for (item, enabled) in collection.items.iter().zip(collection.item_enabled.iter_mut()) {
+            *enabled = saved
+                .enabled_item_ids
+                .iter()
+                .any(|selected| selected == &item.id);
+        }
+    }
+    for id in &value.activation_order {
+        if let Some(idx) = state
+            .collections
+            .iter()
+            .position(|collection| collection.id == *id && collection.active)
+        {
+            state.activation_order.push(idx);
+        }
+    }
+    for (idx, collection) in state.collections.iter().enumerate() {
+        if collection.active && !state.activation_order.contains(&idx) {
+            state.activation_order.push(idx);
+        }
+    }
+    if let Some(limit) = state.max_actives.filter(|limit| *limit > 0) {
+        while state.activation_order.len() > limit {
+            let evicted = state.activation_order.remove(0);
+            if let Some(collection) = state.collections.get_mut(evicted) {
+                collection.reset();
+            }
+        }
+    }
+    true
+}
+
+fn compute_preview_text(modal: &SearchModal, sticky_values: &HashMap<String, String>) -> String {
+    let flow = &modal.field_flow;
+    let Some(format) = &flow.format else {
+        return flow.values.join(", ");
+    };
+    let mut result = format.clone();
+    for (i, val) in flow.values.iter().enumerate() {
+        let placeholder = format!("{{{}}}", flow.lists[i].id);
+        result = result.replace(&placeholder, val);
+    }
+    for (i, list) in flow.lists.iter().enumerate().skip(flow.list_idx) {
+        let placeholder = format!("{{{}}}", list.id);
+        let value = if i == flow.list_idx && !flow.repeat_values.is_empty() {
+            joined_repeating_value(list, &flow.repeat_values)
+                .unwrap_or_else(|| flow.repeat_values.join(", "))
+        } else {
+            fallback_list_value(list, sticky_values)
+                .unwrap_or_else(|| list.preview.as_deref().unwrap_or("?").to_string())
+        };
+        result = result.replace(&placeholder, &value);
+    }
+    for list in &flow.format_lists {
+        let placeholder = format!("{{{}}}", list.id);
+        if result.contains(&placeholder) {
+            let value = fallback_list_value(list, sticky_values).unwrap_or_default();
+            result = result.replace(&placeholder, &value);
+        }
+    }
+    result
+}
+
+pub fn format_collection_field_value(
+    collections: &[crate::sections::collection::CollectionEntry],
+    inline: bool,
+) -> String {
+    let groups = collection_group_values(collections, inline)
+        .into_iter()
+        .map(|(_, value)| value)
+        .collect::<Vec<_>>();
+    if inline {
+        groups.join("; ")
+    } else {
+        groups.join("\n\n")
+    }
+}
+
+fn collection_group_values(
+    collections: &[crate::sections::collection::CollectionEntry],
+    inline: bool,
+) -> Vec<(String, String)> {
+    let mut groups = Vec::new();
+    for collection in collections {
+        if !collection.active {
+            continue;
+        }
+        let values = collection
+            .items
+            .iter()
+            .zip(collection.item_enabled.iter())
+            .filter_map(|(item, enabled)| enabled.then_some(item.output().to_string()))
+            .filter(|value| !value.trim().is_empty())
+            .collect::<Vec<_>>();
+        if values.is_empty() {
+            continue;
+        }
+
+        let joined = collection
+            .joiner_style
+            .as_ref()
+            .map(|style| join_repeat_values(&values, style))
+            .unwrap_or_else(|| {
+                if inline {
+                    values.join(", ")
+                } else {
+                    values.join("\n")
+                }
+            });
+
+        let rendered = if inline {
+            format!("{}: {}", collection.label, joined)
+        } else {
+            let heading = collection
+                .note_label
+                .clone()
+                .unwrap_or_else(|| format!("##### {}", collection.label));
+            format!("{heading}\n{joined}")
+        };
+        groups.push((collection.id.clone(), rendered));
+    }
+    groups
+}
+
+pub fn joined_repeating_value(list: &HierarchyList, values: &[String]) -> Option<String> {
+    effective_joiner_style(list).map(|style| join_repeat_values(values, style))
+}
+
+fn join_repeat_values(values: &[String], style: &JoinerStyle) -> String {
     let values = dedupe_values(values);
     match style {
-        RepeatJoinStyle::CommaAnd => join_with_final(&values, ", ", " and ", ", and "),
-        RepeatJoinStyle::CommaAndThe => {
+        JoinerStyle::CommaAnd => join_with_final(&values, ", ", " and ", ", and "),
+        JoinerStyle::CommaAndThe => {
             let values = values
                 .iter()
                 .map(|value| format!("the {value}"))
                 .collect::<Vec<_>>();
             join_with_final(&values, ", ", " and ", ", and ")
         }
-        RepeatJoinStyle::CommaOr => join_with_final(&values, ", ", " or ", ", or "),
-        RepeatJoinStyle::Comma => values.join(", "),
-        RepeatJoinStyle::Semicolon => values.join("; "),
-        RepeatJoinStyle::Slash => values.join("/"),
-        RepeatJoinStyle::Newline => values.join("\n"),
+        JoinerStyle::CommaOr => join_with_final(&values, ", ", " or ", ", or "),
+        JoinerStyle::Comma => values.join(", "),
+        JoinerStyle::Semicolon => values.join("; "),
+        JoinerStyle::Slash => values.join("/"),
+        JoinerStyle::Newline => values.join("\n"),
     }
+}
+
+fn effective_joiner_style(list: &HierarchyList) -> Option<&JoinerStyle> {
+    static DEFAULT_REPEAT_LIMIT_JOINER: JoinerStyle = JoinerStyle::CommaAnd;
+    list.joiner_style.as_ref().or(if list.max_entries.is_some() {
+        Some(&DEFAULT_REPEAT_LIMIT_JOINER)
+    } else {
+        None
+    })
 }
 
 fn dedupe_values(values: &[String]) -> Vec<String> {
@@ -697,7 +1134,7 @@ fn join_with_final(values: &[String], separator: &str, two: &str, final_separato
 }
 
 fn item_output(item: &crate::data::HierarchyItem) -> String {
-    item.output.clone().unwrap_or_else(|| item.label.clone())
+    item.output().to_string()
 }
 
 fn modal_query_matches(label: &str, query: &str) -> bool {
@@ -778,7 +1215,7 @@ mod modal_filter_tests {
     }
 
     fn test_field(
-        repeating: Option<RepeatJoinStyle>,
+        joiner_style: Option<JoinerStyle>,
         modal_start: ModalStart,
     ) -> HeaderFieldConfig {
         HeaderFieldConfig {
@@ -792,20 +1229,21 @@ mod modal_filter_tests {
                 sticky: false,
                 default: None,
                 modal_start,
-                repeating,
+                joiner_style,
+                max_entries: None,
                 items: vec![HierarchyItem {
                     id: "one".to_string(),
-                    label: "One".to_string(),
-                    default: None,
-                    default_enabled: None,
+                    label: Some("One".to_string()),
+                    default_enabled: true,
                     output: None,
-                    note: None,
                     fields: None,
                     branch_fields: Vec::new(),
                 }],
             }],
+            collections: Vec::new(),
             format_lists: Vec::new(),
-            repeat_limit: None,
+            max_entries: None,
+            max_actives: None,
         }
     }
 
@@ -813,7 +1251,8 @@ mod modal_filter_tests {
     fn empty_search_enter_does_not_finish_first_repeating_search_start_item() {
         let modal = SearchModal::new_field(
             0,
-            test_field(Some(RepeatJoinStyle::Comma), ModalStart::Search),
+            test_field(Some(JoinerStyle::Comma), ModalStart::Search),
+            None,
             &HashMap::new(),
             5,
         );
@@ -825,7 +1264,8 @@ mod modal_filter_tests {
     fn empty_search_enter_finishes_repeating_search_start_list_after_one_item() {
         let mut modal = SearchModal::new_field(
             0,
-            test_field(Some(RepeatJoinStyle::Comma), ModalStart::Search),
+            test_field(Some(JoinerStyle::Comma), ModalStart::Search),
+            None,
             &HashMap::new(),
             5,
         );
@@ -837,7 +1277,7 @@ mod modal_filter_tests {
     #[test]
     fn empty_search_enter_does_not_finish_non_repeating_search_start_list() {
         let modal =
-            SearchModal::new_field(0, test_field(None, ModalStart::Search), &HashMap::new(), 5);
+            SearchModal::new_field(0, test_field(None, ModalStart::Search), None, &HashMap::new(), 5);
 
         assert!(!modal.should_finish_repeating_from_empty_search());
     }
@@ -846,7 +1286,8 @@ mod modal_filter_tests {
     fn non_empty_search_enter_does_not_finish_repeating_search_start_list() {
         let mut modal = SearchModal::new_field(
             0,
-            test_field(Some(RepeatJoinStyle::Comma), ModalStart::Search),
+            test_field(Some(JoinerStyle::Comma), ModalStart::Search),
+            None,
             &HashMap::new(),
             5,
         );
@@ -854,6 +1295,24 @@ mod modal_filter_tests {
         modal.update_filter();
 
         assert!(!modal.should_finish_repeating_from_empty_search());
+    }
+
+    #[test]
+    fn repeating_list_max_entries_auto_finishes_after_cap() {
+        let mut field = test_field(Some(JoinerStyle::Comma), ModalStart::List);
+        field.lists[0].max_entries = Some(2);
+        let mut sticky_values = HashMap::new();
+        let mut modal = SearchModal::new_field(0, field, None, &sticky_values, 5);
+
+        let advance = modal.advance_field("One".to_string(), &mut sticky_values, 5);
+        assert!(matches!(advance, FieldAdvance::StayOnList));
+        assert_eq!(modal.field_flow.repeat_values, vec!["One".to_string()]);
+
+        let advance = modal.advance_field("One".to_string(), &mut sticky_values, 5);
+        assert!(matches!(
+            advance,
+            FieldAdvance::Complete(HeaderFieldValue::Text(value)) if value == "One"
+        ));
     }
 }
 
@@ -871,7 +1330,7 @@ mod repeat_join_tests {
                     "head".to_string(),
                     "shoulders".to_string()
                 ],
-                &RepeatJoinStyle::CommaAndThe,
+                &JoinerStyle::CommaAndThe,
             ),
             "the head, the neck, and the shoulders"
         );
@@ -887,7 +1346,7 @@ mod repeat_join_tests {
                     "Y".to_string(),
                     " ".to_string()
                 ],
-                &RepeatJoinStyle::CommaAndThe,
+                &JoinerStyle::CommaAndThe,
             ),
             "the X and the Y"
         );
@@ -898,7 +1357,7 @@ mod repeat_join_tests {
         assert_eq!(
             join_repeat_values(
                 &["A".to_string(), "B".to_string(), "C".to_string()],
-                &RepeatJoinStyle::Semicolon,
+                &JoinerStyle::Semicolon,
             ),
             "A; B; C"
         );
@@ -913,11 +1372,9 @@ mod branch_field_tests {
     fn item(id: &str, label: &str, output: Option<&str>) -> HierarchyItem {
         HierarchyItem {
             id: id.to_string(),
-            label: label.to_string(),
-            default: None,
-            default_enabled: None,
+            label: Some(label.to_string()),
+            default_enabled: true,
             output: output.map(str::to_string),
-            note: None,
             fields: None,
             branch_fields: Vec::new(),
         }
@@ -929,8 +1386,10 @@ mod branch_field_tests {
             name: id.to_string(),
             format: Some(format!("{{{}}}", list.id)),
             lists: vec![list],
+            collections: Vec::new(),
             format_lists: Vec::new(),
-            repeat_limit: None,
+            max_entries: None,
+            max_actives: None,
         }
     }
 
@@ -943,7 +1402,8 @@ mod branch_field_tests {
             sticky: false,
             default: None,
             modal_start: ModalStart::List,
-            repeating: None,
+            joiner_style: None,
+            max_entries: None,
             items: vec![item("t1", "T1-T12", None)],
         };
         let child_field = single_list_field("ests_mm_field", child_list);
@@ -960,12 +1420,13 @@ mod branch_field_tests {
             sticky: false,
             default: None,
             modal_start: ModalStart::Search,
-            repeating: Some(RepeatJoinStyle::Comma),
+            joiner_style: Some(JoinerStyle::Comma),
+            max_entries: None,
             items: vec![branch_item],
         };
         let parent_field = single_list_field("muscle_field", parent_list);
         let mut sticky_values = HashMap::new();
-        let mut modal = SearchModal::new_field(0, parent_field, &sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, parent_field, None, &sticky_values, 5);
 
         let advance = modal.advance_field("{ests_mm_field}".to_string(), &mut sticky_values, 5);
         assert!(matches!(advance, FieldAdvance::NextList));
@@ -976,5 +1437,125 @@ mod branch_field_tests {
         assert_eq!(modal.field_flow.list_idx, 0);
         assert_eq!(modal.field_flow.repeat_values, vec!["T1-T12".to_string()]);
         assert!(modal.branch_stack.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod collection_field_tests {
+    use super::*;
+    use crate::data::{HierarchyItem, HierarchyList, ModalStart, ResolvedCollectionConfig};
+
+    fn item(id: &str, label: &str, output: &str) -> HierarchyItem {
+        HierarchyItem {
+            id: id.to_string(),
+            label: Some(label.to_string()),
+            default_enabled: true,
+            output: Some(output.to_string()),
+            fields: None,
+            branch_fields: Vec::new(),
+        }
+    }
+
+    fn collection(id: &str, label: &str, joiner_style: Option<JoinerStyle>) -> ResolvedCollectionConfig {
+        ResolvedCollectionConfig {
+            id: id.to_string(),
+            label: label.to_string(),
+            note_label: Some(format!("##### {label}")),
+            default_enabled: false,
+            joiner_style,
+            lists: vec![HierarchyList {
+                id: format!("{id}_list"),
+                label: Some(label.to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![
+                    item("one", "One", "Upper traps"),
+                    item("two", "Two", "SCM"),
+                ],
+            }],
+        }
+    }
+
+    #[test]
+    fn collection_field_modal_starts_in_collection_mode() {
+        let field = HeaderFieldConfig {
+            id: "regions".to_string(),
+            name: "Regions".to_string(),
+            format: None,
+            lists: Vec::new(),
+            collections: vec![collection("neck", "Neck", Some(JoinerStyle::CommaAnd))],
+            format_lists: Vec::new(),
+            max_entries: None,
+            max_actives: None,
+        };
+
+        let modal = SearchModal::new_field(0, field, None, &HashMap::new(), 5);
+
+        assert!(modal.is_collection_mode());
+        assert_eq!(modal.all_entries, vec!["Neck".to_string()]);
+    }
+
+    #[test]
+    fn collection_field_value_formats_grouped_inline() {
+        let mut state = CollectionState::new(vec![collection(
+            "neck",
+            "Neck",
+            Some(JoinerStyle::CommaAnd),
+        )]);
+        state.toggle_current_collection();
+
+        let rendered = format_collection_field_value(&state.collections, true);
+
+        assert_eq!(rendered, "Neck: Upper traps and SCM");
+    }
+
+    #[test]
+    fn explicit_empty_collection_field_reopens_without_default_enabled_collections() {
+        let mut cfg = collection("neck", "Neck", Some(JoinerStyle::CommaAnd));
+        cfg.default_enabled = true;
+        let field = HeaderFieldConfig {
+            id: "regions".to_string(),
+            name: "Regions".to_string(),
+            format: None,
+            lists: Vec::new(),
+            collections: vec![cfg],
+            format_lists: Vec::new(),
+            max_entries: None,
+            max_actives: None,
+        };
+
+        let modal = SearchModal::new_field(
+            0,
+            field,
+            Some(&crate::sections::header::HeaderFieldValue::ExplicitEmpty),
+            &HashMap::new(),
+            5,
+        );
+
+        assert!(modal.is_collection_mode());
+        assert!(
+            !modal
+                .collection_state
+                .as_ref()
+                .is_some_and(|state| state.collections[0].active)
+        );
+    }
+
+    #[test]
+    fn authored_collection_preview_uses_default_markers() {
+        let mut cfg = collection("neck", "Neck", Some(JoinerStyle::CommaAnd));
+        cfg.default_enabled = true;
+        cfg.lists[0].items[0].default_enabled = false;
+        let state = CollectionState::new(vec![cfg]);
+
+        let (title, lines) = authored_collection_preview(&state.collections[0]);
+
+        assert_eq!(title, "Neck");
+        assert_eq!(lines[0], "[ ] One");
+        assert_eq!(lines[1], "[x] Two");
     }
 }
