@@ -1,96 +1,155 @@
 # Authoring reference:
-#  - Template: id, groups
-#      planned modern, not fully wired yet: label, nav_label, header, footer
-#  - Group: id, sections
-#      current app metadata: nav_label
-#      planned modern, not fully wired yet: label, header, footer
-#  - Section: id, fields
-#      modern optional: label, nav_label, header, footer
-#      current app metadata: section_type, is_intake, heading_search_text,
-#        heading_label, note_render_slot
-#      legacy/transitional: map_label, data_file, date_prefix
-#      collection how-to:
-#        - use section_type: collection for a top-level toggleable collection section
-#        - the section reads top-level lists from its data file
-#        - each list becomes one collection
-#        - collection label is the list label
-#        - collection items come from list items
-#  - Field: id, label, lists
-#      modern optional: format, repeat_limit
-#  - List: id, label, items
-#      modern optional: sticky, default, preview, repeating, modal_start
-#      collection-specific item option: default_enabled (defaults to true)
-#      repeating values: comma_and, comma_and_the, comma_or, comma, semicolon, slash, newline
-#      modal_start values: list, search
-#  - Item: output
-#      modern optional: id, label, fields
-#      modern optional for collections: default_enabled
-#      legacy/transitional: default, note
-#      fields may contain existing field IDs or inline field definitions:
-#        fields:
-#          - existing_field_id
-#          - id: inline_field_id
-#            label: "Inline Field"
-#            format: "{list_id} text {other_list_id}"
-#            lists:
-#              - list_id
-#              - other_list_id
-#            repeat_limit: 3
-#      When an item has fields, its output may include {field_id} placeholders
-#      that are filled from those branch field answers.
-#  - Labels may include {list_id} placeholders for modal display only.
-#      Resolution order: current field values, sticky values, default values.
+#  - Top-level blocks supported across data/*.yml:
+#    template, groups, sections, collections, fields, lists, boilerplate
+#  - IDs must be globally unique across groups/sections/collections/fields/lists.
+#  - Runtime shape is inferred from structure:
+#    - section with field refs -> multi-field section
+#    - section with no children -> free-text section
+#    - collection with list refs -> collection section
+#  - Contains rules:
+#    template.contains -> group refs only
+#    group.contains -> section refs or collection refs
+#    section.contains -> field refs or list refs
+#    collection.contains -> list refs only
+#  - Child ref shapes:
+#    - { group: some_group_id }
+#    - { section: some_section_id }
+#    - { collection: some_collection_id }
+#    - { field: some_field_id }
+#    - { list: some_list_id }
+#
+#  - template:
+#    id?
+#    contains[]
+#
+#  - group:
+#    id
+#    nav_label?             # map label; uppercased at runtime
+#    note_label?            # top-level note heading for the whole group
+#    boilerplate_refs[]?
+#    contains[]
+#
+#  - section:
+#    id
+#    label?
+#    nav_label?
+#    contains[]
+#    note?:
+#      note_label?          # rendered managed subsection heading (e.g. "#### SUBJECTIVE")
+#
+#  - collection:
+#    id
+#    label?
+#    nav_label?
+#    contains[]
+#    note?:
+#      note_label?          # rendered managed subsection heading
+#
+#  - field:
+#    id
+#    label
+#    format?                # e.g. "{year}-{month}-{day}"
+#    lists[]?               # list ids used by the field modal / value builder
+#    repeat_limit?          # max repeats before auto-advance
+#
+#  - list:
+#    id
+#    label?
+#    preview?               # short preview text in multi-field UI
+#    sticky?                # remember chosen output across notes
+#    default?               # item id selected by default
+#    modal_start?           # list | search
+#    repeating?             # comma_and | comma_and_the | comma_or | comma | semicolon | slash | newline
+#    items[]
+#
+#  - list item:
+#    string shorthand       # "My Label" -> id auto-slugged, output defaults to label
+#    or full object with:
+#      id?
+#      label?               # UI/search text; falls back to output
+#      output?              # note/export text; falls back to label
+#      default_enabled?     # collection items default true when omitted
+#      fields[]?            # optional referenced field ids for item-driven branching
+#      branch_fields[]?     # optional inline field objects for modal branching
+#
+#  - boilerplate:
+#    id
+#    text
+#
+#  - Label rules:
+#    id = stable runtime identity
+#    label = human-facing name
+#    nav_label = map/sidebar label
+#    note_label = group top-level note heading
+#    section.note.note_label = note subsection heading
+
 template:
   id: patient_standard_template
-  groups:
-    - intake_group
-    - subjective_group
-    - treatment_group
-    - objective_group
-
+  contains:
+    - group: intake_group
+    - group: subjective_group
+    - group: treatment_group
+    - group: objective_group
+  #  - group: post_group
 
 groups:
   - id: intake_group
-    nav_label: "INTAKE"
-    sections:
-      - appointment_section
-  - id: objective_group
-    nav_label: "OBJECTIVE"
-    sections:
-      - objective_section
+    nav_label: INTAKE
+    contains:
+      - section: appointment_section
+      
   - id: subjective_group
-    nav_label: "SUBJECTIVE"
-    sections:
-      - subjective_section
+    nav_label: SUBJECTIVE
+    note_label: "## SUBJECTIVE"
+    contains:
+      - section: subjective_section
+
   - id: treatment_group
-    nav_label: "TREATMENT"
-    sections:
-      - treatment_section
+    nav_label: TREATMENT
+    note_label: "## TREATMENT / PLAN"
+    contains:
+      - section: treatment_section
+     # - collection: back_all_prone_collection
+     # - collection: tx_regions
+     # - collection: tx_prone_back
+
+  - id: objective_group
+    nav_label: OBJECTIVE
+    note_label: "## OBJECTIVE / OBSERVATIONS"
+    contains:
+      - section: objective_section
 
 
 sections:
   - id: appointment_section
-    label: "Appointment"
-    nav_label: "APPNT"
-    section_type: multi_field
-    fields:
-      - date_field
-      - appointment_date_field
-      - appointment_requested_field
+    label: Appointment
+    nav_label: APPOINTMENT
+    contains:
+      - field: date_field
+      - field: appointment_date_field
+      - field: appointment_requested_field
 
+ 
 
-
+#  - collection:
+#    id
+#    label?
+#    nav_label?
+#    contains[]
+#    note?:
+#      note_label?  
 fields:
   - id: date_field
-    label: "Entry Date"
-    format: "" # Intentionally left blank, we'll see what happens.
+    label: "{year}-{month}-{day}"
+    format: ""
     lists:
       - day
       - month
       - year
+
   - id: appointment_date_field
-    label: "Appointment Date"
-    format: "{date_month_wor_list} {day}, {year} at {start_hour_list}:{start_minute_list}{am_pm_list} ({duration_list} min)"
+    label: Appointment Date
+    format: "# {date_month_wor_list} {day}, {year} at {start_hour_list}:{start_minute_list}{am_pm_list} ({duration_list} min)"
     lists:
       - duration_list
       - start_hour_list
@@ -98,8 +157,9 @@ fields:
       - am_pm_list
       - day
       - date_month_wor_list
+
   - id: appointment_requested_field
-    label: "Request"
+    label: Request
     format: "{year}-{month}-{day}: Pt requested a {appointment_type_list}{the_region}."
     lists:
       - appointment_type_list
@@ -213,7 +273,7 @@ lists:
       - { id: hour_8, label: "8:mm", output: "8" }
 
   - id: start_minute_list
-    label: "Start Time {start_hour_list}:## [XM / (x)]"
+    label: "Start Time {start_hour_list}:## [PM (x)]"
     preview: "mm"
     default: minute_00
     items:
@@ -272,7 +332,8 @@ lists:
     label: "region"
     default: empty_space
     modal_start: search
-    repeating: comma_and_the
+    joiner_style: comma_and_the
+    repeat_limit: 3
     items:
       - id: empty_space
         label: "1 (Empty Space)"
@@ -407,3 +468,4 @@ lists:
         output: "Foot (Sole)"
       - label: "Feet - Soles (Foot BB Bilateral)"
         output: "Feet (Soles)"
+

@@ -1,14 +1,45 @@
 sections:
   - id: treatment_section
-    label: "Treatment Regions"
-    nav_label: "TRTMT"
-    section_type: collection
-    note_render_slot: tx_regions
-    heading_label: "#### TREATMENT REGIONS"
+    label: "Treatment - Prone"
+    nav_label: "PRONE"
+    contains:
+      - field: prone_back_field
+      - field: prone_glutes_field
+      - field: prone_legs_field
+    note:
+      note_label: "" #"#### TREAMENT / PLAN"
 
-
-
-lists:
+---
+# BACK PRONE
+fields:                                          # BACK PRONE
+  - id: prone_back_field
+    label: "BACK"
+    max_actives: 1
+    contains:
+     # - list: year
+      - collection: back_all_prone_collection
+      - collection: back_upper_mid_prone_collection
+      - collection: back_lower_prone_collection
+collections:                                     # BACK PRONE
+  - id: back_all_prone_collection
+    label: "ALL - UPPER MIDDLE & LOW BACK"
+    nav_label: "BACKAPC"
+    default_enabled: true
+    contains:
+      - list: back_all_prone
+  - id: back_upper_mid_prone_collection
+    label: "UPPER, & MIDDLE BACK"
+    nav_label: "BACKUMPC"
+    default_enabled: false
+    contains:
+      - list: back_upper_mid_prone
+  - id: back_lower_prone_collection
+    label: "LOWER BACK"
+    nav_label: "BACKLPC"
+    default_enabled: false
+    contains:
+      - list: back_lower_prone
+lists:                                           # BACK PRONE
   - id: back_all_prone
     label: "UPPER, MIDDLE & LOWER BACK (Prone)"
     items:
@@ -58,6 +89,23 @@ lists:
         output: "- Fascial Techniques (L4-L5)"
         default_enabled: false
 
+---
+# GLUTES
+fields:                                          # GLUTES
+  - id: prone_glutes_field
+    label: "GLUTES"
+    contains:
+      - collection: prone_glutes_collection
+
+collections:                                     # GLUTES
+
+  - id: prone_glutes_collection
+    label: "GLUTES"
+    nav_label: "GLUTESPC"
+    default_enabled: false
+    contains:
+      - list: glutes_prone
+lists:                                           # GLUTES
   - id: glutes_prone
     label: "GLUTEAL MUSCLES / BUTTOCKS (Prone)"
     items:
@@ -77,6 +125,24 @@ lists:
         label: "Rocking & Rhythmic Techniques (SI Joint)"
         output: "- Rocking & Rhythmic Techniques (SI Jt)"
 
+---
+# POST_LEG
+fields:                                          # POST_LEG
+  - id: prone_legs_field
+    label: "POST_LEG"
+    contains:
+      - collection: prone_legs_collection
+
+collections:                                     # POST_LEG
+  - id: prone_legs_collection
+    label: "POST_LEG"
+    nav_label: "POST_LEGPC"
+    default_enabled: false
+    contains:
+      - list: post_legs_prone
+      - list: post_upper_legs_prone
+      - list: lower_legs_prone
+lists:                                           # POST_LEG
   - id: post_legs_prone
     label: "POSTERIOR LEGS & FEET (Prone)"
     items:
@@ -84,7 +150,7 @@ lists:
         label: "Broad Compressions"
         output: "- Broad Compressions"
       - id: ulnar_knead_ham
-        label: "Ulnar Kneading (Biceps Femoris, Semitendinosus)"
+        label: "Ulnar Kneading (Biceps Femris, Semitendinosus)"
         output: "- Ulnar Kneading\n- - Biceps Femoris\n- - Semitendinosus"
       - id: knuckle_knead
         label: "Knuckle Kneading"
@@ -118,6 +184,10 @@ lists:
       - id: fingertip_knead
         label: "Fingertip Kneading"
         output: "- Fingertip Kneading"
+
+---
+lists:
+
 
   - id: ant_legs_hips_supine
     label: "ANTERIOR LEGS & HIPS (Supine)"
@@ -277,3 +347,27 @@ lists:
       - id: broad_comp_skull
         label: "Broad Compressions (Parietal, Temporal bone)"
         output: "- Broad Compressions (Parietal bone, Temporal bone)"
+---
+collections:
+  - id: tx_regions
+    label: "Treatment Regions"
+    nav_label: "TRTMT"
+    contains:
+      - list: back_all_prone
+      - list: back_upper_mid_prone
+      - list: back_lower_prone
+      - list: glutes_prone
+      - list: post_legs_prone
+      - list: post_upper_legs_prone
+      - list: lower_legs_prone
+      - list: ant_legs_hips_supine
+      - list: ant_hips_upper_legs_supine
+      - list: lower_legs_supine
+      - list: abdomen_intercostals_supine
+      - list: abdomen_psoas_supine
+      - list: adductors_sidelying
+      - list: pecs_supine
+      - list: arms_supine
+      - list: hns_supine
+    note:
+      note_label: "#### TREATMENT REGIONS"
