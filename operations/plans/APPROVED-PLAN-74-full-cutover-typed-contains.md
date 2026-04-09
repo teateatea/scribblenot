@@ -4,7 +4,7 @@
 
 ## Status
 
-Draft implementation plan for review before code changes.
+User Approved
 
 This is intentionally a full cutover, not a compatibility layer. Old YAML shapes and transitional runtime assumptions should be removed rather than preserved.
 
@@ -328,7 +328,7 @@ The exact struct names may differ, but the end state must support:
 - authored ordering
 - typed parent/child relationships
 - first-class collections
-- section content that can own lists, fields, or embedded collections
+- section content that can own fields and lists
 
 ## Runtime State Model
 
@@ -426,20 +426,21 @@ Validation rules to add or update:
 
 - `template.contains` may only contain `group` refs
 - `group.contains` may only contain `section` or `collection` refs
-- `section.contains` may only contain `field`, `list`, or `collection` refs
+- `section.contains` may only contain `field` or `list` refs
 - `collection.contains` may only contain `list` refs
 - every typed ref must resolve by kind and `id`
 - duplicate `(kind, id)` pairs remain illegal
+- duplicate `id` values across structural and runtime-relevant kinds also remain illegal
 
-Decision:
+Locked decision:
 
-- keep same-ID-across-different-kinds support only if typed resolution remains fully unambiguous
-- if this increases ambiguity or debugging pain, this cutover is the right time to tighten uniqueness further
+- reject shared IDs across merged kinds during loader validation
+- fail loudly with the conflicting kinds and the duplicated `id`
 
-Recommendation:
+Reason:
 
-- keep typed uniqueness for now because explicit kind refs make it defensible
-- document that all references are type-qualified by the parent grammar
+- runtime state, navigation, node lookup, and document markers are all simpler and safer when `id` is globally unique
+- this cutover is not the right time to carry `(kind, id)` identity everywhere just to preserve same-name reuse
 
 ### Phase 2. Rebuild `load_hierarchy_dir()` around typed containment validation
 
@@ -457,6 +458,7 @@ Changes:
    with a generic typed-ref validator.
 3. Add parent-kind/child-kind grammar enforcement.
 4. Update cycle detection if containment becomes more general than before.
+5. Reject any shared `id` across merged structural/runtime kinds with a noisy error.
 
 Expected behavior:
 
@@ -487,10 +489,24 @@ Changes:
 3. Resolve all typed refs into concrete runtime children.
 4. Remove ambient `top_lists.clone()` population for `collection_data` and `block_select_data`.
 5. Resolve collection-owned lists only from the collection’s `contains`.
+6. Do not support embedded collections in this cutover:
+   - collections are authored directly under groups
+   - sections do not own collection children in the runtime tree
+   - any section -> collection containment should fail validation for now
+7. Add a node lookup that records, for every runtime node:
+   - node `id`
+   - node kind
+   - parent node `id` if any
+   - whether the node owns its own managed document block or renders inside its parent block
 
 Critical result:
 
 After this phase there should be no code path where a collection sees an unrelated list unless it names that list explicitly.
+
+Additional rule for this cutover:
+
+- collections are first-class runtime nodes only as direct group children
+- section-contained collections are explicitly out of scope until there is a real product use-case
 
 ### Phase 4. Decide how legacy section behaviors map into the new structure
 
@@ -567,6 +583,11 @@ sections:
 
 That avoids reusing `type` or `section_type` for two different meanings.
 
+Locked scope constraint:
+
+- remove user-added custom-entry persistence from this cutover rather than preserving it through the schema rewrite
+- `contains` defines membership and ordering only; this cutover does not define any write-back contract for mutable list sources
+
 ### Phase 5. Rebuild app state around runtime nodes instead of flat sections
 
 Files:
@@ -583,6 +604,9 @@ Changes:
    - state keyed by node ID
 3. Keep the wizard/map UX flat for now if needed, but derive it from the tree rather than from `SectionGroup.sections`.
 4. Make `group_idx_for_section()` and map hint logic work from navigation entries instead of the old group/section arrays.
+5. Define navigation behavior for collections explicitly:
+   - direct group-child collections appear in the same flat authored-order navigation slice as other runtime nodes
+   - they keep their own node identity and state
 
 Important constraint:
 
@@ -606,14 +630,16 @@ Changes:
    - reset support
 4. Key collection state by collection node ID.
 
-Optional cleanup:
+Locked decision:
 
-- review whether `block_select` should survive as a separate mode or collapse into the collection model
+- retire `block_select` in this cutover
+- migrate treatment regions fully to `collection`
+- remove the separate `block_select` runtime path, loader path, UI path, and tests rather than carrying both concepts forward
 
-Recommendation:
+Reason:
 
-- if `block_select` is just the older treatment-region model, retire it in this cutover and migrate that data/behavior fully into `collection`
-- do not keep two parallel concepts if one is clearly the successor
+- the current real data no longer needs two parallel nested-list interaction models
+- keeping both would undermine the stated goal of a full cutover
 
 ### Phase 7. Rebuild note rendering as structural traversal
 
@@ -632,6 +658,9 @@ Changes:
    - `render_managed_node_body(...)`
 3. Keep stable managed markers keyed by node `id`.
 4. Make visible headings derive from node metadata plus current note layout data.
+5. Define collection rendering explicitly:
+   - a collection authored directly under a group renders as its own managed node block
+   - section-contained collections are not supported in this cutover
 
 Important detail:
 
@@ -663,6 +692,10 @@ Changes:
 2. Continue using stable IDs for markers.
 3. Ensure visible headings come from the new data-backed layout metadata.
 4. Make targeted section/node sync operate on the new node identity map.
+5. Lock the ownership rule for managed content:
+   - every node that owns a managed block gets exactly one marker pair keyed by its own `id`
+   - for this cutover, collections that own managed blocks are direct group children
+   - section-contained collections are out of scope and should not be representable in valid data
 
 Recommendation:
 
@@ -695,7 +728,7 @@ Files:
 
 - [data/sections.yml](/C:/Users/solar/Documents/Claude%20Projects/scribblenot/data/sections.yml)
 - [data/treatment.yml](/C:/Users/solar/Documents/Claude%20Projects/scribblenot/data/treatment.yml)
-- any other `data/*.yml` files that still rely on older structural fields
+- note: `boilerplate.yml`, `objective_findings.yml`, `remedial.yml`, `infection_control.yml`, `objective.yml`, `subjective.yml` are flat list-source files with no structural keys and do not need migration
 
 Changes:
 
@@ -706,6 +739,8 @@ Changes:
 2. Remove the transitional comments that describe the current collection workaround.
 3. Encode current note/headings metadata in the new fields rather than in `note_render_slot`.
 4. Ensure `tx_regions` is defined as a real collection node.
+5. Remove custom-entry persistence assumptions from the migrated data contract.
+6. Rewrite the authoring reference comment block at the top of `sections.yml` to reflect the new schema.
 
 Recommended direction for current data:
 
@@ -713,6 +748,7 @@ Recommended direction for current data:
 - keep current group ordering
 - move treatment-region authored content fully under a `collections:` block
 - keep lists globally defined and reusable by ID
+- do not preserve mutable custom-entry write targets in this cutover
 
 ### Phase 10. Replace and expand tests
 
@@ -735,6 +771,9 @@ Add or update tests for:
 8. note rendering follows structural order
 9. editable document anchors still use stable IDs
 10. collection state uses only its owned lists
+11. section-contained collections are rejected by validation for this cutover
+12. no custom-entry persistence path remains
+13. no `block_select` runtime path remains
 
 Strongly recommended:
 
@@ -767,36 +806,46 @@ Reason:
 - it matches the agreed authoring ergonomics
 - this is the product-facing schema
 
-### 2. Whether embedded collections inside sections are supported immediately
+### 2. How collections are scoped in this cutover
 
-The user already approved:
+Locked decision:
 
-- allow both eventually
-- implement sibling-of-sections first
+- collections are supported only as direct children of groups in this cutover
+- sections cannot contain collections yet
 
-Recommendation:
+Reason:
 
-- keep grammar support in the loader now
-- only wire navigation/UI for top-level group children in the first implementation
-- make section-embedded collections load/render correctly if authored, even if the current map UI treats them as ordinary navigation nodes
+- this preserves the intended product direction without introducing a premature ownership model for nested managed content
+- the narrower rule materially reduces migration risk across navigation, note rendering, and document sync
 
 ### 3. Whether `block_select` survives
 
-Two options:
-
-1. keep `block_select` as a separate legacy runtime mode
-2. remove it and migrate treatment regions fully to `collection`
-
 Recommendation:
 
-- remove `block_select` if no other real data still needs a behavior collection cannot express
+- remove `block_select` in this cutover
 
 Reason:
 
 - two parallel nested-list interaction models will increase maintenance cost immediately
 - this cutover is the right moment to collapse onto one canonical model
 
-### 4. How note wrapper metadata is stored
+Implementation consequence:
+
+- delete the dedicated loader/runtime/UI/test branches for `block_select` instead of translating them forward under a new schema
+
+### 4. How custom-list persistence is handled after the schema cutover
+
+Locked decision:
+
+- remove custom-entry persistence from this cutover
+
+Reason:
+
+- it is not a stabilized product requirement yet
+- preserving a mutable write-path through a structural rewrite would add complexity without enough value
+- a future persistence design can be introduced deliberately once the typed hierarchy architecture settles
+
+### 5. How note wrapper metadata is stored
 
 Two options:
 
@@ -857,7 +906,18 @@ Mitigation:
 
 - assert in code review and tests that state lookups and markers always use `id`
 
-### 4. Attempting too much inference from structure could reintroduce ambiguity
+### 4. Shared IDs would make the new runtime ambiguous
+
+Risk:
+
+- a reused `id` across kinds would collide in runtime state, node lookup, navigation, or managed document sync
+
+Mitigation:
+
+- reject duplicate `id` values across merged structural/runtime kinds during loader validation
+- make the error name the conflicting kinds and duplicated `id`
+
+### 5. Attempting too much inference from structure could reintroduce ambiguity
 
 Risk:
 
@@ -866,6 +926,96 @@ Risk:
 Mitigation:
 
 - keep explicit `body` mode for sections while using `contains` only for ownership/order
+
+## Implementation Checklist
+
+Use this as the concrete implementation sequence. Each step should leave the branch compiling or very close to compiling before moving on.
+
+### 1. `src/data.rs` schema and loader contract
+
+- replace `HierarchyTemplate.groups` with typed `contains`
+- replace `HierarchyGroup.sections` with typed `contains`
+- replace section-owned structural `fields`/`lists` assumptions with `contains`
+- add `HierarchyCollection`
+- add `Collection` to `TypeTag` and include collection ID duplicate detection in `load_hierarchy_dir`
+- reject shared IDs across merged kinds, not only duplicate `(kind, id)` pairs
+- add note/layout metadata structs needed by the new schema
+- update `HierarchyFile` merge logic to include `collections`
+- replace old reference validation with typed containment validation
+- enforce parent-kind/child-kind grammar rules
+- keep global merge first, validation second
+- keep ID-based duplicate detection explicit and well-tested
+
+### 2. `src/data.rs` runtime projection
+
+- replace the old `RuntimeHierarchy` tuple with a runtime tree result plus navigation/index helpers
+- build runtime nodes from typed refs in authored order
+- add node lookup metadata:
+  node id, kind, parent id, document-owner rule
+- make collections first-class runtime nodes as direct group children
+- remove ambient top-level list injection for both `collection` and `block_select`
+- delete `block_select` runtime projection paths
+
+### 3. `src/app.rs` runtime state and navigation
+
+- replace `App.sections` as the authoritative source with runtime tree plus navigation entries
+- key interactive state by runtime node id
+- instantiate `CollectionState` from real collection nodes, not section-type branches
+- remove `block_select` state wiring
+- make flat navigation derive from authored tree order
+- define direct group-child collections as ordinary flat navigation steps for this UI pass
+- update targeted sync helpers to work from node identity rather than flat section assumptions
+
+### 4. `src/ui.rs` and `src/sections/*` interaction layer
+
+- remove `block_select` UI/render paths
+- keep `CollectionState` behavior intact: activation, remembered overrides, reset
+- update map rendering and hints to consume navigation entries instead of `SectionGroup.sections`
+
+### 5. `src/note.rs` structural rendering
+
+- replace `note_render_slot` traversal with runtime tree traversal
+- move heading/wrapper decisions onto explicit node/group metadata
+- define one renderer rule for collections as direct group-child managed nodes
+- keep stable marker IDs
+- remove hard-coded special cases that were only compensating for slot-driven layout
+
+### 6. `src/document.rs` editable note structure
+
+- generate anchor specs from runtime nodes
+- preserve stable marker format unless the rewrite makes a generic `node id=` migration clearly cleaner
+- implement the document-owner rule consistently:
+  every owner node gets one marker pair, non-owners render inside nearest owner
+- keep canonical top-level headings validation working with the new metadata path
+
+### 7. `data/*.yml` migration
+
+- migrate template, groups, sections, and treatment data to typed `contains`
+- define treatment regions as a real `collections:` entry
+- remove `section_type: collection`
+- remove `note_render_slot`
+- keep authored order matching the intended clinical note order
+
+### 8. Test replacement and expansion
+
+- replace loader tests that assume `template.groups` / `group.sections`
+- add typed-ref deserialization and grammar violation tests
+- add runtime tree ordering tests
+- add tests proving collections only load named lists
+- add tests proving section-contained collections are rejected by validation
+- add tests proving no custom-entry persistence path remains
+- add tests proving no `block_select` path remains
+- add at least one golden-note integration test
+
+### 9. Validation pass
+
+- run `cargo check`
+- run `cargo test`
+- verify real data directory load
+- verify note rendering order and wrappers on real data
+- verify editable document markers and targeted replacement
+- manually confirm collection toggles and remembered overrides still behave correctly
+- manually confirm treatment regions show only explicitly named lists
 
 ## Validation Plan
 
@@ -911,6 +1061,7 @@ Reviewers should specifically verify:
 - no code path still treats `collection` as a `section_type`
 - `contains:` resolution is typed and explicit everywhere
 - runtime identity is always keyed by `id`, never by `label`
+- shared IDs across merged kinds fail loudly in loader validation
 - note traversal follows authored structure rather than `note_render_slot`
 - editable document markers remain stable and targeted replacement still works
 - real data files no longer depend on compatibility shims
@@ -918,3 +1069,10 @@ Reviewers should specifically verify:
 ## Immediate Next Step
 
 If this plan is approved, implementation should begin in [src/data.rs](/C:/Users/solar/Documents/Claude%20Projects/scribblenot/src/data.rs) by replacing the hierarchy structs and validation model first. Everything else depends on that new structural contract being explicit.
+
+## Changelog
+
+### Review - 2026-04-08
+- #1: Added `TypeTag::Collection` bullet to checklist step 1 to make collection ID duplicate detection explicit
+- #2: Replaced vague "any other data/*.yml" note in Phase 9 with an explicit list of files that do not need migration
+- #3: Added step 6 to Phase 9 Changes to rewrite the authoring comment block in sections.yml
