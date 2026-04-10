@@ -1,22 +1,25 @@
 sections:
   - id: objective_section
     label: "Objective / Observations"
-    nav_label: "Objective"
-    map_label: "OBJCT"
-    section_type: multi_field
-    date_prefix: true
-    fields:
-      - obmuscle_field
+    nav_label: OBJECT
+    contains:
+      - field: obmuscle_field
+    note:
+      note_label: "#### OBJECTIVE"
 
 fields:
   - id: obmuscle_field
     label: "Muscle Observation"
-    format: "{year}-{month}-{day}: {place}{muscle}: {tag}" # Intentionally left blank, we'll see what happens.
+    format: "{year}-{month}-{day}: {place}{muscle}: {tag}"
     repeat_limit: 12
     lists:
       - muscle
       - place
       - tag
+    format_lists:
+      - year
+      - month
+      - day
   - id: ests_mm_field
     label: "Muscles of the Erector Spinae"
     format: "{ests_mm_list}"
@@ -29,7 +32,8 @@ lists:
     label: "muscle"
     modal_start: search
     default: empty_space
-    repeating: comma
+    joiner_style: comma
+    repeat_limit: 12
     items:
       - id: empty_space
         label: "1 (Empty Space)"
@@ -279,7 +283,8 @@ lists:
   - id: tag
     label: "Objective Tag Desciptions"
     modal_start: search
-    repeating: comma
+    joiner_style: comma
+    repeat_limit: 12
     default: empty_space
     items:
       - id: empty_space
@@ -405,7 +410,8 @@ lists:
     label: "muscle erector spinae thoracic spine"
     modal_start: search
     default: empty_space
-    repeating: comma
+    repeat_limit: 12
+    joiner_style: comma
     items:
       - id: empty_space
         label: "1 (Empty Space)"

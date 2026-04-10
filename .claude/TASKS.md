@@ -49,6 +49,18 @@ _Tasks for active development. Feature backlog lives in TODOS.md._
   Joseph-Raw: DISCUSSION-scribblenot-desktop-app.md
   Context: not specified
 
+- [ ] **#75** Evaluate splitting sticky values out of config.md into a separate file (e.g. sticky.md)
+  [D:35 C:45]
+  Claude: Currently, sticky values (persistent/remembered user preferences or state) are written to config.md alongside user-edited configuration. The proposal is to move these to a dedicated file -- suggested name sticky.md or similar. The motivation is UX: users opening config.md to edit settings don't care about sticky values, so mixing them creates noise. The task is framed as a review/discuss of pros and cons before committing to an implementation. Pros of splitting: cleaner config.md, separation of concerns, stickies can be cleared/reset without touching config, easier to reason about each file's purpose. Cons: another file to manage, tooling must know to read from two places, potential for drift or sync issues. This is a design/architecture discussion task that may lead to an implementation decision.
+  Joseph-Raw: We currently write sticky values to config.md. Review/discuss pros/cons for having a non-config file to write to instead. User doesn't really care about sticky values when they're opening config, so this could be a sticky.md or  whatever better name.
+  Context: not specified
+
+- [ ] **#76** Refactor default-theme: rename custom_colours to color_names, add iced built-in colors, replace hex literals with named constants, handle # prefix flexibly
+  [D:55 C:72]
+  Claude: Four-part refactor of the default-theme module. (1) Rename the custom_colours field/map to color_names (or similar -- user is flexible on the exact name). (2) Populate color_names with all iced built-in color constants so they're available by name throughout the theme. (3) Find-replace pass across the file swapping raw hex string literals for the named references -- the file is currently hard to read with scattered hex codes. (4) Make custom color parsing robust to hex strings with or without a leading '#' character (normalize at parse time). Part 4 implies a small parsing/normalization step. No new files implied -- edits are within the existing default-theme file(s). The rename and population steps should be done first so the replacement pass has names to substitute.
+  Joseph-Raw: In default-theme, rename custom_colours to just color_names or something like that, then add all those iced colours in there. Then, replace all the hex codes throughout that file with the names, it's not very legible as is. Also, for our custom colors, I'd like it to be able to handle hex codes with and without # smoothly.
+  Context: not specified
+
 ---
 
 ## Code Quality

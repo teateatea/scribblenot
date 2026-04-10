@@ -36,8 +36,19 @@
       "Bash(CARGO=\"$USERPROFILE/.cargo/bin/cargo.exe\" PATH=\"$PATH:$USERPROFILE/.cargo/bin:$USERPROFILE/scoop/apps/mingw/15.2.0-rt_v13-rev1/bin\" \"$CARGO\" -C \"/c/scribble\" test)",
       "Bash(PATH=\"$PATH:/c/Users/solar/.cargo/bin:/c/Users/solar/scoop/apps/mingw/15.2.0-rt_v13-rev1/bin\" /c/Users/solar/.cargo/bin/cargo.exe -C \"/c/scribble\" test)",
       "Bash(PATH=\"$PATH:/c/Users/solar/.cargo/bin:/c/Users/solar/scoop/apps/mingw/15.2.0-rt_v13-rev1/bin\" /c/Users/solar/.cargo/bin/cargo.exe --manifest-path \"/c/scribble/Cargo.toml\" test)",
-      "Bash(PATH=\"$PATH:/c/Users/solar/.cargo/bin:/c/Users/solar/scoop/apps/mingw/15.2.0-rt_v13-rev1/bin\" /c/Users/solar/.cargo/bin/cargo.exe test --manifest-path \"/c/scribble/Cargo.toml\")"
+      "Bash(PATH=\"$PATH:/c/Users/solar/.cargo/bin:/c/Users/solar/scoop/apps/mingw/15.2.0-rt_v13-rev1/bin\" /c/Users/solar/.cargo/bin/cargo.exe test --manifest-path \"/c/scribble/Cargo.toml\")",
+      "Bash(PATH=\"$PATH:/c/Users/solar/.cargo/bin:/c/Users/solar/scoop/apps/mingw/15.2.0-rt_v13-rev1/bin\" cargo test:*)",
+      "Bash(python3:*)",
+      "Bash(node:*)",
+      "Skill(plan-review-team)",
+      "Bash(mv C:/Users/solar/Documents/Claude Projects/scribblenot/operations/plans/APPROVED-* C:/Users/solar/Documents/Claude Projects/scribblenot/operations/plans/COMPLETED-*)",
+      "Bash(grep -rn \"^\\\\s*note:\\\\|^\\\\s*list_id:\\\\|^\\\\s*items:\\\\s*$\" /c/scribble/data/)",
+      "Bash(curl \"https://crates.io/api/v1/crates/tray-icon\")",
+      "Bash(curl:*)",
+      "Bash(cargo test:*)",
+      "Bash(SCRIBBLENOT_HEADLESS=1 cargo run:*)"
     ],
+    "defaultMode": "acceptEdits"
   },
   "autoAcceptEdits": false
 }

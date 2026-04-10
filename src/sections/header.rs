@@ -1,9 +1,46 @@
 use crate::data::HeaderFieldConfig;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectionSelection {
+    pub id: String,
+    pub active: bool,
+    pub enabled_item_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectionFieldValue {
+    pub collections: Vec<CollectionSelection>,
+    pub activation_order: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HeaderFieldValue {
+    ExplicitEmpty,
+    Text(String),
+    CollectionState(CollectionFieldValue),
+}
+
+impl HeaderFieldValue {
+    pub fn text(value: String) -> Self {
+        if value.is_empty() {
+            Self::ExplicitEmpty
+        } else {
+            Self::Text(value)
+        }
+    }
+
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            Self::Text(value) => Some(value.as_str()),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct HeaderState {
     pub field_configs: Vec<HeaderFieldConfig>,
-    pub repeated_values: Vec<Vec<String>>,
+    pub repeated_values: Vec<Vec<HeaderFieldValue>>,
     pub repeat_counts: Vec<usize>,
     pub repeat_visible_counts: Vec<usize>,
     pub field_index: usize,
@@ -26,7 +63,7 @@ impl HeaderState {
         }
     }
 
-    pub fn set_current_value(&mut self, value: String) {
+    pub fn set_current_value(&mut self, value: HeaderFieldValue) {
         let value_index = self.active_value_index();
         self.reveal_active_value();
         if let Some(slot) = self.repeated_values.get_mut(self.field_index) {
@@ -40,7 +77,7 @@ impl HeaderState {
 
     /// Overwrite (or set) the active entry in the current slot's vec for live previews.
     /// Does not add a new confirmed entry.
-    pub fn set_preview_value(&mut self, value: String) {
+    pub fn set_preview_value(&mut self, value: HeaderFieldValue) {
         let value_index = self.active_value_index();
         self.reveal_active_value();
         if let Some(slot) = self.repeated_values.get_mut(self.field_index) {
@@ -56,7 +93,7 @@ impl HeaderState {
         let Some(cfg) = self.field_configs.get(self.field_index) else {
             return 0;
         };
-        if let Some(limit) = cfg.repeat_limit {
+        if let Some(limit) = cfg.max_entries {
             let max_index = limit.saturating_sub(1);
             self.repeat_counts
                 .get(self.field_index)
@@ -86,7 +123,7 @@ impl HeaderState {
         let Some(cfg) = self.field_configs.get(field_index) else {
             return 0;
         };
-        if let Some(limit) = cfg.repeat_limit {
+        if let Some(limit) = cfg.max_entries {
             self.visible_value_count(field_index)
                 .max(1)
                 .min(limit.max(1))
@@ -134,12 +171,12 @@ impl HeaderState {
         self.reveal_active_value();
         if let Some(slot) = self.repeated_values.get_mut(self.field_index) {
             if value_index < slot.len() {
-                slot[value_index].clear();
+                slot[value_index] = HeaderFieldValue::ExplicitEmpty;
             } else {
                 while slot.len() < value_index {
-                    slot.push(String::new());
+                    slot.push(HeaderFieldValue::Text(String::new()));
                 }
-                slot.push(String::new());
+                slot.push(HeaderFieldValue::ExplicitEmpty);
             }
         }
     }
@@ -149,7 +186,7 @@ impl HeaderState {
         let limit = self
             .field_configs
             .get(self.field_index)
-            .and_then(|cfg| cfg.repeat_limit);
+            .and_then(|cfg| cfg.max_entries);
         if let Some(lim) = limit {
             let count = self.repeat_counts[self.field_index] + 1;
             self.repeat_counts[self.field_index] = count;
@@ -176,7 +213,7 @@ impl HeaderState {
         let can_step_back_within_repeat = self
             .field_configs
             .get(self.field_index)
-            .is_some_and(|cfg| cfg.repeat_limit.is_some())
+            .is_some_and(|cfg| cfg.max_entries.is_some())
             && self
                 .repeat_counts
                 .get(self.field_index)
@@ -192,7 +229,7 @@ impl HeaderState {
             self.repeat_counts[self.field_index] = self
                 .field_configs
                 .get(self.field_index)
-                .and_then(|cfg| cfg.repeat_limit)
+                .and_then(|cfg| cfg.max_entries)
                 .map(|limit| {
                     self.repeated_values
                         .get(self.field_index)
@@ -217,7 +254,7 @@ impl HeaderState {
         let can_step_forward_within_repeat = self
             .field_configs
             .get(self.field_index)
-            .and_then(|cfg| cfg.repeat_limit)
+            .and_then(|cfg| cfg.max_entries)
             .is_some_and(|limit| {
                 let active_index = self.active_value_index();
                 let visible_count = self.visible_value_count(self.field_index).min(limit);
@@ -241,18 +278,22 @@ impl HeaderState {
 }
 
 #[cfg(test)]
-mod header_state_repeat_limit_tests {
+mod header_state_max_entries_tests {
     use super::*;
     use crate::data::HeaderFieldConfig;
 
-    fn make_field(id: &str, repeat_limit: Option<usize>) -> HeaderFieldConfig {
+    fn make_field(id: &str, max_entries: Option<usize>) -> HeaderFieldConfig {
         HeaderFieldConfig {
             id: id.to_string(),
             name: id.to_string(),
             format: None,
+            fields: Vec::new(),
             lists: vec![],
+            collections: vec![],
             format_lists: vec![],
-            repeat_limit,
+            joiner_style: None,
+            max_entries,
+            max_actives: None,
         }
     }
 
@@ -297,45 +338,34 @@ mod header_state_repeat_limit_tests {
         );
     }
 
-    // ST49-2-TEST-3: old `values: Vec<String>` field must NOT exist (compilation would fail)
-    // We test the new shape: repeated_values is Vec<Vec<String>>, not Vec<String>
-    #[test]
-    fn repeated_values_inner_type_is_vec_string() {
-        let fields = vec![make_field("a", None)];
-        let mut state = HeaderState::new(fields);
-        // This assignment only compiles if repeated_values[0] is a Vec<String>
-        state.repeated_values[0] = vec!["hello".to_string()];
-        assert_eq!(state.repeated_values[0][0], "hello");
-    }
-
     // ST49-2-TEST-4: set_current_value appends to current slot's vec, not overwrites
     #[test]
     fn set_current_value_appends_to_slot() {
         let fields = vec![make_field("a", Some(2)), make_field("b", None)];
         let mut state = HeaderState::new(fields);
-        state.set_current_value("first".to_string());
+        state.set_current_value(HeaderFieldValue::Text("first".to_string()));
         state.advance();
-        state.set_current_value("second".to_string());
+        state.set_current_value(HeaderFieldValue::Text("second".to_string()));
         assert_eq!(
             state.repeated_values[0].len(),
             2,
             "set_current_value should append; slot should have 2 entries"
         );
-        assert_eq!(state.repeated_values[0][0], "first");
-        assert_eq!(state.repeated_values[0][1], "second");
+        assert_eq!(state.repeated_values[0][0], HeaderFieldValue::Text("first".to_string()));
+        assert_eq!(state.repeated_values[0][1], HeaderFieldValue::Text("second".to_string()));
     }
 
-    // ST49-2-TEST-5: advance() with repeat_limit not yet reached stays at same field_index and increments counter
+    // ST49-2-TEST-5: advance() with max_entries not yet reached stays at same field_index and increments counter
     #[test]
-    fn advance_stays_at_same_field_when_repeat_limit_not_reached() {
-        // repeat_limit = 2 means we can collect 2 entries (counter goes 0->1->2, advance at 2)
+    fn advance_stays_at_same_field_when_max_entries_not_reached() {
+        // max_entries = 2 means we can collect 2 entries (counter goes 0->1->2, advance at 2)
         let fields = vec![make_field("a", Some(2)), make_field("b", None)];
         let mut state = HeaderState::new(fields);
         // first advance: counter is 0, limit is 2; not yet reached -> stay, counter becomes 1
         let done = state.advance();
         assert_eq!(
             state.field_index, 0,
-            "field_index should remain 0 when repeat_limit not yet reached"
+            "field_index should remain 0 when max_entries not yet reached"
         );
         assert_eq!(
             state.repeat_counts[0], 1,
@@ -344,10 +374,10 @@ mod header_state_repeat_limit_tests {
         assert!(!done, "should not be done when re-queuing");
     }
 
-    // ST49-2-TEST-6: advance() when repeat_limit is reached moves to next field
+    // ST49-2-TEST-6: advance() when max_entries is reached moves to next field
     #[test]
-    fn advance_moves_to_next_field_when_repeat_limit_reached() {
-        // repeat_limit = 1: after 1 collection (counter=1), the next advance should proceed
+    fn advance_moves_to_next_field_when_max_entries_reached() {
+        // max_entries = 1: after 1 collection (counter=1), the next advance should proceed
         let fields = vec![make_field("a", Some(1)), make_field("b", None)];
         let mut state = HeaderState::new(fields);
         // First advance: counter goes 0->1, limit=1, not yet reached (limit means max repeats, so 1 means collect once)
@@ -355,19 +385,19 @@ mod header_state_repeat_limit_tests {
         let _done = state.advance(); // counter 0->1, equals limit -> advance
         assert_eq!(
             state.field_index, 1,
-            "field_index should advance to 1 when repeat_limit of 1 is reached"
+            "field_index should advance to 1 when max_entries of 1 is reached"
         );
     }
 
-    // ST49-2-TEST-7: advance() with no repeat_limit always advances (normal behavior)
+    // ST49-2-TEST-7: advance() with no max_entries always advances (normal behavior)
     #[test]
-    fn advance_without_repeat_limit_always_advances() {
+    fn advance_without_max_entries_always_advances() {
         let fields = vec![make_field("a", None), make_field("b", None)];
         let mut state = HeaderState::new(fields);
         let done = state.advance();
         assert_eq!(
             state.field_index, 1,
-            "without repeat_limit, advance should move field_index to 1"
+            "without max_entries, advance should move field_index to 1"
         );
         assert!(
             !done,
@@ -375,7 +405,7 @@ mod header_state_repeat_limit_tests {
         );
     }
 
-    // ST49-2-TEST-8: advance() on last field with no repeat_limit sets completed = true
+    // ST49-2-TEST-8: advance() on last field with no max_entries sets completed = true
     #[test]
     fn advance_on_last_field_sets_completed() {
         let fields = vec![make_field("only", None)];
@@ -391,7 +421,10 @@ mod header_state_repeat_limit_tests {
         let fields = vec![make_field("a", Some(3)), make_field("b", None)];
         let mut state = HeaderState::new(fields);
         // Simulate being at field 1 with some repeat count set for field 0
-        state.repeated_values[0] = vec!["first".to_string(), "second".to_string()];
+        state.repeated_values[0] = vec![
+            HeaderFieldValue::Text("first".to_string()),
+            HeaderFieldValue::Text("second".to_string()),
+        ];
         state.field_index = 1;
         state.repeat_counts[0] = 2; // pretend we repeated twice
                                     // go_back from field 1 goes to field 0 and should select the last repeat value
@@ -410,13 +443,16 @@ mod header_state_repeat_limit_tests {
     fn go_back_preserves_confirmed_values_for_returned_field() {
         let fields = vec![make_field("a", Some(3)), make_field("b", None)];
         let mut state = HeaderState::new(fields);
-        state.repeated_values[0].push("keep me".to_string());
+        state.repeated_values[0].push(HeaderFieldValue::Text("keep me".to_string()));
         state.field_index = 1;
 
         state.go_back();
 
         assert_eq!(state.field_index, 0);
-        assert_eq!(state.repeated_values[0], vec!["keep me".to_string()]);
+        assert_eq!(
+            state.repeated_values[0],
+            vec![HeaderFieldValue::Text("keep me".to_string())]
+        );
     }
 
     // ST49-2-TEST-10: go_back() at field 0 returns false and does not change state
@@ -432,7 +468,7 @@ mod header_state_repeat_limit_tests {
     // ST49-2-TEST-11: multiple advance calls cycle through repeat slots correctly
     #[test]
     fn advance_cycles_through_repeat_slots_with_limit_2() {
-        // repeat_limit = 2 -> expect 2 repeats (counter goes 0->1 stay, 1->2 advance)
+    // max_entries = 2 -> expect 2 repeats (counter goes 0->1 stay, 1->2 advance)
         let fields = vec![make_field("a", Some(2)), make_field("b", None)];
         let mut state = HeaderState::new(fields);
         // advance 1: counter 0->1, limit=2, not reached -> stay at 0

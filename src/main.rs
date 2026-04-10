@@ -22,6 +22,11 @@ pub enum Message {
     EditableNoteChanged(String),
     ModalQueryChanged(String),
     ModalSelect(usize),
+    ModalPanePressed(app::ModalPaneTarget),
+    ModalRowPressed(app::ModalPaneTarget, usize),
+    ModalRowHovered(app::ModalPaneTarget, usize),
+    ModalBackdropPressed,
+    ModalPanelPressed,
     WindowResized(Size),
     Tick,
 }
@@ -63,6 +68,31 @@ fn update(state: &mut ScribbleApp, message: Message) -> Task<Message> {
             state.inner.select_modal_filtered_index(filtered_index);
             should_scroll_preview = true;
             should_scroll_active_pane = true;
+        }
+        Message::ModalPanePressed(target) => {
+            state.inner.activate_modal_mouse_mode();
+            state.inner.focus_modal_pane(target);
+            should_scroll_preview = true;
+            should_scroll_active_pane = true;
+        }
+        Message::ModalRowPressed(target, row_index) => {
+            state.inner.activate_modal_mouse_mode();
+            state.inner.press_modal_row(target, row_index);
+            should_scroll_preview = true;
+            should_scroll_active_pane = true;
+        }
+        Message::ModalRowHovered(target, row_index) => {
+            state.inner.hover_modal_row(target, row_index);
+            should_scroll_preview = true;
+            should_scroll_active_pane = true;
+        }
+        Message::ModalBackdropPressed => {
+            state.inner.dismiss_modal();
+            should_scroll_preview = true;
+            should_scroll_active_pane = true;
+        }
+        Message::ModalPanelPressed => {
+            state.inner.activate_modal_mouse_mode();
         }
         Message::WindowResized(size) => {
             state.inner.set_viewport_size(size);
@@ -132,7 +162,7 @@ fn view(state: &ScribbleApp) -> Element<'_, Message> {
 fn subscription(state: &ScribbleApp) -> Subscription<Message> {
     let keys = keyboard::on_key_press(|key, mods| Some(Message::KeyPressed(key, mods)));
     let resize = iced::window::resize_events().map(|(_id, size)| Message::WindowResized(size));
-    let tick_interval = if state.inner.copy_flash_until.is_some() {
+    let tick_interval = if state.inner.copy_flash_until.is_some() || state.inner.has_active_text_flash() {
         Duration::from_millis(33)
     } else {
         Duration::from_millis(500)

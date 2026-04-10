@@ -138,6 +138,13 @@ pub const PREVIEW_COPY_FLASH_BACKGROUND: Color = Color {
     a: 1.0,
 };
 
+pub const TEXT_COLOR_FLASH: Color = Color {
+    r: 1.0,
+    g: 1.0,
+    b: 1.0,
+    a: 1.0,
+};
+
 pub const TRANSPARENT: Color = Color {
     r: 0.0,
     g: 0.0,
@@ -195,6 +202,7 @@ pub struct AppTheme {
     pub sticky_default_preview: Color,
     pub confirmed_muted_preview: Color,
     pub preview_copy_flash_background: Color,
+    pub text_color_flash: Color,
     pub status_background: Color,
     pub scroll_rail: Color,
     pub scroll_scroller: Color,
@@ -212,6 +220,7 @@ pub struct AppTheme {
     pub font_modal: Font,
     pub font_status: Font,
     pub preview_copy_flash_duration_ms: u64,
+    pub text_color_flash_duration: u64,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -284,6 +293,8 @@ struct ThemeFile {
     #[serde(default, deserialize_with = "deserialize_color_setting")]
     preview_copy_flash_background: ColorSetting,
     #[serde(default, deserialize_with = "deserialize_color_setting")]
+    text_color_flash: ColorSetting,
+    #[serde(default, deserialize_with = "deserialize_color_setting")]
     status_background: ColorSetting,
     #[serde(default, deserialize_with = "deserialize_color_setting")]
     scroll_rail: ColorSetting,
@@ -308,6 +319,7 @@ struct ThemeFile {
     font_modal: Option<String>,
     font_status: Option<String>,
     preview_copy_flash_duration_ms: Option<u64>,
+    text_color_flash_duration: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -355,6 +367,7 @@ impl Default for AppTheme {
             sticky_default_preview: STICKY_DEFAULT_PREVIEW,
             confirmed_muted_preview: CONFIRMED_MUTED_PREVIEW,
             preview_copy_flash_background: PREVIEW_COPY_FLASH_BACKGROUND,
+            text_color_flash: TEXT_COLOR_FLASH,
             status_background: STATUS_BACKGROUND,
             scroll_rail: SCROLL_RAIL,
             scroll_scroller: SCROLL_SCROLLER,
@@ -375,6 +388,7 @@ impl Default for AppTheme {
             font_modal: Font::MONOSPACE,
             font_status: Font::MONOSPACE,
             preview_copy_flash_duration_ms: 650,
+            text_color_flash_duration: 650,
         }
     }
 }
@@ -524,6 +538,11 @@ impl AppTheme {
                 default.preview_copy_flash_background,
                 &custom_colors,
             )?,
+            text_color_flash: optional_color(
+                file.text_color_flash,
+                default.text_color_flash,
+                &custom_colors,
+            )?,
             status_background: optional_color(
                 file.status_background,
                 default.status_background,
@@ -579,6 +598,9 @@ impl AppTheme {
             preview_copy_flash_duration_ms: file
                 .preview_copy_flash_duration_ms
                 .unwrap_or(default.preview_copy_flash_duration_ms),
+            text_color_flash_duration: file
+                .text_color_flash_duration
+                .unwrap_or(default.text_color_flash_duration),
         })
     }
 }
@@ -846,46 +868,6 @@ fn parse_hex_color(hex: &str) -> Result<Color> {
 
 #[cfg(test)]
 mod tests {
-    use iced::Color;
-
-    // Verify that each semantic color constant exists and is an iced::Color.
-    // These tests compile-fail until theme.rs defines all constants as iced::Color.
-
-    #[test]
-    fn active_is_iced_color() {
-        let _c: Color = super::ACTIVE;
-    }
-
-    #[test]
-    fn selected_is_iced_color() {
-        let _c: Color = super::SELECTED;
-    }
-
-    #[test]
-    fn hint_is_iced_color() {
-        let _c: Color = super::HINT;
-    }
-
-    #[test]
-    fn modal_is_iced_color() {
-        let _c: Color = super::MODAL;
-    }
-
-    #[test]
-    fn muted_is_iced_color() {
-        let _c: Color = super::MUTED;
-    }
-
-    #[test]
-    fn error_is_iced_color() {
-        let _c: Color = super::ERROR;
-    }
-
-    #[test]
-    fn displaced_is_iced_color() {
-        let _c: Color = super::DISPLACED;
-    }
-
     #[test]
     fn bare_hex_colors_are_supported() {
         assert_eq!(

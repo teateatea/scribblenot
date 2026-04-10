@@ -50,6 +50,8 @@ sticky_default_preview: "#80BFD9"
 confirmed_muted_preview: "#4FAF4F"
 preview_copy_flash_background: "#1A592E"
 preview_copy_flash_duration_ms: 650
+text_color_flash: "#FFFFFF"
+text_color_flash_duration: 650
 status_background: "#0A0D12"
 
 # Font roles. Use installed font family names such as "Fira Code",

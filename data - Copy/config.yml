@@ -1,0 +1,7 @@
+pane_layout: default
+sticky_values:
+  date.month: '04'
+  date.year: '2026'
+  date.day: '03'
+hint_labels_capitalized: true
+hint_labels_case_sensitive: false

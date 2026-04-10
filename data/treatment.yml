@@ -1,0 +1,373 @@
+sections:
+  - id: treatment_section
+    label: "Treatment - Prone"
+    nav_label: "PRONE"
+    contains:
+      - field: prone_back_field
+      - field: prone_glutes_field
+      - field: prone_legs_field
+    note:
+      note_label: "" #"#### TREAMENT / PLAN"
+
+---
+# BACK PRONE
+fields:                                          # BACK PRONE
+  - id: prone_back_field
+    label: "BACK"
+    max_actives: 1
+    contains:
+     # - list: year
+      - collection: back_all_prone_collection
+      - collection: back_upper_mid_prone_collection
+      - collection: back_lower_prone_collection
+collections:                                     # BACK PRONE
+  - id: back_all_prone_collection
+    label: "ALL - UPPER MIDDLE & LOW BACK"
+    nav_label: "BACKAPC"
+    default_enabled: true
+    contains:
+      - list: back_all_prone
+  - id: back_upper_mid_prone_collection
+    label: "UPPER, & MIDDLE BACK"
+    nav_label: "BACKUMPC"
+    default_enabled: false
+    contains:
+      - list: back_upper_mid_prone
+  - id: back_lower_prone_collection
+    label: "LOWER BACK"
+    nav_label: "BACKLPC"
+    default_enabled: false
+    contains:
+      - list: back_lower_prone
+lists:                                           # BACK PRONE
+  - id: back_all_prone
+    label: "UPPER, MIDDLE & LOWER BACK (Prone)"
+    items:
+      - id: swedish
+        label: "General Swedish Techniques"
+        output: "- General Swedish Techniques"
+      - id: spec_comp_back
+        label: "Specific Compressions (Trapezius, LS, Teres, QL)"
+        output: "- Specific Compressions:\n- - Trapezius (Upper Fiber)\n- - Levator Scapula\n- - Teres Major & Minor\n- - Quadratus Lumborum"
+      - id: stretch_sa
+        label: "Stretch (Serratus Anterior)"
+        output: "- Stretch (Serratus Anterior)"
+      - id: broad_comp_triceps
+        label: "Broad Compressions (Triceps Brachii)"
+        output: "- Broad Compressions (Triceps Brachii)"
+      - id: muscle_strip_es
+        label: "Muscle Stripping (Erector Spinae)"
+        output: "- Muscle Stripping (Erector Spinae)"
+
+  - id: back_upper_mid_prone
+    label: "UPPER & MIDDLE BACK (Prone)"
+    items:
+      - id: swedish
+        label: "General Swedish Techniques"
+        output: "- General Swedish Techniques"
+      - id: spec_comp_back
+        label: "Specific Compressions (Trapezius, Teres)"
+        output: "- Specific Compressions:\n- - Trapezius (Upper Fiber)\n- - Teres Major & Minor"
+      - id: muscle_strip_es
+        label: "Muscle Stripping (Erector Spinae)"
+        output: "- Muscle Stripping (Erector Spinae)"
+
+  - id: back_lower_prone
+    label: "LOWER BACK (Prone)"
+    items:
+      - id: swedish
+        label: "General Swedish Techniques"
+        output: "- General Swedish Techniques"
+      - id: spec_comp_ql
+        label: "Specific Compressions (Quadratus Lumborum)"
+        output: "- Specific Compressions (Quadratus Lumborum)"
+      - id: muscle_strip_es
+        label: "Muscle Stripping (Erector Spinae)"
+        output: "- Muscle Stripping (Erector Spinae)"
+      - id: fascial_l4l5
+        label: "Fascial Techniques (L4-L5)"
+        output: "- Fascial Techniques (L4-L5)"
+        default_enabled: false
+
+---
+# GLUTES
+fields:                                          # GLUTES
+  - id: prone_glutes_field
+    label: "GLUTES"
+    contains:
+      - collection: prone_glutes_collection
+
+collections:                                     # GLUTES
+
+  - id: prone_glutes_collection
+    label: "GLUTES"
+    nav_label: "GLUTESPC"
+    default_enabled: false
+    contains:
+      - list: glutes_prone
+lists:                                           # GLUTES
+  - id: glutes_prone
+    label: "GLUTEAL MUSCLES / BUTTOCKS (Prone)"
+    items:
+      - id: broad_comp
+        label: "Broad Compressions"
+        output: "- Broad Compressions"
+      - id: ulnar_knead
+        label: "Ulnar Kneading"
+        output: "- Ulnar Kneading"
+      - id: spec_comp_pir_gmed
+        label: "Specific Compressions (Piriformis, Gluteus Medius)"
+        output: "- Specific Compressions (Ulnar border):\n- - Piriformis\n- - Gluteus Medius"
+      - id: pin_stretch_pir
+        label: "Pin + Stretch (Piriformis)"
+        output: "- Pin + Stretch:\n- - Piriformis"
+      - id: rocking_si
+        label: "Rocking & Rhythmic Techniques (SI Joint)"
+        output: "- Rocking & Rhythmic Techniques (SI Jt)"
+
+---
+# POST_LEG
+fields:                                          # POST_LEG
+  - id: prone_legs_field
+    label: "POST_LEG"
+    contains:
+      - collection: prone_legs_collection
+
+collections:                                     # POST_LEG
+  - id: prone_legs_collection
+    label: "POST_LEG"
+    nav_label: "POST_LEGPC"
+    default_enabled: false
+    contains:
+      - list: post_legs_prone
+      - list: post_upper_legs_prone
+      - list: lower_legs_prone
+lists:                                           # POST_LEG
+  - id: post_legs_prone
+    label: "POSTERIOR LEGS & FEET (Prone)"
+    items:
+      - id: broad_comp
+        label: "Broad Compressions"
+        output: "- Broad Compressions"
+      - id: ulnar_knead_ham
+        label: "Ulnar Kneading (Biceps Femris, Semitendinosus)"
+        output: "- Ulnar Kneading\n- - Biceps Femoris\n- - Semitendinosus"
+      - id: knuckle_knead
+        label: "Knuckle Kneading"
+        output: "- Knuckle Kneading"
+      - id: fingertip_knead
+        label: "Fingertip Kneading"
+        output: "- Fingertip Kneading"
+
+  - id: post_upper_legs_prone
+    label: "POSTERIOR UPPER LEGS / HAMSTRINGS (Prone)"
+    items:
+      - id: broad_comp
+        label: "Broad Compressions"
+        output: "- Broad Compressions"
+      - id: ulnar_knead_ham
+        label: "Ulnar Kneading (Biceps Femoris, Semitendinosus)"
+        output: "- Ulnar Kneading\n- - Biceps Femoris\n- - Semitendinosus"
+
+  - id: lower_legs_prone
+    label: "LOWER LEGS & FEET (Prone)"
+    items:
+      - id: broad_comp
+        label: "Broad Compressions"
+        output: "- Broad Compressions"
+      - id: ulnar_knead
+        label: "Ulnar Kneading"
+        output: "- Ulnar Kneading"
+      - id: knuckle_knead
+        label: "Knuckle Kneading"
+        output: "- Knuckle Kneading"
+      - id: fingertip_knead
+        label: "Fingertip Kneading"
+        output: "- Fingertip Kneading"
+
+---
+lists:
+
+
+  - id: ant_legs_hips_supine
+    label: "ANTERIOR LEGS & HIPS (Supine)"
+    items:
+      - id: broad_comp
+        label: "Broad Compressions"
+        output: "- Broad Compressions"
+      - id: ulnar_knead_tfl
+        label: "Ulnar Kneading (TFL, Vastus Lateralis & Medialis)"
+        output: "- Ulnar Kneading (TFL, Vastus Lateralis & Medialis)"
+      - id: fingertip_knead
+        label: "Fingertip Kneading"
+        output: "- Fingertip Kneading"
+      - id: long_axis_traction
+        label: "Long Axis Traction"
+        output: "- Long Axis Traction"
+
+  - id: ant_hips_upper_legs_supine
+    label: "ANTERIOR HIPS & UPPER LEGS / TFL & QUADS (Supine)"
+    items:
+      - id: broad_comp
+        label: "Broad Compressions"
+        output: "- Broad Compressions"
+      - id: ulnar_knead_tfl
+        label: "Ulnar Kneading (TFL, Vastus Lateralis & Medialis)"
+        output: "- Ulnar Kneading (TFL, Vastus Lateralis & Medialis)"
+      - id: spec_comp_tfl
+        label: "Specific Compressions (TFL, Vastus Lateralis & Medialis)"
+        output: "- Specific Compressions (TFL, Vastus Lateralis & Medialis)"
+      - id: friction_rf
+        label: "Friction (Rectus Femoris)"
+        output: "- Friction (Rectus Femoris)"
+      - id: jt_mob_hip
+        label: "Joint Mobilization (Hip: Traction, Grade 2)"
+        output: "- Joint Mobilization (Coxafemoral Jt: Traction, Grade 2)"
+
+  - id: lower_legs_supine
+    label: "LOWER LEGS & FEET (Supine)"
+    items:
+      - id: broad_comp
+        label: "Broad Compressions"
+        output: "- Broad Compressions"
+      - id: ulnar_knead
+        label: "Ulnar Kneading"
+        output: "- Ulnar Kneading"
+      - id: knuckle_knead
+        label: "Knuckle Kneading"
+        output: "- Knuckle Kneading"
+      - id: fingertip_knead
+        label: "Fingertip Kneading"
+        output: "- Fingertip Kneading"
+
+  - id: abdomen_intercostals_supine
+    label: "ABDOMEN - INTERCOSTALS (Supine)"
+    items:
+      - id: myofascial
+        label: "Myofascial Techniques"
+        output: "- Myofascial Techniques"
+      - id: spec_comp
+        label: "Specific Compressions"
+        output: "- Specific Compressions"
+      - id: fingertip_knead_intercostal
+        label: "Fingertip Kneading (Intercostal Muscles)"
+        output: "- Fingertip Kneading (Intercostal Muscles)"
+
+  - id: abdomen_psoas_supine
+    label: "ABDOMEN - PSOAS (Supine)"
+    items:
+      - id: myofascial
+        label: "Myofascial Techniques"
+        output: "- Myofascial Techniques"
+      - id: spec_comp_psoas
+        label: "Specific Compressions (Psoas Major, Iliacus)"
+        output: "- Specific Compressions (Psoas Major, Iliacus)"
+      - id: pin_active_psoas
+        label: "Pin & Active Release (Psoas)"
+        output: "- Pin & Active Release (Psoas)"
+
+  - id: adductors_sidelying
+    label: "ADDUCTORS (Sidelying)"
+    items:
+      - id: broad_comp
+        label: "Broad Compressions"
+        output: "- Broad Compressions"
+      - id: ulnar_knead
+        label: "Ulnar Kneading"
+        output: "- Ulnar Kneading"
+      - id: knuckle_knead
+        label: "Knuckle Kneading"
+        output: "- Knuckle Kneading"
+      - id: fingertip_knead
+        label: "Fingertip Kneading"
+        output: "- Fingertip Kneading"
+
+  - id: pecs_supine
+    label: "UPPER CHEST WALL / PECS (Supine)"
+    items:
+      - id: myofascial_pec
+        label: "Myofascial Techniques (Pectoralis Major)"
+        output: "- Myofascial Techniques (Pectoralis Major)"
+      - id: pnf_pec
+        label: "PNF Stretch (Pectoralis Major & Minor)"
+        output: "- Proprioceptive Neuromuscular Facilitation (PNF) Stretch (Pectoralis Major & Minor)"
+      - id: spec_comp_subscap
+        label: "Specific Compressions (Subscapularis)"
+        output: "- Specific Compressions (Subscapularis)"
+      - id: pin_active_subscap
+        label: "Pin & Active Release (Subscapularis)"
+        output: "- Pin & Active Release (Subscapularis)"
+
+  - id: arms_supine
+    label: "ARMS (Supine)"
+    items:
+      - id: swedish
+        label: "General Swedish Techniques"
+        output: "- General Swedish Techniques"
+      - id: pin_stretch_bicep
+        label: "Pin & Stretch (Biceps Brachii, Brachialis)"
+        output: "- Pin & Stretch (Biceps Brachii, Brachialis)"
+      - id: pin_active_ext
+        label: "Pin & Active Release (Extensor Digitorum, Extensor Carpi Ulnaris)"
+        output: "- Pin & Active Release (Extensor Digitorum, Extensor Carpi Ulnaris)"
+      - id: spec_comp_ext
+        label: "Specific Compressions (Extensor Digitorum, Extensor Carpi Ulnaris)"
+        output: "- Specific Compressions (Extensor Digitorum, Extensor Carpi Ulnaris)"
+      - id: jt_mob_wrist
+        label: "Joint Mobilizations (Wrist, Elbow)"
+        output: "- Joint Mobilizations (Wrist, Elbow)"
+
+  - id: hns_supine
+    label: "HEAD, NECK, & SHOULDERS (Supine)"
+    items:
+      - id: swedish
+        label: "General Swedish Techniques"
+        output: "- General Swedish Techniques"
+      - id: pin_stretch_suboccip
+        label: "Pin & Stretch (Suboccipital Muscles)"
+        output: "- Pin & Stretch (Suboccipital Muscles)"
+      - id: spec_comp_scalene_scm
+        label: "Specific Compressions (Scalene Muscles, SCM)"
+        output: "- Specific Compressions (Scalene Muscles, SCM)"
+      - id: picking_up_scm
+        label: "Picking Up (SCM)"
+        output: "- Picking Up (SCM)"
+      - id: traction_breathing
+        label: "Traction Neck & Diaphragmatic Breathing Cues"
+        output: "- Traction Neck & Diaphragmatic Breathing Cues"
+      - id: myofascial_scm
+        label: "Myofascial Techniques (over SCM)"
+        output: "- Myofascial Techniques (over SCM)"
+      - id: spec_comp_tmj
+        label: "Specific Compressions (Masseter, Temporalis - TMJ)"
+        output: "- Specific Compressions (Scalene Muscles, SCM, Masseter, Temporalis)"
+      - id: myofascial_skull
+        label: "Myofascial Techniques (Frontal, Temporal bone)"
+        output: "- Myofascial Techniques (Frontal bone, Temporal bone)"
+      - id: broad_comp_skull
+        label: "Broad Compressions (Parietal, Temporal bone)"
+        output: "- Broad Compressions (Parietal bone, Temporal bone)"
+---
+collections:
+  - id: tx_regions
+    label: "Treatment Regions"
+    nav_label: "TRTMT"
+    contains:
+      - list: back_all_prone
+      - list: back_upper_mid_prone
+      - list: back_lower_prone
+      - list: glutes_prone
+      - list: post_legs_prone
+      - list: post_upper_legs_prone
+      - list: lower_legs_prone
+      - list: ant_legs_hips_supine
+      - list: ant_hips_upper_legs_supine
+      - list: lower_legs_supine
+      - list: abdomen_intercostals_supine
+      - list: abdomen_psoas_supine
+      - list: adductors_sidelying
+      - list: pecs_supine
+      - list: arms_supine
+      - list: hns_supine
+    note:
+      note_label: "#### TREATMENT REGIONS"

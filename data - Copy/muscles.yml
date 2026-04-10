@@ -1,0 +1,157 @@
+lists:
+  - id: muscles_options
+    label: "Muscles"
+    items:
+      - id: masseter
+        label: "Masseter (TMJ)"
+        output: "Masseter"
+      - id: temporalis
+        label: "Temporalis (TMJ)"
+        output: "Temporalis"
+      - id: suprahyoid_muscles
+        label: "Suprahyoid Muscles (TMJ)"
+        output: "Suprahyoid muscles"
+      - id: lateral_pterygoid
+        label: "Lateral Pterygoid (TMJ)"
+        output: "Lateral Pterygoid"
+      - id: medial_pterygoid
+        label: "Medial Pterygoid (TMJ)"
+        output: "Medial Pterygoid"
+      - id: sternocleidomastoid
+        label: "Sternocleidomastoid (SCM)"
+        output: "Sternocleidomastoid (SCM)"
+      - id: suboccipital_muscle_group
+        label: "Suboccipital Muscle Group"
+        output: "Suboccipital Muscle Group"
+      - id: scalene_muscles
+        label: "Scalene Muscles"
+        output: "Scalene Muscles"
+      - id: splenius_capitis
+        label: "Splenius Capitis"
+        output: "Splenius Capitis"
+      - id: splenius_cervicis
+        label: "Splenius Cervicis"
+        output: "Splenius Cervicis"
+      - id: pectoralis_major
+        label: "Pectoralis Major"
+        output: "Pectoralis Major"
+      - id: pectoralis_minor
+        label: "Pectoralis Minor"
+        output: "Pectoralis Minor"
+      - id: serratus_anterior
+        label: "Serratus Anterior"
+        output: "Serratus Anterior"
+      - id: intercostal_muscles
+        label: "Intercostal Muscles"
+        output: "Intercostal Muscles"
+      - id: psoas_major
+        label: "Psoas Major"
+        output: "Psoas Major"
+      - id: iliacus
+        label: "Iliacus"
+        output: "Iliacus"
+      - id: trapezius_upper
+        label: "Trapezius (Upper Fibers)"
+        output: "Trapezius (Upper Fibers)"
+      - id: trapezius_middle
+        label: "Trapezius (Middle Fibers)"
+        output: "Trapezius (Middle Fibers)"
+      - id: trapezius_lower
+        label: "Trapezius (Lower Fibers)"
+        output: "Trapezius (Lower Fibers)"
+      - id: levator_scapula
+        label: "Levator Scapula"
+        output: "Levator Scapula"
+      - id: rhomboids
+        label: "Rhomboids (Major & Minor)"
+        output: "Rhomboids"
+      - id: teres_major
+        label: "Teres Major"
+        output: "Teres Major"
+      - id: teres_minor
+        label: "Teres Minor"
+        output: "Teres Minor"
+      - id: subscapularis
+        label: "Subscapularis"
+        output: "Subscapularis"
+      - id: infraspinatus
+        label: "Infraspinatus"
+        output: "Infraspinatus"
+      - id: supraspinatus
+        label: "Supraspinatus"
+        output: "Supraspinatus"
+      - id: erector_spinae
+        label: "Erector Spinae"
+        output: "Erector Spinae"
+      - id: quadratus_lumborum
+        label: "Quadratus Lumborum (QL)"
+        output: "Quadratus Lumborum"
+      - id: multifidus
+        label: "Multifidus"
+        output: "Multifidus"
+      - id: piriformis
+        label: "Piriformis"
+        output: "Piriformis"
+      - id: gluteus_maximus
+        label: "Gluteus Maximus"
+        output: "Gluteus Maximus"
+      - id: gluteus_medius
+        label: "Gluteus Medius"
+        output: "Gluteus Medius"
+      - id: gluteus_minimus
+        label: "Gluteus Minimus"
+        output: "Gluteus Minimus"
+      - id: tfl
+        label: "TFL (Tensor Fasciae Latae)"
+        output: "TFL (Tensor Fasciae Latae)"
+      - id: biceps_femoris
+        label: "Biceps Femoris (Hamstring)"
+        output: "Biceps Femoris"
+      - id: semitendinosus
+        label: "Semitendinosus (Hamstring)"
+        output: "Semitendinosus"
+      - id: semimembranosus
+        label: "Semimembranosus (Hamstring)"
+        output: "Semimembranosus"
+      - id: rectus_femoris
+        label: "Rectus Femoris (Quad)"
+        output: "Rectus Femoris"
+      - id: vastus_lateralis
+        label: "Vastus Lateralis (Quad)"
+        output: "Vastus Lateralis"
+      - id: vastus_medialis
+        label: "Vastus Medialis (Quad)"
+        output: "Vastus Medialis"
+      - id: gastrocnemius
+        label: "Gastrocnemius"
+        output: "Gastrocnemius"
+      - id: soleus
+        label: "Soleus"
+        output: "Soleus"
+      - id: tibialis_anterior
+        label: "Tibialis Anterior"
+        output: "Tibialis Anterior"
+      - id: biceps_brachii
+        label: "Biceps Brachii"
+        output: "Biceps Brachii"
+      - id: brachialis
+        label: "Brachialis"
+        output: "Brachialis"
+      - id: triceps_brachii
+        label: "Triceps Brachii"
+        output: "Triceps Brachii"
+      - id: extensor_digitorum
+        label: "Extensor Digitorum"
+        output: "Extensor Digitorum"
+      - id: extensor_carpi_ulnaris
+        label: "Extensor Carpi Ulnaris"
+        output: "Extensor Carpi Ulnaris"
+      - id: flexor_carpi_radialis
+        label: "Flexor Carpi Radialis"
+        output: "Flexor Carpi Radialis"
+      - id: deltoid_anterior
+        label: "Deltoid (Anterior)"
+        output: "Deltoid (Anterior)"
+      - id: deltoid_posterior
+        label: "Deltoid (Posterior)"
+        output: "Deltoid (Posterior)"
