@@ -45,7 +45,8 @@
       "Bash(grep -rn \"^\\\\s*note:\\\\|^\\\\s*list_id:\\\\|^\\\\s*items:\\\\s*$\" /c/scribble/data/)",
       "Bash(curl \"https://crates.io/api/v1/crates/tray-icon\")",
       "Bash(curl:*)",
-      "Bash(cargo test:*)"
+      "Bash(cargo test:*)",
+      "Bash(SCRIBBLENOT_HEADLESS=1 cargo run:*)"
     ],
     "defaultMode": "acceptEdits"
   },
