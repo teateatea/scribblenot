@@ -287,9 +287,11 @@ mod header_state_max_entries_tests {
             id: id.to_string(),
             name: id.to_string(),
             format: None,
+            fields: Vec::new(),
             lists: vec![],
             collections: vec![],
             format_lists: vec![],
+            joiner_style: None,
             max_entries,
             max_actives: None,
         }

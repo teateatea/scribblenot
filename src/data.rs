@@ -11,11 +11,15 @@ pub struct HeaderFieldConfig {
     #[serde(default)]
     pub format: Option<String>,
     #[serde(default)]
+    pub fields: Vec<HeaderFieldConfig>,
+    #[serde(default)]
     pub lists: Vec<HierarchyList>,
     #[serde(default)]
     pub collections: Vec<ResolvedCollectionConfig>,
     #[serde(default)]
     pub format_lists: Vec<HierarchyList>,
+    #[serde(default)]
+    pub joiner_style: Option<JoinerStyle>,
     #[serde(default)]
     pub max_entries: Option<usize>,
     #[serde(default)]
@@ -210,7 +214,7 @@ impl Default for ModalStart {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum JoinerStyle {
     CommaAnd,
@@ -406,6 +410,8 @@ pub struct HierarchyField {
     pub lists: Vec<String>,
     #[serde(default)]
     pub collections: Vec<String>,
+    #[serde(default)]
+    pub joiner_style: Option<JoinerStyle>,
     #[serde(default)]
     pub max_entries: Option<usize>,
     #[serde(default)]
@@ -681,7 +687,13 @@ fn section_to_config(
                 let field_data = fields_by_id
                     .get(field.as_str())
                     .ok_or_else(|| format!("unknown field '{}'", field))?;
-                field_configs.push(resolve_field(field_data, collections_by_id, lists_by_id)?);
+                field_configs.push(resolve_field(
+                    field_data,
+                    fields_by_id,
+                    collections_by_id,
+                    lists_by_id,
+                    &mut Vec::new(),
+                )?);
             }
             HierarchyChildRef::List { list } => {
                 attached_lists.push(
@@ -813,21 +825,75 @@ fn infer_body_mode(fields: &[HeaderFieldConfig], lists: &[HierarchyList]) -> Str
 
 fn resolve_field(
     field: &HierarchyField,
+    fields_by_id: &HashMap<&str, &HierarchyField>,
     collections_by_id: &HashMap<&str, &HierarchyCollection>,
     lists_by_id: &HashMap<&str, &HierarchyList>,
+    visiting: &mut Vec<String>,
 ) -> Result<HeaderFieldConfig, String> {
+    if visiting.iter().any(|existing| existing == &field.id) {
+        let mut path = visiting.clone();
+        path.push(field.id.clone());
+        return Err(format!("field cycle detected: {}", path.join(" -> ")));
+    }
+    visiting.push(field.id.clone());
+
+    let has_nested_fields = field
+        .contains
+        .iter()
+        .any(|child| matches!(child, HierarchyChildRef::Field { .. }));
+
+    let result = resolve_field_inner(
+        field,
+        has_nested_fields,
+        fields_by_id,
+        collections_by_id,
+        lists_by_id,
+        visiting,
+    );
+    visiting.pop();
+    result
+}
+
+fn resolve_field_inner(
+    field: &HierarchyField,
+    has_nested_fields: bool,
+    fields_by_id: &HashMap<&str, &HierarchyField>,
+    collections_by_id: &HashMap<&str, &HierarchyCollection>,
+    lists_by_id: &HashMap<&str, &HierarchyList>,
+    visiting: &mut Vec<String>,
+) -> Result<HeaderFieldConfig, String> {
+    let mut fields = Vec::new();
     let mut lists = Vec::new();
     let mut collections = Vec::new();
     let mut format_lists = Vec::new();
     if !field.contains.is_empty() {
         for child in &field.contains {
             match child {
-                HierarchyChildRef::List { list } => lists.push(
-                    (*lists_by_id
-                        .get(list.as_str())
-                        .ok_or_else(|| format!("field '{}' references unknown list '{}'", field.id, list))?)
-                    .clone(),
-                ),
+                HierarchyChildRef::Field { field: child_id } => {
+                    let child = fields_by_id
+                        .get(child_id.as_str())
+                        .ok_or_else(|| {
+                            format!("field '{}' references unknown field '{}'", field.id, child_id)
+                        })?;
+                    fields.push(resolve_field(
+                        child,
+                        fields_by_id,
+                        collections_by_id,
+                        lists_by_id,
+                        visiting,
+                    )?);
+                }
+                HierarchyChildRef::List { list } => {
+                    let list = (*lists_by_id.get(list.as_str()).ok_or_else(|| {
+                        format!("field '{}' references unknown list '{}'", field.id, list)
+                    })?)
+                    .clone();
+                    if has_nested_fields {
+                        fields.push(wrap_list_as_field(&list));
+                    } else {
+                        lists.push(list);
+                    }
+                }
                 HierarchyChildRef::Collection { collection } => {
                     let collection = collections_by_id.get(collection.as_str()).ok_or_else(|| {
                         format!(
@@ -835,7 +901,12 @@ fn resolve_field(
                             field.id, collection
                         )
                     })?;
-                    collections.push(resolve_collection(collection, &field.label, lists_by_id)?);
+                    let resolved = resolve_collection(collection, &field.label, lists_by_id)?;
+                    if has_nested_fields {
+                        fields.push(wrap_collection_as_field(&resolved));
+                    } else {
+                        collections.push(resolved);
+                    }
                 }
                 other => {
                     return Err(format!(
@@ -869,7 +940,8 @@ fn resolve_field(
     for list_id in referenced_placeholder_ids(field.format.as_deref()) {
         let list_is_primary = lists.iter().any(|list| list.id == list_id);
         let collection_matches = collections.iter().any(|collection| collection.id == list_id);
-        if list_is_primary || collection_matches {
+        let field_matches = fields.iter().any(|child| child.id == list_id);
+        if list_is_primary || collection_matches || field_matches {
             continue;
         }
         format_lists.push(
@@ -884,12 +956,47 @@ fn resolve_field(
         id: field.id.clone(),
         name: field.label.clone(),
         format: field.format.clone(),
+        fields,
         lists,
         collections,
         format_lists,
+        joiner_style: field.joiner_style.clone(),
         max_entries: field.max_entries,
         max_actives: field.max_actives,
     })
+}
+
+fn wrap_list_as_field(list: &HierarchyList) -> HeaderFieldConfig {
+    HeaderFieldConfig {
+        id: list.id.clone(),
+        name: list
+            .label
+            .clone()
+            .unwrap_or_else(|| list.id.clone()),
+        format: None,
+        fields: Vec::new(),
+        lists: vec![list.clone()],
+        collections: Vec::new(),
+        format_lists: Vec::new(),
+        joiner_style: None,
+        max_entries: None,
+        max_actives: None,
+    }
+}
+
+fn wrap_collection_as_field(collection: &ResolvedCollectionConfig) -> HeaderFieldConfig {
+    HeaderFieldConfig {
+        id: collection.id.clone(),
+        name: collection.label.clone(),
+        format: None,
+        fields: Vec::new(),
+        lists: Vec::new(),
+        collections: vec![collection.clone()],
+        format_lists: Vec::new(),
+        joiner_style: None,
+        max_entries: None,
+        max_actives: None,
+    }
 }
 
 fn referenced_placeholder_ids(format: Option<&str>) -> Vec<String> {
@@ -1136,7 +1243,7 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
         if !field.contains.is_empty() {
             validate_children(
                 &format!("field '{}'", field.id),
-                &[TypeTag::List, TypeTag::Collection],
+                &[TypeTag::Field, TypeTag::List, TypeTag::Collection],
                 &field.contains,
                 &global_ids,
             )?;
@@ -1186,7 +1293,11 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
                 || field.contains.iter().any(
                     |child| matches!(child, HierarchyChildRef::Collection { collection } if collection == &list_id),
                 );
-            if field_has_list || field_has_collection {
+            let field_has_field = field
+                .contains
+                .iter()
+                .any(|child| matches!(child, HierarchyChildRef::Field { field } if field == &list_id));
+            if field_has_list || field_has_collection || field_has_field {
                 continue;
             }
             match global_ids.get(list_id.as_str()) {
@@ -1449,6 +1560,72 @@ mod tests {
                 HierarchyChildRef::Collection { collection }
             ] if list == "appointment_type_list" && collection == "tx_regions"
         ));
+    }
+
+    #[test]
+    fn runtime_field_contains_mixed_fields_and_lists_in_authored_order() {
+        let file = parse(
+            concat!(
+                "template:\n  id: template\n  contains:\n    - group: intake\n",
+                "groups:\n  - id: intake\n    contains:\n      - section: appointment\n",
+                "sections:\n  - id: appointment\n    contains:\n      - field: request\n",
+                "fields:\n",
+                "  - id: request\n",
+                "    label: Request\n",
+                "    format: \"{appointment_type}{requested_regions}\"\n",
+                "    contains:\n",
+                "      - list: appointment_type\n",
+                "      - field: requested_regions\n",
+                "  - id: requested_regions\n",
+                "    label: Requested Regions\n",
+                "    format: \"{requested_region}\"\n",
+                "    joiner_style: comma_and_the\n",
+                "    max_entries: 3\n",
+                "    contains:\n",
+                "      - field: requested_region\n",
+                "  - id: requested_region\n",
+                "    label: Requested Region\n",
+                "    format: \"{side}{body_part}\"\n",
+                "    contains:\n",
+                "      - field: side\n",
+                "      - list: body_part\n",
+                "  - id: side\n",
+                "    label: Side\n",
+                "    contains:\n",
+                "      - list: side_list\n",
+                "lists:\n",
+                "  - id: appointment_type\n",
+                "    items:\n",
+                "      - Treatment massage, focusing on \n",
+                "  - id: side_list\n",
+                "    items:\n",
+                "      - { id: left, label: Left, output: \"left \" }\n",
+                "  - id: body_part\n",
+                "    items:\n",
+                "      - Shoulder\n",
+            ),
+        );
+
+        validate_merged_hierarchy(&file).expect("nested field hierarchy should validate");
+        let runtime = hierarchy_to_runtime(file).expect("runtime build should succeed");
+        let request = runtime
+            .sections
+            .iter()
+            .find(|section| section.id == "appointment")
+            .and_then(|section| section.fields.as_ref())
+            .and_then(|fields| fields.iter().find(|field| field.id == "request"))
+            .expect("request field should resolve");
+
+        assert_eq!(request.fields.len(), 2);
+        assert_eq!(request.fields[0].id, "appointment_type");
+        assert_eq!(request.fields[1].id, "requested_regions");
+        assert_eq!(request.fields[1].joiner_style, Some(JoinerStyle::CommaAndThe));
+        assert_eq!(request.fields[1].max_entries, Some(3));
+        assert_eq!(request.fields[1].fields.len(), 1);
+        assert_eq!(request.fields[1].fields[0].id, "requested_region");
+        assert_eq!(request.fields[1].fields[0].fields.len(), 2);
+        assert_eq!(request.fields[1].fields[0].fields[0].id, "side");
+        assert_eq!(request.fields[1].fields[0].fields[1].id, "body_part");
     }
 
     #[test]

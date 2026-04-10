@@ -197,6 +197,7 @@ mod tests {
             id: "back".to_string(),
             name: "BACK".to_string(),
             format: None,
+            fields: Vec::new(),
             lists: Vec::new(),
             collections: vec![ResolvedCollectionConfig {
                 id: "all_back".to_string(),
@@ -207,6 +208,7 @@ mod tests {
                 lists: Vec::new(),
             }],
             format_lists: Vec::new(),
+            joiner_style: None,
             max_entries: None,
             max_actives: None,
         };

@@ -2198,11 +2198,23 @@ fn compute_field_spans(
     }
     let flow = &modal.field_flow;
     let Some(format) = &flow.format else {
-        return flow
-            .values
-            .iter()
-            .map(|value| (value.clone(), true))
-            .collect();
+        if !flow.values.is_empty() {
+            return flow
+                .values
+                .iter()
+                .map(|value| (value.clone(), true))
+                .collect();
+        }
+        if let Some(list) = flow.lists.get(flow.list_idx) {
+            if !flow.repeat_values.is_empty() {
+                return vec![(
+                    joined_repeating_value(list, &flow.repeat_values)
+                        .unwrap_or_else(|| flow.repeat_values.join(", ")),
+                    true,
+                )];
+            }
+        }
+        return Vec::new();
     };
     let mut spans: Vec<(String, bool)> = Vec::new();
     let mut literal = String::new();
@@ -2260,7 +2272,16 @@ fn compute_field_preview(
     }
     let flow = &modal.field_flow;
     let Some(format) = &flow.format else {
-        return flow.values.join(", ");
+        if !flow.values.is_empty() {
+            return flow.values.join(", ");
+        }
+        if let Some(list) = flow.lists.get(flow.list_idx) {
+            if !flow.repeat_values.is_empty() {
+                return joined_repeating_value(list, &flow.repeat_values)
+                    .unwrap_or_else(|| flow.repeat_values.join(", "));
+            }
+        }
+        return String::new();
     };
     let mut result = format.clone();
     for (i, val) in flow.values.iter().enumerate() {
