@@ -1,6 +1,6 @@
 [package]
 name = "scribblenot"
-version = "0.3.4-alpha"
+version = "0.3.5-alpha"
 edition = "2021"
 
 [[bin]]
@@ -14,3 +14,4 @@ serde_yaml = "0.9"
 arboard = "3.4"
 chrono = "0.4"
 anyhow = "1.0"
+simple-easing = "1.0.1"

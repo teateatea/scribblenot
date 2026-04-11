@@ -2974,7 +2974,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "scribblenot"
-version = "0.3.3-alpha"
+version = "0.3.5-alpha"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2982,6 +2982,7 @@ dependencies = [
  "iced",
  "serde",
  "serde_yaml",
+ "simple-easing",
 ]
 
 [[package]]
@@ -3124,6 +3125,12 @@ name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+[[package]]
+name = "simple-easing"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c82d449ab1bccfeec125893c6875008206f038d4eb8a09e1e10caf86f44d574e"
 
 [[package]]
 name = "siphasher"

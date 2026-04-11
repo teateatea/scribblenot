@@ -15,6 +15,7 @@ use crate::sections::{
 use iced::keyboard::{key::Named, Key, Modifiers};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AppKey {
@@ -88,6 +89,52 @@ pub enum ModalPaneTarget {
     Right,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModalStreamDirection {
+    Forward,
+    Backward,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModalStreamEasing {
+    ExpoInOut,
+    ExpoOut,
+}
+
+impl ModalStreamEasing {
+    pub fn apply(self, t: f32) -> f32 {
+        match self {
+            Self::ExpoInOut => simple_easing::expo_in_out(t),
+            Self::ExpoOut => simple_easing::expo_out(t),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ModalStreamTransition {
+    pub previous_modal: SearchModal,
+    pub direction: ModalStreamDirection,
+    pub started_at: Instant,
+    pub duration: Duration,
+    pub easing: ModalStreamEasing,
+}
+
+impl ModalStreamTransition {
+    pub fn progress(&self) -> f32 {
+        let duration = self.duration.as_secs_f32().max(0.001);
+        (self.started_at.elapsed().as_secs_f32() / duration).clamp(0.0, 1.0)
+    }
+
+    pub fn eased_progress(&self) -> f32 {
+        self.easing.apply(self.progress())
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.progress() >= 1.0
+    }
+}
+
 #[derive(Debug, Clone)]
 struct ModalRestoreSnapshot {
     field_idx: usize,
@@ -155,6 +202,7 @@ pub struct App {
     pub hint_buffer: String,
     pub modal_mouse_mode: bool,
     modal_restore_snapshot: Option<ModalRestoreSnapshot>,
+    pub modal_stream_transition: Option<ModalStreamTransition>,
     pub editable_note: String,
     pub note_headings_valid: bool,
     pub note_structure_warning: Option<String>,
@@ -243,6 +291,7 @@ impl App {
             hint_buffer: String::new(),
             modal_mouse_mode: false,
             modal_restore_snapshot: None,
+            modal_stream_transition: None,
             editable_note,
             note_headings_valid,
             note_structure_warning,
@@ -280,6 +329,7 @@ impl App {
         self.modal = None;
         self.modal_mouse_mode = false;
         self.modal_restore_snapshot = None;
+        self.modal_stream_transition = None;
         self.hint_buffer.clear();
     }
 
@@ -337,6 +387,7 @@ impl App {
         }
         self.modal = None;
         self.modal_mouse_mode = false;
+        self.modal_stream_transition = None;
         self.hint_buffer.clear();
     }
 
@@ -574,6 +625,13 @@ impl App {
             }
         }
         if self
+            .modal_stream_transition
+            .as_ref()
+            .is_some_and(ModalStreamTransition::is_finished)
+        {
+            self.modal_stream_transition = None;
+        }
+        if self
             .copy_flash_until
             .is_some_and(|until| Instant::now() >= until)
         {
@@ -585,6 +643,52 @@ impl App {
 
     pub fn has_active_text_flash(&self) -> bool {
         !self.evicted_collection_flash_until.is_empty()
+    }
+
+    pub fn has_active_modal_stream_transition(&self) -> bool {
+        self.modal_stream_transition
+            .as_ref()
+            .is_some_and(|transition| !transition.is_finished())
+    }
+
+    fn start_modal_stream_transition(&mut self, previous_modal: Option<SearchModal>) {
+        let Some(previous_modal) = previous_modal else {
+            self.modal_stream_transition = None;
+            return;
+        };
+        let Some(current_modal) = self.modal.as_ref() else {
+            self.modal_stream_transition = None;
+            return;
+        };
+
+        if previous_modal
+            .list_view_snapshot(&self.config.sticky_values)
+            .is_none()
+            || current_modal
+                .list_view_snapshot(&self.config.sticky_values)
+                .is_none()
+        {
+            self.modal_stream_transition = None;
+            return;
+        }
+
+        let direction = match current_modal
+            .field_flow
+            .list_idx
+            .cmp(&previous_modal.field_flow.list_idx)
+        {
+            std::cmp::Ordering::Greater => Some(ModalStreamDirection::Forward),
+            std::cmp::Ordering::Less => Some(ModalStreamDirection::Backward),
+            std::cmp::Ordering::Equal => None,
+        };
+
+        self.modal_stream_transition = direction.map(|direction| ModalStreamTransition {
+            previous_modal,
+            direction,
+            started_at: Instant::now(),
+            duration: Duration::from_millis(220),
+            easing: ModalStreamEasing::ExpoInOut,
+        });
     }
 
     pub fn collection_text_flash_amount(&self, collection_id: &str) -> Option<f32> {
@@ -874,6 +978,7 @@ impl App {
         self.map_hint_level = MapHintLevel::Sections(self.group_idx_for_section(self.current_idx));
         self.modal = None;
         self.modal_mouse_mode = false;
+        self.modal_stream_transition = None;
         self.hint_buffer.clear();
         self.data = data;
         self.editable_note = build_initial_document(
@@ -978,6 +1083,7 @@ impl App {
         if !self.text_entry_active() && self.is_copy_note(&key) {
             self.modal_mouse_mode = false;
             self.modal = None;
+            self.modal_stream_transition = None;
             self.show_help = false;
             self.copy_requested = true;
             return;
@@ -1739,6 +1845,7 @@ impl App {
     fn confirm_modal_value(&mut self, value: String) {
         let idx = self.current_idx;
         if self.modal.is_some() {
+            let previous_modal = self.modal.clone();
             let window_size = self.modal_window_size();
             let advance = self.modal.as_mut().unwrap().advance_field(
                 value,
@@ -1761,6 +1868,7 @@ impl App {
                         s.composite_spans = Some(spans);
                     }
                     let _ = self.config.save(&self.data_dir);
+                    self.start_modal_stream_transition(previous_modal);
                 }
                 FieldAdvance::StayOnList => {
                     let preview = self
@@ -1800,6 +1908,7 @@ impl App {
             return;
         }
 
+        let previous_modal = self.modal.clone();
         let window_size = self.modal_window_size();
         let advance = self
             .modal
@@ -1821,6 +1930,7 @@ impl App {
                     s.composite_spans = Some(spans);
                 }
                 let _ = self.config.save(&self.data_dir);
+                self.start_modal_stream_transition(previous_modal);
             }
             FieldAdvance::Complete(final_value) => {
                 if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
@@ -2181,6 +2291,7 @@ impl App {
 
     fn composite_go_back(&mut self) {
         let idx = self.current_idx;
+        let previous_modal = self.modal.clone();
 
         let window_size = self.modal_window_size();
         if self
@@ -2201,6 +2312,7 @@ impl App {
                 );
                 s.composite_spans = Some(spans);
             }
+            self.start_modal_stream_transition(previous_modal);
             return;
         }
         let (new_list_idx, popped_output, new_labels, new_outputs) = {
@@ -2264,6 +2376,7 @@ impl App {
                 s.composite_spans = Some(spans);
             }
         }
+        self.start_modal_stream_transition(previous_modal);
     }
 }
 
