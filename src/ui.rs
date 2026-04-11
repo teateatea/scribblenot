@@ -2153,6 +2153,71 @@ fn active_simple_modal_content<'a>(
     .into()
 }
 
+fn entry_composition_panel<'a>(
+    app: &'a App,
+    modal: &'a crate::modal::SearchModal,
+    modal_width: f32,
+) -> Option<Element<'a, Message>> {
+    let spans = crate::app::compute_field_composition_spans(modal, &app.config.sticky_values);
+    if spans.is_empty() {
+        return None;
+    }
+
+    let styled_spans = spans
+        .into_iter()
+        .map(|span_data| {
+            let color = match span_data.kind {
+                crate::app::FieldCompositionSpanKind::Literal => app.ui_theme.text,
+                crate::app::FieldCompositionSpanKind::Confirmed => app.ui_theme.selected,
+                crate::app::FieldCompositionSpanKind::Preview => app.ui_theme.modal_muted_text,
+            };
+            span::<Message, iced::Font>(span_data.text).color(color)
+        })
+        .collect::<Vec<_>>();
+
+    let panel_width = app
+        .viewport_size
+        .map(|size| (size.width * 0.9).clamp(modal_width, 980.0))
+        .unwrap_or(820.0)
+        .max(modal_width);
+    let label_color = blend_color(app.ui_theme.modal_hint_text, app.ui_theme.text, 0.25);
+    let panel_background = blend_color(
+        app.ui_theme.modal_panel_background,
+        app.ui_theme.modal_input_background,
+        0.15,
+    );
+    let border_color = blend_color(
+        app.ui_theme.modal_input_border,
+        app.ui_theme.text,
+        0.25,
+    );
+
+    Some(
+        container(
+            column![
+                text("Entry Composition")
+                    .font(app.ui_theme.font_modal)
+                    .color(label_color),
+                rich_text::<Message, iced::Theme, iced::Renderer>(styled_spans)
+                    .font(app.ui_theme.font_modal)
+                    .size(16)
+                    .width(Length::Fill)
+            ]
+            .spacing(8),
+        )
+        .width(Length::Fixed(panel_width))
+        .padding(12)
+        .style(move |_| {
+            background_style(panel_background, app.ui_theme.text).border(Border {
+                color: border_color,
+                width: 1.0,
+                radius: 6.0.into(),
+            })
+        })
+        .into(),
+    )
+}
+
 fn collection_neighbor_previews_supported(app: &App) -> bool {
     app.viewport_size
         .map(|size| size.height >= 760.0)
@@ -2308,18 +2373,41 @@ fn modal_overlay<'a>(app: &'a App, modal: &'a crate::modal::SearchModal) -> Elem
         active_modal
     };
 
+    let composition_panel = if modal.is_collection_mode() {
+        None
+    } else {
+        entry_composition_panel(app, modal, modal_width)
+    };
     let base = main_layout(app);
     Stack::new()
         .push(base)
         .push(
             mouse_area(
-                container(column![
-                    Space::with_height(Length::Fixed(top_offset)),
-                    modal_stream
-                ])
+                container(
+                    column(
+                        std::iter::once(Space::with_height(Length::Fixed(top_offset)).into())
+                            .chain(
+                                composition_panel
+                                    .into_iter()
+                                    .map(|panel| {
+                                        container(panel)
+                                            .width(Length::Fill)
+                                            .center_x(Length::Fill)
+                                            .into()
+                                    })
+                                    .chain(std::iter::once(
+                                        container(modal_stream)
+                                            .width(Length::Fill)
+                                            .center_x(Length::Fill)
+                                            .into(),
+                                    )),
+                            )
+                            .collect::<Vec<Element<'a, Message>>>(),
+                    )
+                    .spacing(14),
+                )
                 .width(Length::Fill)
-                .height(Length::Fill)
-                .center_x(Length::Fill),
+                .height(Length::Fill),
             )
             .on_press(Message::ModalBackdropPressed),
         )

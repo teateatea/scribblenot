@@ -160,6 +160,19 @@ pub struct StatusMsg {
     pub created_at: Instant,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FieldCompositionSpanKind {
+    Literal,
+    Confirmed,
+    Preview,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldCompositionSpan {
+    pub text: String,
+    pub kind: FieldCompositionSpanKind,
+}
+
 impl StatusMsg {
     pub fn success(text: impl Into<String>) -> Self {
         Self {
@@ -2384,6 +2397,21 @@ fn compute_field_spans(
     modal: &crate::modal::SearchModal,
     sticky_values: &std::collections::HashMap<String, String>,
 ) -> Vec<(String, bool)> {
+    compute_field_composition_spans(modal, sticky_values)
+        .into_iter()
+        .map(|span| {
+            (
+                span.text,
+                matches!(span.kind, FieldCompositionSpanKind::Confirmed),
+            )
+        })
+        .collect()
+}
+
+pub fn compute_field_composition_spans(
+    modal: &crate::modal::SearchModal,
+    sticky_values: &std::collections::HashMap<String, String>,
+) -> Vec<FieldCompositionSpan> {
     if let Some(root) = modal.nested_stack.first() {
         let resolved = crate::sections::multi_field::resolve_multifield_value(
             &crate::sections::header::HeaderFieldValue::NestedState(Box::new(root.state.clone())),
@@ -2391,12 +2419,18 @@ fn compute_field_spans(
             sticky_values,
         );
         return match resolved {
-            crate::sections::multi_field::ResolvedMultiFieldValue::Complete(value) => {
-                vec![(value, true)]
-            }
-            crate::sections::multi_field::ResolvedMultiFieldValue::Partial(value) => {
-                vec![(value, false)]
-            }
+            crate::sections::multi_field::ResolvedMultiFieldValue::Complete(value) => vec![
+                FieldCompositionSpan {
+                    text: value,
+                    kind: FieldCompositionSpanKind::Confirmed,
+                },
+            ],
+            crate::sections::multi_field::ResolvedMultiFieldValue::Partial(value) => vec![
+                FieldCompositionSpan {
+                    text: value,
+                    kind: FieldCompositionSpanKind::Preview,
+                },
+            ],
             crate::sections::multi_field::ResolvedMultiFieldValue::Empty => Vec::new(),
         };
     }
@@ -2405,7 +2439,10 @@ fn compute_field_spans(
         if preview.is_empty() {
             return Vec::new();
         }
-        return vec![(preview, true)];
+        return vec![FieldCompositionSpan {
+            text: preview,
+            kind: FieldCompositionSpanKind::Confirmed,
+        }];
     }
     let flow = &modal.field_flow;
     let Some(format) = &flow.format else {
@@ -2413,27 +2450,33 @@ fn compute_field_spans(
             return flow
                 .values
                 .iter()
-                .map(|value| (value.clone(), true))
+                .map(|value| FieldCompositionSpan {
+                    text: value.clone(),
+                    kind: FieldCompositionSpanKind::Confirmed,
+                })
                 .collect();
         }
         if let Some(list) = flow.lists.get(flow.list_idx) {
             if !flow.repeat_values.is_empty() {
-                return vec![(
-                    joined_repeating_value(list, &flow.repeat_values)
+                return vec![FieldCompositionSpan {
+                    text: joined_repeating_value(list, &flow.repeat_values)
                         .unwrap_or_else(|| flow.repeat_values.join(", ")),
-                    true,
-                )];
+                    kind: FieldCompositionSpanKind::Confirmed,
+                }];
             }
         }
         return Vec::new();
     };
-    let mut spans: Vec<(String, bool)> = Vec::new();
+    let mut spans: Vec<FieldCompositionSpan> = Vec::new();
     let mut literal = String::new();
     let mut chars = format.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '{' {
             if !literal.is_empty() {
-                spans.push((literal.clone(), false));
+                spans.push(FieldCompositionSpan {
+                    text: literal.clone(),
+                    kind: FieldCompositionSpanKind::Literal,
+                });
                 literal.clear();
             }
             let mut id = String::new();
@@ -2445,31 +2488,43 @@ fn compute_field_spans(
             }
             if let Some(i) = flow.lists.iter().position(|list| list.id == id) {
                 if i < flow.values.len() {
-                    spans.push((flow.values[i].clone(), true));
+                    spans.push(FieldCompositionSpan {
+                        text: flow.values[i].clone(),
+                        kind: FieldCompositionSpanKind::Confirmed,
+                    });
                 } else if i == flow.list_idx && !flow.repeat_values.is_empty() {
-                    spans.push((
-                        joined_repeating_value(&flow.lists[i], &flow.repeat_values)
+                    spans.push(FieldCompositionSpan {
+                        text: joined_repeating_value(&flow.lists[i], &flow.repeat_values)
                             .unwrap_or_else(|| flow.repeat_values.join(", ")),
-                        true,
-                    ));
+                        kind: FieldCompositionSpanKind::Confirmed,
+                    });
                 } else if let Some(value) = fallback_list_value(&flow.lists[i], sticky_values) {
-                    spans.push((value, false));
+                    spans.push(FieldCompositionSpan {
+                        text: value,
+                        kind: FieldCompositionSpanKind::Preview,
+                    });
                 } else {
                     let preview = flow.lists[i].preview.as_deref().unwrap_or("?");
-                    spans.push((preview.to_string(), false));
+                    spans.push(FieldCompositionSpan {
+                        text: preview.to_string(),
+                        kind: FieldCompositionSpanKind::Preview,
+                    });
                 }
             } else if let Some(list) = flow.format_lists.iter().find(|list| list.id == id) {
-                spans.push((
-                    fallback_list_value(list, sticky_values).unwrap_or_default(),
-                    false,
-                ));
+                spans.push(FieldCompositionSpan {
+                    text: fallback_list_value(list, sticky_values).unwrap_or_default(),
+                    kind: FieldCompositionSpanKind::Preview,
+                });
             }
         } else {
             literal.push(c);
         }
     }
     if !literal.is_empty() {
-        spans.push((literal, false));
+        spans.push(FieldCompositionSpan {
+            text: literal,
+            kind: FieldCompositionSpanKind::Literal,
+        });
     }
     spans
 }
@@ -3184,5 +3239,86 @@ mod tests {
         app.handle_key(AppKey::Esc);
         assert_eq!(app.current_idx, 0);
         assert_eq!(app.focus, Focus::Wizard);
+    }
+}
+
+#[cfg(test)]
+mod composition_span_tests {
+    use super::{compute_field_composition_spans, FieldCompositionSpanKind};
+    use crate::data::{HeaderFieldConfig, HierarchyItem, HierarchyList, ModalStart};
+    use crate::modal::SearchModal;
+    use std::collections::HashMap;
+
+    #[test]
+    fn composition_spans_distinguish_literal_confirmed_and_preview_segments() {
+        let field = HeaderFieldConfig {
+            id: "request".to_string(),
+            name: "Request".to_string(),
+            format: Some("Treat {place} {region}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![
+                HierarchyList {
+                    id: "place".to_string(),
+                    label: Some("Place".to_string()),
+                    preview: Some("?".to_string()),
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![HierarchyItem {
+                        id: "left".to_string(),
+                        label: Some("Left".to_string()),
+                        default_enabled: true,
+                        output: Some("Left".to_string()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                    }],
+                },
+                HierarchyList {
+                    id: "region".to_string(),
+                    label: Some("Region".to_string()),
+                    preview: Some("Region".to_string()),
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![HierarchyItem {
+                        id: "shoulder".to_string(),
+                        label: Some("Shoulder".to_string()),
+                        default_enabled: true,
+                        output: Some("Shoulder".to_string()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                    }],
+                },
+            ],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+
+        let mut sticky_values = HashMap::new();
+        let mut modal = SearchModal::new_field(0, field, None, &sticky_values, 5);
+        let _ = modal.advance_field("Left".to_string(), &mut sticky_values, 5);
+
+        let spans = compute_field_composition_spans(&modal, &sticky_values);
+
+        assert_eq!(
+            spans
+                .iter()
+                .map(|span| (&span.text, &span.kind))
+                .collect::<Vec<_>>(),
+            vec![
+                (&"Treat ".to_string(), &FieldCompositionSpanKind::Literal),
+                (&"Left".to_string(), &FieldCompositionSpanKind::Confirmed),
+                (&" ".to_string(), &FieldCompositionSpanKind::Literal),
+                (&"Region".to_string(), &FieldCompositionSpanKind::Preview),
+            ]
+        );
     }
 }
