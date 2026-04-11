@@ -131,6 +131,13 @@ pub const CONFIRMED_MUTED_PREVIEW: Color = Color {
     a: 1.0,
 };
 
+pub const PARTIAL_PREVIEW: Color = Color {
+    r: 0.69,
+    g: 0.40,
+    b: 0.92,
+    a: 1.0,
+};
+
 pub const PREVIEW_COPY_FLASH_BACKGROUND: Color = Color {
     r: 0.10,
     g: 0.35,
@@ -201,6 +208,7 @@ pub struct AppTheme {
     pub modal_input_border: Color,
     pub sticky_default_preview: Color,
     pub confirmed_muted_preview: Color,
+    pub partial_preview: Color,
     pub preview_copy_flash_background: Color,
     pub text_color_flash: Color,
     pub status_background: Color,
@@ -291,6 +299,8 @@ struct ThemeFile {
     #[serde(default, deserialize_with = "deserialize_color_setting")]
     confirmed_muted_preview: ColorSetting,
     #[serde(default, deserialize_with = "deserialize_color_setting")]
+    partial_preview: ColorSetting,
+    #[serde(default, deserialize_with = "deserialize_color_setting")]
     preview_copy_flash_background: ColorSetting,
     #[serde(default, deserialize_with = "deserialize_color_setting")]
     text_color_flash: ColorSetting,
@@ -366,6 +376,7 @@ impl Default for AppTheme {
             modal_input_border: MODAL,
             sticky_default_preview: STICKY_DEFAULT_PREVIEW,
             confirmed_muted_preview: CONFIRMED_MUTED_PREVIEW,
+            partial_preview: PARTIAL_PREVIEW,
             preview_copy_flash_background: PREVIEW_COPY_FLASH_BACKGROUND,
             text_color_flash: TEXT_COLOR_FLASH,
             status_background: STATUS_BACKGROUND,
@@ -531,6 +542,11 @@ impl AppTheme {
             confirmed_muted_preview: optional_color(
                 file.confirmed_muted_preview,
                 default.confirmed_muted_preview,
+                &custom_colors,
+            )?,
+            partial_preview: optional_color(
+                file.partial_preview,
+                default.partial_preview,
                 &custom_colors,
             )?,
             preview_copy_flash_background: optional_color(

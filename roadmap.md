@@ -6,7 +6,7 @@ This file tracks improvement ideas, technical debt, reliability upgrades, securi
 It is not a commitment list. It is a place to keep useful ideas from getting lost.
 
 ## Tracker
-- Next suggestion number: 16
+- Next suggestion number: 19
 - Rule: never reuse or renumber old suggestion IDs, even if an item is completed or removed later.
 - Status values: `open`, `planned`, `in-progress`, `blocked`, `done`, `dropped`
 
@@ -66,6 +66,8 @@ Priority rule of thumb:
 6. [open] [Documentation] {GPT-5 Codex}: Document the flat-data invariants in one short reference: allowed block IDs, whether IDs must be globally unique, and which files are still intentionally exempt from the flat format. That would make future YAML changes safer.
 15. [open] [Roadmap] {GPT-5 Codex}: Define stable per-section editable-document anchors before completing the desktop rewrite. The tray app needs safe section-level replacement inside `editable_note`, but current note rendering groups multiple sections under shared headings. Suggested next step: make the anchor contract explicit in the rewrite docs and keep document helpers keyed to stable per-section anchors, not only top-level headings.
 17. [open] [Security] {GPT-5 Codex}: Add explicit regression checks for clipboard-import privacy boundaries. The planned clinic-note import flow is intentionally memory-only, and accidental autosave, logging, or persistence would be a high-impact failure. Suggested next step: add tests and code-review checkpoints that verify imported patient note text is never written to config, data files, logs, or restored across restart.
+18. [done] [Roadmap] {GPT-5 Codex}: Modal stream UI prototype: keep the current active modal interaction, but add read-only neighboring teaser cards so users can see adjacent modal states and collection previews simultaneously. Implemented in `src/modal.rs` and `src/ui.rs` per `operations/plans/IMPLEMENTATION-BRIEF-modal-stream-ui.md`, with automated coverage for simple-list teaser snapshots and collection preview neighbors.
+19. [planned] [Roadmap] {GPT-5 Codex}: Modal stream V2 planning and tuning pass: preserve the agreed next-step product direction and then implement it in phases. Why it matters: the prototype works, but the next iteration now has important product rules that are easy to lose in chat alone, including stub-card priority, animated slide transitions with tunable easing, future chunked/unit paging, and a top entry-composition panel with span-level override semantics. Suggested next step: use `operations/plans/PLAN-modal-stream-v2-stubs-motion-composition.md` as the source of truth for the follow-up phases, starting with horizontal stub packing, then motion, then the display-only composition panel.
 
 ## Later
 10. [planned] [Roadmap] {GPT-5 Codex}: Product flexibility pass: make note headings and boilerplate data-driven so changing the clinical template does not require Rust edits.

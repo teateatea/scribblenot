@@ -194,19 +194,16 @@ mod tests {
                 )),
                 "free_text" => SectionState::FreeText(FreeTextState::new()),
                 "list_select" => SectionState::ListSelect(ListSelectState::new(
-                    data.list_data
-                        .get(&section.id)
-                        .cloned()
-                        .unwrap_or_default(),
+                    data.list_data.get(&section.id).cloned().unwrap_or_default(),
                 )),
-                "checklist" => SectionState::Checklist(
-                    crate::sections::checklist::ChecklistState::new(
+                "checklist" => {
+                    SectionState::Checklist(crate::sections::checklist::ChecklistState::new(
                         data.checklist_data
                             .get(&section.id)
                             .cloned()
                             .unwrap_or_default(),
-                    ),
-                ),
+                    ))
+                }
                 "collection" => SectionState::Collection(CollectionState::new(
                     data.collection_data
                         .get(&section.id)

@@ -162,11 +162,12 @@ fn view(state: &ScribbleApp) -> Element<'_, Message> {
 fn subscription(state: &ScribbleApp) -> Subscription<Message> {
     let keys = keyboard::on_key_press(|key, mods| Some(Message::KeyPressed(key, mods)));
     let resize = iced::window::resize_events().map(|(_id, size)| Message::WindowResized(size));
-    let tick_interval = if state.inner.copy_flash_until.is_some() || state.inner.has_active_text_flash() {
-        Duration::from_millis(33)
-    } else {
-        Duration::from_millis(500)
-    };
+    let tick_interval =
+        if state.inner.copy_flash_until.is_some() || state.inner.has_active_text_flash() {
+            Duration::from_millis(33)
+        } else {
+            Duration::from_millis(500)
+        };
     let tick = time::every(tick_interval).map(|_| Message::Tick);
     Subscription::batch(vec![keys, resize, tick])
 }

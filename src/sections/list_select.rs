@@ -51,5 +51,4 @@ impl ListSelectState {
             self.cursor += 1;
         }
     }
-
 }

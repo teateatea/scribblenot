@@ -11,13 +11,16 @@ custom_colors:
   bright-blue: 4FB3D9
   bright-cyan: 7FD7FF
   dark-magenta: fc027f
+  purple: 9400d3
 
 # Text and semantic roles
 text: "#E6E6E6"
 active: "#FFFF00"
 active_preview: "#FFA500"
+partial_preview: purple
 selected: "#00FF00"
 selected_dark: "#00A000"
+
 hint: "#FF00FF"
 hint_prefix: "bright-cyan" #"#00FFFF"
 modal: "white" #"#00FFFF"

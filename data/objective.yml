@@ -234,9 +234,9 @@ lists:
 
 
   - id: place
-    label: "place"
+    label: "place {region}"
     modal_start: search
-    default: bilateral
+    default: empty_space
     items:
       - id: empty_space
         label: "1 (Empty Space)"

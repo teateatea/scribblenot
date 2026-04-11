@@ -284,7 +284,36 @@ impl App {
     }
 
     pub fn dismiss_modal(&mut self) {
-        if let Some(snapshot) = self.modal_restore_snapshot.take() {
+        let nested_preview = self
+            .modal
+            .as_ref()
+            .filter(|modal| !modal.nested_stack.is_empty())
+            .map(|modal| {
+                (
+                    modal.preview_field_value(&self.config.sticky_values),
+                    compute_field_spans(modal, &self.config.sticky_values),
+                )
+            });
+        if let Some((preview_value, spans)) = nested_preview {
+            if let Some(snapshot) = self.modal_restore_snapshot.take() {
+                let idx = self.current_idx;
+                if let Some(SectionState::Header(state)) = self.section_states.get_mut(idx) {
+                    if let Some(visible_count) =
+                        state.repeat_visible_counts.get_mut(snapshot.field_idx)
+                    {
+                        *visible_count = (*visible_count).max(snapshot.value_index + 1);
+                    }
+                    if let Some(slot) = state.repeated_values.get_mut(snapshot.field_idx) {
+                        if snapshot.value_index < slot.len() {
+                            slot[snapshot.value_index] = preview_value;
+                        } else {
+                            slot.push(preview_value);
+                        }
+                    }
+                    state.composite_spans = Some(spans);
+                }
+            }
+        } else if let Some(snapshot) = self.modal_restore_snapshot.take() {
             let idx = self.current_idx;
             if let Some(SectionState::Header(state)) = self.section_states.get_mut(idx) {
                 if let Some(slot) = state.repeated_values.get_mut(snapshot.field_idx) {
@@ -408,7 +437,10 @@ impl App {
                 if row_index >= state.collections.len() {
                     return;
                 }
-                let was_focused = matches!(state.focus, crate::sections::collection::CollectionFocus::Collections);
+                let was_focused = matches!(
+                    state.focus,
+                    crate::sections::collection::CollectionFocus::Collections
+                );
                 let same_row = state.collection_cursor == row_index;
                 state.collection_cursor = row_index;
                 state.exit_items();
@@ -423,7 +455,10 @@ impl App {
                 if row_index >= collection.items.len() {
                     return;
                 }
-                let was_focused = matches!(state.focus, crate::sections::collection::CollectionFocus::Items(_));
+                let was_focused = matches!(
+                    state.focus,
+                    crate::sections::collection::CollectionFocus::Items(_)
+                );
                 let same_row = state.item_cursor == row_index;
                 state.enter_collection();
                 state.item_cursor = row_index;
@@ -570,8 +605,8 @@ impl App {
         if collection_ids.is_empty() {
             return;
         }
-        let until =
-            Instant::now() + std::time::Duration::from_millis(self.ui_theme.text_color_flash_duration);
+        let until = Instant::now()
+            + std::time::Duration::from_millis(self.ui_theme.text_color_flash_duration);
         for collection_id in collection_ids {
             self.evicted_collection_flash_until
                 .insert(collection_id, until);
@@ -1287,7 +1322,7 @@ impl App {
                 return;
             };
         if let Some(cfg) = field_cfg {
-            if cfg.lists.is_empty() && cfg.collections.is_empty() {
+            if cfg.lists.is_empty() && cfg.collections.is_empty() && cfg.fields.is_empty() {
                 return;
             }
             let window_size = self.modal_window_size();
@@ -1352,6 +1387,16 @@ impl App {
 
         match focus {
             ModalFocus::SearchBar => match key {
+                AppKey::Up => {}
+                AppKey::Down => {
+                    if self
+                        .modal
+                        .as_ref()
+                        .is_some_and(|modal| !modal.filtered.is_empty())
+                    {
+                        self.modal.as_mut().unwrap().focus = ModalFocus::List;
+                    }
+                }
                 AppKey::Tab => {
                     let query = self.modal.as_ref().unwrap().query.trim().to_string();
                     if !query.is_empty() {
@@ -1442,6 +1487,8 @@ impl App {
                     if modal.list_cursor > 0 {
                         modal.list_cursor -= 1;
                         modal.update_scroll();
+                    } else {
+                        modal.focus = ModalFocus::SearchBar;
                     }
                 }
                 AppKey::Down => {
@@ -1648,7 +1695,8 @@ impl App {
         let hint_pool = self.data.keybindings.hints.len();
         match state.focus {
             crate::sections::collection::CollectionFocus::Collections => {
-                let range = modal_hint_window(state.collection_cursor, state.collections.len(), hint_pool);
+                let range =
+                    modal_hint_window(state.collection_cursor, state.collections.len(), hint_pool);
                 let target = range.start + hint_pos;
                 if target < state.collections.len() {
                     state.collection_cursor = target;
@@ -1699,7 +1747,11 @@ impl App {
             );
             match advance {
                 FieldAdvance::NextList => {
-                    let preview = self.modal.as_ref().unwrap().preview_field_value(&self.config.sticky_values);
+                    let preview = self
+                        .modal
+                        .as_ref()
+                        .unwrap()
+                        .preview_field_value(&self.config.sticky_values);
                     let spans = compute_field_spans(
                         self.modal.as_ref().unwrap(),
                         &self.config.sticky_values,
@@ -1711,7 +1763,11 @@ impl App {
                     let _ = self.config.save(&self.data_dir);
                 }
                 FieldAdvance::StayOnList => {
-                    let preview = self.modal.as_ref().unwrap().preview_field_value(&self.config.sticky_values);
+                    let preview = self
+                        .modal
+                        .as_ref()
+                        .unwrap()
+                        .preview_field_value(&self.config.sticky_values);
                     let spans = compute_field_spans(
                         self.modal.as_ref().unwrap(),
                         &self.config.sticky_values,
@@ -1753,7 +1809,11 @@ impl App {
 
         match advance {
             FieldAdvance::NextList | FieldAdvance::StayOnList => {
-                let preview = self.modal.as_ref().unwrap().preview_field_value(&self.config.sticky_values);
+                let preview = self
+                    .modal
+                    .as_ref()
+                    .unwrap()
+                    .preview_field_value(&self.config.sticky_values);
                 let spans =
                     compute_field_spans(self.modal.as_ref().unwrap(), &self.config.sticky_values);
                 if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
@@ -1894,7 +1954,9 @@ impl App {
         }
         if self.is_confirm(&key) {
             let (has_selection, has_entries) = match &self.section_states[idx] {
-                SectionState::ListSelect(s) => (!s.selected_indices.is_empty(), !s.entries.is_empty()),
+                SectionState::ListSelect(s) => {
+                    (!s.selected_indices.is_empty(), !s.entries.is_empty())
+                }
                 _ => (false, false),
             };
             if has_selection {
@@ -2121,6 +2183,26 @@ impl App {
         let idx = self.current_idx;
 
         let window_size = self.modal_window_size();
+        if self
+            .modal
+            .as_mut()
+            .is_some_and(|modal| modal.go_back_one_step(&self.config.sticky_values, window_size))
+        {
+            let spans = {
+                let modal = self.modal.as_ref().unwrap();
+                compute_field_spans(modal, &self.config.sticky_values)
+            };
+            if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                s.set_preview_value(
+                    self.modal
+                        .as_ref()
+                        .unwrap()
+                        .preview_field_value(&self.config.sticky_values),
+                );
+                s.composite_spans = Some(spans);
+            }
+            return;
+        }
         let (new_list_idx, popped_output, new_labels, new_outputs) = {
             let modal = match self.modal.as_mut() {
                 Some(m) => m,
@@ -2189,6 +2271,22 @@ fn compute_field_spans(
     modal: &crate::modal::SearchModal,
     sticky_values: &std::collections::HashMap<String, String>,
 ) -> Vec<(String, bool)> {
+    if let Some(root) = modal.nested_stack.first() {
+        let resolved = crate::sections::multi_field::resolve_multifield_value(
+            &crate::sections::header::HeaderFieldValue::NestedState(Box::new(root.state.clone())),
+            &root.field,
+            sticky_values,
+        );
+        return match resolved {
+            crate::sections::multi_field::ResolvedMultiFieldValue::Complete(value) => {
+                vec![(value, true)]
+            }
+            crate::sections::multi_field::ResolvedMultiFieldValue::Partial(value) => {
+                vec![(value, false)]
+            }
+            crate::sections::multi_field::ResolvedMultiFieldValue::Empty => Vec::new(),
+        };
+    }
     if modal.is_collection_mode() {
         let preview = modal.collection_preview();
         if preview.is_empty() {
@@ -2267,6 +2365,14 @@ fn compute_field_preview(
     modal: &crate::modal::SearchModal,
     sticky_values: &std::collections::HashMap<String, String>,
 ) -> String {
+    if let Some(root) = modal.nested_stack.first() {
+        let resolved = crate::sections::multi_field::resolve_multifield_value(
+            &crate::sections::header::HeaderFieldValue::NestedState(Box::new(root.state.clone())),
+            &root.field,
+            sticky_values,
+        );
+        return resolved.display_value().unwrap_or_default().to_string();
+    }
     if modal.is_collection_mode() {
         return modal.collection_preview();
     }

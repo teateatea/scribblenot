@@ -19,7 +19,14 @@ pub fn section_start_line(
     boilerplate_texts: &HashMap<String, String>,
     section_id: &str,
 ) -> u16 {
-    let note = render_note(groups, sections, states, sticky_values, boilerplate_texts, NoteRenderMode::Preview);
+    let note = render_note(
+        groups,
+        sections,
+        states,
+        sticky_values,
+        boilerplate_texts,
+        NoteRenderMode::Preview,
+    );
     let anchor = sections
         .iter()
         .find(|section| section.id == section_id)
@@ -41,7 +48,15 @@ pub fn render_note(
     boilerplate_texts: &HashMap<String, String>,
     mode: NoteRenderMode,
 ) -> String {
-    render_document(groups, sections, states, sticky_values, boilerplate_texts, mode, false)
+    render_document(
+        groups,
+        sections,
+        states,
+        sticky_values,
+        boilerplate_texts,
+        mode,
+        false,
+    )
 }
 
 pub fn render_editable_document(
@@ -134,7 +149,8 @@ fn group_sections<'a>(
     sections: &'a [SectionConfig],
     states: &'a [SectionState],
 ) -> Vec<(&'a SectionConfig, &'a SectionState)> {
-    group.sections
+    group
+        .sections
         .iter()
         .filter_map(|group_section| {
             sections
@@ -162,7 +178,9 @@ fn render_section_body(
     mode: NoteRenderMode,
 ) -> String {
     match (cfg.section_type.as_str(), state) {
-        ("multi_field", SectionState::Header(header)) => render_multifield(cfg, header, sticky_values),
+        ("multi_field", SectionState::Header(header)) => {
+            render_multifield(cfg, header, sticky_values)
+        }
         ("free_text", SectionState::FreeText(text)) => text.entries.join("\n"),
         ("list_select", SectionState::ListSelect(list)) => {
             let items: Vec<String> = list
@@ -206,8 +224,11 @@ fn render_multifield(
                 if multifield_renders_without_field_label(cfg, field_cfg) {
                     lines.push(rendered.to_string());
                 } else {
-                    let label =
-                        crate::sections::multi_field::resolve_field_label(value, field_cfg, sticky_values);
+                    let label = crate::sections::multi_field::resolve_field_label(
+                        value,
+                        field_cfg,
+                        sticky_values,
+                    );
                     lines.push(format!("{}: {}", label, rendered));
                 }
             }
@@ -223,12 +244,11 @@ fn render_multifield(
                 if multifield_renders_without_field_label(cfg, field_cfg) {
                     lines.push(rendered.to_string());
                 } else {
-                    let label =
-                        crate::sections::multi_field::resolve_field_label(
-                            &crate::sections::header::HeaderFieldValue::Text(String::new()),
-                            field_cfg,
-                            sticky_values,
-                        );
+                    let label = crate::sections::multi_field::resolve_field_label(
+                        &crate::sections::header::HeaderFieldValue::Text(String::new()),
+                        field_cfg,
+                        sticky_values,
+                    );
                     lines.push(format!("{}: {}", label, rendered));
                 }
             }
@@ -242,7 +262,9 @@ fn multifield_renders_without_field_label(
     field_cfg: &crate::data::HeaderFieldConfig,
 ) -> bool {
     cfg.id == "appointment_section"
-        || (!field_cfg.collections.is_empty() && field_cfg.lists.is_empty() && field_cfg.format.is_none())
+        || (!field_cfg.collections.is_empty()
+            && field_cfg.lists.is_empty()
+            && field_cfg.format.is_none())
 }
 
 fn render_collection(state: &crate::sections::collection::CollectionState) -> String {
@@ -263,7 +285,9 @@ fn is_skipped(state: &SectionState) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::{AppData, HeaderFieldConfig, ResolvedCollectionConfig, RuntimeNodeKind, SectionConfig};
+    use crate::data::{
+        AppData, HeaderFieldConfig, ResolvedCollectionConfig, RuntimeNodeKind, SectionConfig,
+    };
     use crate::sections::collection::CollectionState;
     use crate::sections::free_text::FreeTextState;
     use crate::sections::header::HeaderState;
@@ -279,19 +303,16 @@ mod tests {
                 )),
                 "free_text" => SectionState::FreeText(FreeTextState::new()),
                 "list_select" => SectionState::ListSelect(ListSelectState::new(
-                    data.list_data
-                        .get(&section.id)
-                        .cloned()
-                        .unwrap_or_default(),
+                    data.list_data.get(&section.id).cloned().unwrap_or_default(),
                 )),
-                "checklist" => SectionState::Checklist(
-                    crate::sections::checklist::ChecklistState::new(
+                "checklist" => {
+                    SectionState::Checklist(crate::sections::checklist::ChecklistState::new(
                         data.checklist_data
                             .get(&section.id)
                             .cloned()
                             .unwrap_or_default(),
-                    ),
-                ),
+                    ))
+                }
                 "collection" => SectionState::Collection(CollectionState::new(
                     data.collection_data
                         .get(&section.id)
@@ -334,7 +355,9 @@ mod tests {
             "every authored runtime group heading should appear in the rendered note"
         );
         assert!(
-            group_heading_positions.windows(2).all(|pair| pair[0] < pair[1]),
+            group_heading_positions
+                .windows(2)
+                .all(|pair| pair[0] < pair[1]),
             "group headings should render in authored group order"
         );
     }
@@ -387,7 +410,9 @@ mod tests {
             for field_index in 0..header_state.repeated_values.len() {
                 let value = format!("TEST-VALUE-{}-{}", section.id, field_index);
                 header_state.repeated_values[field_index] =
-                    vec![crate::sections::header::HeaderFieldValue::Text(value.clone())];
+                    vec![crate::sections::header::HeaderFieldValue::Text(
+                        value.clone(),
+                    )];
                 expected_outputs.push(value);
             }
         }
@@ -402,7 +427,10 @@ mod tests {
         );
 
         for value in expected_outputs {
-            assert!(note.contains(&value), "rendered note should include seeded field output");
+            assert!(
+                note.contains(&value),
+                "rendered note should include seeded field output"
+            );
         }
     }
 
@@ -418,6 +446,7 @@ mod tests {
                 id: "back".to_string(),
                 name: "BACK".to_string(),
                 format: None,
+                preview: None,
                 fields: Vec::new(),
                 lists: Vec::new(),
                 collections: vec![ResolvedCollectionConfig {

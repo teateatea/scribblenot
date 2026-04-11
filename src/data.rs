@@ -11,6 +11,8 @@ pub struct HeaderFieldConfig {
     #[serde(default)]
     pub format: Option<String>,
     #[serde(default)]
+    pub preview: Option<String>,
+    #[serde(default)]
     pub fields: Vec<HeaderFieldConfig>,
     #[serde(default)]
     pub lists: Vec<HierarchyList>,
@@ -295,7 +297,12 @@ impl From<HierarchyItemInput> for HierarchyItem {
         match value {
             HierarchyItemInput::Full(item) => Self {
                 id: if item.id.is_empty() {
-                    slugify_id(item.label.as_deref().or(item.output.as_deref()).unwrap_or(""))
+                    slugify_id(
+                        item.label
+                            .as_deref()
+                            .or(item.output.as_deref())
+                            .unwrap_or(""),
+                    )
                 } else {
                     item.id
                 },
@@ -338,7 +345,10 @@ impl HierarchyItem {
 }
 
 fn slug_source_for_item(item: &HierarchyItem) -> &str {
-    item.label.as_deref().or(item.output.as_deref()).unwrap_or("")
+    item.label
+        .as_deref()
+        .or(item.output.as_deref())
+        .unwrap_or("")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -404,6 +414,8 @@ pub struct HierarchyField {
     pub label: String,
     #[serde(default)]
     pub format: Option<String>,
+    #[serde(default)]
+    pub preview: Option<String>,
     #[serde(default)]
     pub contains: Vec<HierarchyChildRef>,
     #[serde(default)]
@@ -535,8 +547,11 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
         .clone()
         .unwrap_or_else(|| "default_template".to_string());
 
-    let groups_by_id: HashMap<&str, &HierarchyGroup> =
-        hf.groups.iter().map(|group| (group.id.as_str(), group)).collect();
+    let groups_by_id: HashMap<&str, &HierarchyGroup> = hf
+        .groups
+        .iter()
+        .map(|group| (group.id.as_str(), group))
+        .collect();
     let sections_by_id: HashMap<&str, &HierarchySection> = hf
         .sections
         .iter()
@@ -547,10 +562,16 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
         .iter()
         .map(|collection| (collection.id.as_str(), collection))
         .collect();
-    let fields_by_id: HashMap<&str, &HierarchyField> =
-        hf.fields.iter().map(|field| (field.id.as_str(), field)).collect();
-    let lists_by_id: HashMap<&str, &HierarchyList> =
-        hf.lists.iter().map(|list| (list.id.as_str(), list)).collect();
+    let fields_by_id: HashMap<&str, &HierarchyField> = hf
+        .fields
+        .iter()
+        .map(|field| (field.id.as_str(), field))
+        .collect();
+    let lists_by_id: HashMap<&str, &HierarchyList> = hf
+        .lists
+        .iter()
+        .map(|list| (list.id.as_str(), list))
+        .collect();
 
     let mut runtime_groups = Vec::new();
     let mut ui_groups = Vec::new();
@@ -616,11 +637,14 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
                         &lists_by_id,
                     )?;
                     runtime_children.push(RuntimeNode::Collection(collection_config.clone()));
-                    collection_data.insert(collection_config.id.clone(), vec![resolve_collection(
-                        collection_def,
-                        &group_note_label,
-                        &lists_by_id,
-                    )?]);
+                    collection_data.insert(
+                        collection_config.id.clone(),
+                        vec![resolve_collection(
+                            collection_def,
+                            &group_note_label,
+                            &lists_by_id,
+                        )?],
+                    );
                     ui_sections.push(collection_config.clone());
                     flat_sections.push(collection_config);
                 }
@@ -699,8 +723,7 @@ fn section_to_config(
                 attached_lists.push(
                     (*lists_by_id
                         .get(list.as_str())
-                        .ok_or_else(|| format!("unknown list '{}'", list))?
-                        )
+                        .ok_or_else(|| format!("unknown list '{}'", list))?)
                     .clone(),
                 );
             }
@@ -719,10 +742,7 @@ fn section_to_config(
         .clone()
         .or_else(|| section.nav_label.clone())
         .unwrap_or_else(|| fallback_name.to_string());
-    let map_label = section
-        .nav_label
-        .clone()
-        .unwrap_or_else(|| name.clone());
+    let map_label = section.nav_label.clone().unwrap_or_else(|| name.clone());
     let heading_label = section
         .note
         .note_label
@@ -870,11 +890,12 @@ fn resolve_field_inner(
         for child in &field.contains {
             match child {
                 HierarchyChildRef::Field { field: child_id } => {
-                    let child = fields_by_id
-                        .get(child_id.as_str())
-                        .ok_or_else(|| {
-                            format!("field '{}' references unknown field '{}'", field.id, child_id)
-                        })?;
+                    let child = fields_by_id.get(child_id.as_str()).ok_or_else(|| {
+                        format!(
+                            "field '{}' references unknown field '{}'",
+                            field.id, child_id
+                        )
+                    })?;
                     fields.push(resolve_field(
                         child,
                         fields_by_id,
@@ -895,12 +916,13 @@ fn resolve_field_inner(
                     }
                 }
                 HierarchyChildRef::Collection { collection } => {
-                    let collection = collections_by_id.get(collection.as_str()).ok_or_else(|| {
-                        format!(
-                            "field '{}' references unknown collection '{}'",
-                            field.id, collection
-                        )
-                    })?;
+                    let collection =
+                        collections_by_id.get(collection.as_str()).ok_or_else(|| {
+                            format!(
+                                "field '{}' references unknown collection '{}'",
+                                field.id, collection
+                            )
+                        })?;
                     let resolved = resolve_collection(collection, &field.label, lists_by_id)?;
                     if has_nested_fields {
                         fields.push(wrap_collection_as_field(&resolved));
@@ -920,35 +942,40 @@ fn resolve_field_inner(
     } else {
         for list_id in &field.lists {
             lists.push(
-                (*lists_by_id
-                    .get(list_id.as_str())
-                    .ok_or_else(|| format!("field '{}' references unknown list '{}'", field.id, list_id))?
-                    )
+                (*lists_by_id.get(list_id.as_str()).ok_or_else(|| {
+                    format!("field '{}' references unknown list '{}'", field.id, list_id)
+                })?)
                 .clone(),
             );
         }
         for collection_id in &field.collections {
-            let collection = collections_by_id.get(collection_id.as_str()).ok_or_else(|| {
-                format!(
-                    "field '{}' references unknown collection '{}'",
-                    field.id, collection_id
-                )
-            })?;
+            let collection = collections_by_id
+                .get(collection_id.as_str())
+                .ok_or_else(|| {
+                    format!(
+                        "field '{}' references unknown collection '{}'",
+                        field.id, collection_id
+                    )
+                })?;
             collections.push(resolve_collection(collection, &field.label, lists_by_id)?);
         }
     }
     for list_id in referenced_placeholder_ids(field.format.as_deref()) {
         let list_is_primary = lists.iter().any(|list| list.id == list_id);
-        let collection_matches = collections.iter().any(|collection| collection.id == list_id);
+        let collection_matches = collections
+            .iter()
+            .any(|collection| collection.id == list_id);
         let field_matches = fields.iter().any(|child| child.id == list_id);
         if list_is_primary || collection_matches || field_matches {
             continue;
         }
         format_lists.push(
-            (*lists_by_id
-                .get(list_id.as_str())
-                .ok_or_else(|| format!("field '{}' references unknown format list '{}'", field.id, list_id))?
+            (*lists_by_id.get(list_id.as_str()).ok_or_else(|| {
+                format!(
+                    "field '{}' references unknown format list '{}'",
+                    field.id, list_id
                 )
+            })?)
             .clone(),
         );
     }
@@ -956,6 +983,7 @@ fn resolve_field_inner(
         id: field.id.clone(),
         name: field.label.clone(),
         format: field.format.clone(),
+        preview: field.preview.clone(),
         fields,
         lists,
         collections,
@@ -969,11 +997,9 @@ fn resolve_field_inner(
 fn wrap_list_as_field(list: &HierarchyList) -> HeaderFieldConfig {
     HeaderFieldConfig {
         id: list.id.clone(),
-        name: list
-            .label
-            .clone()
-            .unwrap_or_else(|| list.id.clone()),
+        name: list.label.clone().unwrap_or_else(|| list.id.clone()),
         format: None,
+        preview: list.preview.clone(),
         fields: Vec::new(),
         lists: vec![list.clone()],
         collections: Vec::new(),
@@ -989,6 +1015,7 @@ fn wrap_collection_as_field(collection: &ResolvedCollectionConfig) -> HeaderFiel
         id: collection.id.clone(),
         name: collection.label.clone(),
         format: None,
+        preview: None,
         fields: Vec::new(),
         lists: Vec::new(),
         collections: vec![collection.clone()],
@@ -1033,14 +1060,18 @@ fn maybe_record_section_lists(
             list_data.insert(section.id.clone(), list_entries_from_lists(&section.lists));
         }
         "checklist" => {
-            checklist_data.insert(section.id.clone(), checklist_items_from_lists(&section.lists));
+            checklist_data.insert(
+                section.id.clone(),
+                checklist_items_from_lists(&section.lists),
+            );
         }
         _ => {}
     }
 }
 
 fn list_entries_from_lists(lists: &[HierarchyList]) -> Vec<ListEntry> {
-    lists.iter()
+    lists
+        .iter()
         .flat_map(|list| {
             list.items.iter().map(|item| ListEntry {
                 label: item.ui_label().to_string(),
@@ -1051,7 +1082,8 @@ fn list_entries_from_lists(lists: &[HierarchyList]) -> Vec<ListEntry> {
 }
 
 fn checklist_items_from_lists(lists: &[HierarchyList]) -> Vec<String> {
-    lists.iter()
+    lists
+        .iter()
         .flat_map(|list| list.items.iter().map(|item| item.ui_label().to_string()))
         .collect()
 }
@@ -1190,15 +1222,21 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
         .ok_or_else(|| "merged hierarchy is missing template".to_string())?;
 
     let mut global_ids: HashMap<String, TypeTag> = HashMap::new();
-    register_global_ids(&mut global_ids, &file.groups, TypeTag::Group, |item| &item.id)?;
-    register_global_ids(&mut global_ids, &file.sections, TypeTag::Section, |item| &item.id)?;
+    register_global_ids(&mut global_ids, &file.groups, TypeTag::Group, |item| {
+        &item.id
+    })?;
+    register_global_ids(&mut global_ids, &file.sections, TypeTag::Section, |item| {
+        &item.id
+    })?;
     register_global_ids(
         &mut global_ids,
         &file.collections,
         TypeTag::Collection,
         |item| &item.id,
     )?;
-    register_global_ids(&mut global_ids, &file.fields, TypeTag::Field, |item| &item.id)?;
+    register_global_ids(&mut global_ids, &file.fields, TypeTag::Field, |item| {
+        &item.id
+    })?;
     register_global_ids(&mut global_ids, &file.lists, TypeTag::List, |item| &item.id)?;
 
     let mut boilerplate_ids = HashSet::new();
@@ -1285,18 +1323,16 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
         }
         for list_id in referenced_placeholder_ids(field.format.as_deref()) {
             let field_has_list = field.lists.iter().any(|existing| existing == &list_id)
-                || field
-                    .contains
-                    .iter()
-                    .any(|child| matches!(child, HierarchyChildRef::List { list } if list == &list_id));
+                || field.contains.iter().any(
+                    |child| matches!(child, HierarchyChildRef::List { list } if list == &list_id),
+                );
             let field_has_collection = field.collections.iter().any(|existing| existing == &list_id)
                 || field.contains.iter().any(
                     |child| matches!(child, HierarchyChildRef::Collection { collection } if collection == &list_id),
                 );
-            let field_has_field = field
-                .contains
-                .iter()
-                .any(|child| matches!(child, HierarchyChildRef::Field { field } if field == &list_id));
+            let field_has_field = field.contains.iter().any(
+                |child| matches!(child, HierarchyChildRef::Field { field } if field == &list_id),
+            );
             if field_has_list || field_has_collection || field_has_field {
                 continue;
             }
@@ -1531,10 +1567,9 @@ mod tests {
 
     #[test]
     fn item_string_deserializes_as_simple_item() {
-        let list: HierarchyList = serde_yaml::from_str(
-            "id: demo\nitems:\n  - Alpha\n  - id: beta\n    label: Beta\n",
-        )
-        .expect("list parses");
+        let list: HierarchyList =
+            serde_yaml::from_str("id: demo\nitems:\n  - Alpha\n  - id: beta\n    label: Beta\n")
+                .expect("list parses");
         assert_eq!(list.items[0].label.as_deref(), Some("Alpha"));
         assert_eq!(list.items[0].id, "alpha");
         assert_eq!(list.items[1].id, "beta");
@@ -1542,16 +1577,14 @@ mod tests {
 
     #[test]
     fn field_contains_deserializes_typed_children() {
-        let file = parse(
-            concat!(
-                "fields:\n",
-                "  - id: requested_regions\n",
-                "    label: Requested Regions\n",
-                "    contains:\n",
-                "      - list: appointment_type_list\n",
-                "      - collection: tx_regions\n",
-            ),
-        );
+        let file = parse(concat!(
+            "fields:\n",
+            "  - id: requested_regions\n",
+            "    label: Requested Regions\n",
+            "    contains:\n",
+            "      - list: appointment_type_list\n",
+            "      - collection: tx_regions\n",
+        ));
         let field = file.fields.first().expect("field exists");
         assert!(matches!(
             field.contains.as_slice(),
@@ -1564,47 +1597,45 @@ mod tests {
 
     #[test]
     fn runtime_field_contains_mixed_fields_and_lists_in_authored_order() {
-        let file = parse(
-            concat!(
-                "template:\n  id: template\n  contains:\n    - group: intake\n",
-                "groups:\n  - id: intake\n    contains:\n      - section: appointment\n",
-                "sections:\n  - id: appointment\n    contains:\n      - field: request\n",
-                "fields:\n",
-                "  - id: request\n",
-                "    label: Request\n",
-                "    format: \"{appointment_type}{requested_regions}\"\n",
-                "    contains:\n",
-                "      - list: appointment_type\n",
-                "      - field: requested_regions\n",
-                "  - id: requested_regions\n",
-                "    label: Requested Regions\n",
-                "    format: \"{requested_region}\"\n",
-                "    joiner_style: comma_and_the\n",
-                "    max_entries: 3\n",
-                "    contains:\n",
-                "      - field: requested_region\n",
-                "  - id: requested_region\n",
-                "    label: Requested Region\n",
-                "    format: \"{side}{body_part}\"\n",
-                "    contains:\n",
-                "      - field: side\n",
-                "      - list: body_part\n",
-                "  - id: side\n",
-                "    label: Side\n",
-                "    contains:\n",
-                "      - list: side_list\n",
-                "lists:\n",
-                "  - id: appointment_type\n",
-                "    items:\n",
-                "      - Treatment massage, focusing on \n",
-                "  - id: side_list\n",
-                "    items:\n",
-                "      - { id: left, label: Left, output: \"left \" }\n",
-                "  - id: body_part\n",
-                "    items:\n",
-                "      - Shoulder\n",
-            ),
-        );
+        let file = parse(concat!(
+            "template:\n  id: template\n  contains:\n    - group: intake\n",
+            "groups:\n  - id: intake\n    contains:\n      - section: appointment\n",
+            "sections:\n  - id: appointment\n    contains:\n      - field: request\n",
+            "fields:\n",
+            "  - id: request\n",
+            "    label: Request\n",
+            "    format: \"{appointment_type}{requested_regions}\"\n",
+            "    contains:\n",
+            "      - list: appointment_type\n",
+            "      - field: requested_regions\n",
+            "  - id: requested_regions\n",
+            "    label: Requested Regions\n",
+            "    format: \"{requested_region}\"\n",
+            "    joiner_style: comma_and_the\n",
+            "    max_entries: 3\n",
+            "    contains:\n",
+            "      - field: requested_region\n",
+            "  - id: requested_region\n",
+            "    label: Requested Region\n",
+            "    format: \"{side}{body_part}\"\n",
+            "    contains:\n",
+            "      - field: side\n",
+            "      - list: body_part\n",
+            "  - id: side\n",
+            "    label: Side\n",
+            "    contains:\n",
+            "      - list: side_list\n",
+            "lists:\n",
+            "  - id: appointment_type\n",
+            "    items:\n",
+            "      - Treatment massage, focusing on \n",
+            "  - id: side_list\n",
+            "    items:\n",
+            "      - { id: left, label: Left, output: \"left \" }\n",
+            "  - id: body_part\n",
+            "    items:\n",
+            "      - Shoulder\n",
+        ));
 
         validate_merged_hierarchy(&file).expect("nested field hierarchy should validate");
         let runtime = hierarchy_to_runtime(file).expect("runtime build should succeed");
@@ -1619,7 +1650,10 @@ mod tests {
         assert_eq!(request.fields.len(), 2);
         assert_eq!(request.fields[0].id, "appointment_type");
         assert_eq!(request.fields[1].id, "requested_regions");
-        assert_eq!(request.fields[1].joiner_style, Some(JoinerStyle::CommaAndThe));
+        assert_eq!(
+            request.fields[1].joiner_style,
+            Some(JoinerStyle::CommaAndThe)
+        );
         assert_eq!(request.fields[1].max_entries, Some(3));
         assert_eq!(request.fields[1].fields.len(), 1);
         assert_eq!(request.fields[1].fields[0].id, "requested_region");
@@ -1630,16 +1664,17 @@ mod tests {
 
     #[test]
     fn collection_default_enabled_deserializes() {
-        let file = parse(
-            concat!(
-                "collections:\n",
-                "  - id: tx_regions\n",
-                "    label: Treatment Regions\n",
-                "    default_enabled: true\n",
-                "    contains: []\n",
-            ),
-        );
-        assert!(file.collections.first().is_some_and(|collection| collection.default_enabled));
+        let file = parse(concat!(
+            "collections:\n",
+            "  - id: tx_regions\n",
+            "    label: Treatment Regions\n",
+            "    default_enabled: true\n",
+            "    contains: []\n",
+        ));
+        assert!(file
+            .collections
+            .first()
+            .is_some_and(|collection| collection.default_enabled));
     }
 
     #[test]
@@ -1687,39 +1722,33 @@ mod tests {
 
     #[test]
     fn list_max_entries_without_joiner_style_is_allowed() {
-        let file = parse(
-            concat!(
-                "template:\n  contains:\n    - group: g\n",
-                "groups:\n  - id: g\n    contains:\n      - section: s\n",
-                "sections:\n  - id: s\n    contains:\n      - list: demo\n",
-                "lists:\n  - id: demo\n    max_entries: 2\n    items:\n      - Alpha\n",
-            ),
-        );
+        let file = parse(concat!(
+            "template:\n  contains:\n    - group: g\n",
+            "groups:\n  - id: g\n    contains:\n      - section: s\n",
+            "sections:\n  - id: s\n    contains:\n      - list: demo\n",
+            "lists:\n  - id: demo\n    max_entries: 2\n    items:\n      - Alpha\n",
+        ));
         validate_merged_hierarchy(&file).expect("max_entries without joiner_style should load");
     }
 
     #[test]
     fn loader_rejects_duplicate_ids_across_kinds() {
-        let file = parse(
-            concat!(
-                "template:\n  contains:\n    - group: shared\n",
-                "groups:\n  - id: shared\n    contains: []\n",
-                "sections:\n  - id: shared\n    contains: []\n",
-            ),
-        );
+        let file = parse(concat!(
+            "template:\n  contains:\n    - group: shared\n",
+            "groups:\n  - id: shared\n    contains: []\n",
+            "sections:\n  - id: shared\n    contains: []\n",
+        ));
         let err = validate_merged_hierarchy(&file).expect_err("duplicate id must fail");
         assert!(err.contains("duplicate id 'shared'"));
     }
 
     #[test]
     fn loader_rejects_wrong_child_kind() {
-        let file = parse(
-            concat!(
-                "template:\n  contains:\n    - group: intake\n",
-                "groups:\n  - id: intake\n    contains:\n      - list: bad\n",
-                "lists:\n  - id: bad\n    items: []\n",
-            ),
-        );
+        let file = parse(concat!(
+            "template:\n  contains:\n    - group: intake\n",
+            "groups:\n  - id: intake\n    contains:\n      - list: bad\n",
+            "lists:\n  - id: bad\n    items: []\n",
+        ));
         let err = validate_merged_hierarchy(&file).expect_err("bad child kind must fail");
         assert!(err.contains("may not contain"));
     }
@@ -1743,29 +1772,35 @@ mod tests {
             .iter()
             .find(|section| section.id == "tx_regions")
             .expect("collection exists");
-        let list_ids: Vec<&str> = collection.lists.iter().map(|list| list.id.as_str()).collect();
+        let list_ids: Vec<&str> = collection
+            .lists
+            .iter()
+            .map(|list| list.id.as_str())
+            .collect();
         assert_eq!(list_ids, vec!["back"]);
     }
 
     #[test]
     fn runtime_preserves_authored_order() {
-        let file = parse(
-            concat!(
-                "template:\n  id: template\n  contains:\n    - group: first\n    - group: second\n",
-                "groups:\n",
-                "  - id: first\n    contains:\n      - section: a\n      - collection: c\n",
-                "  - id: second\n    contains:\n      - section: b\n",
-                "sections:\n",
-                "  - id: a\n    contains: []\n",
-                "  - id: b\n    contains: []\n",
-                "collections:\n",
-                "  - id: c\n    contains:\n      - list: list_one\n",
-                "lists:\n  - id: list_one\n    items: []\n",
-            ),
-        );
+        let file = parse(concat!(
+            "template:\n  id: template\n  contains:\n    - group: first\n    - group: second\n",
+            "groups:\n",
+            "  - id: first\n    contains:\n      - section: a\n      - collection: c\n",
+            "  - id: second\n    contains:\n      - section: b\n",
+            "sections:\n",
+            "  - id: a\n    contains: []\n",
+            "  - id: b\n    contains: []\n",
+            "collections:\n",
+            "  - id: c\n    contains:\n      - list: list_one\n",
+            "lists:\n  - id: list_one\n    items: []\n",
+        ));
         validate_merged_hierarchy(&file).expect("valid merged hierarchy");
         let runtime = hierarchy_to_runtime(file).expect("runtime build succeeds");
-        let ids: Vec<&str> = runtime.sections.iter().map(|section| section.id.as_str()).collect();
+        let ids: Vec<&str> = runtime
+            .sections
+            .iter()
+            .map(|section| section.id.as_str())
+            .collect();
         assert_eq!(ids, vec!["a", "c", "b"]);
     }
 
@@ -1788,7 +1823,11 @@ mod tests {
             !app_data.groups.is_empty(),
             "real authored data should load at least one group"
         );
-        let group_ids: HashSet<&str> = app_data.groups.iter().map(|group| group.id.as_str()).collect();
+        let group_ids: HashSet<&str> = app_data
+            .groups
+            .iter()
+            .map(|group| group.id.as_str())
+            .collect();
         assert!(
             app_data
                 .sections

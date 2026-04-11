@@ -160,12 +160,35 @@ fields:
 
   - id: appointment_requested_field
     label: Request
-    format: "{year}-{month}-{day}: Pt requested a {appointment_type_list}{the_region}."
-    lists:
-      - appointment_type_list
-      - the_region
+    format: "{year}-{month}-{day}: Pt requested a {appointment_type_list}{requested_regions}." # {the_region}."
+  #  lists:
+  #    - appointment_type_list
+  #    - the_region
+    contains:
+      - list: appointment_type_list
+      - field: requested_regions #
 
 
+  - id: requested_regions
+    label: Requested Regions
+    format: "{single_region}"
+    preview: "region"
+    joiner_style: comma_and_the
+    max_entries: 6
+    contains:
+      - field: single_region
+
+  - id: single_region
+    label: Requested Region
+    format: "{place}{region}"
+    contains:
+      - list: region
+      - list: place
+
+ # - id: side
+ #   label: Side
+ #   contains:
+ #     - { list: side_list }
 
 lists:
   - id: year

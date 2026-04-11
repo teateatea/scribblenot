@@ -14,21 +14,22 @@ pub struct CollectionFieldValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListFieldValue {
+    pub values: Vec<String>,
+    pub list_idx: usize,
+    pub repeat_values: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HeaderFieldValue {
     ExplicitEmpty,
     Text(String),
+    ListState(ListFieldValue),
     CollectionState(CollectionFieldValue),
+    NestedState(Box<HeaderState>),
 }
 
 impl HeaderFieldValue {
-    pub fn text(value: String) -> Self {
-        if value.is_empty() {
-            Self::ExplicitEmpty
-        } else {
-            Self::Text(value)
-        }
-    }
-
     pub fn as_text(&self) -> Option<&str> {
         match self {
             Self::Text(value) => Some(value.as_str()),
@@ -48,6 +49,19 @@ pub struct HeaderState {
     /// Styled spans for composite preview: (text, is_confirmed). Present while a composite is mid-entry.
     pub composite_spans: Option<Vec<(String, bool)>>,
 }
+
+impl PartialEq for HeaderState {
+    fn eq(&self, other: &Self) -> bool {
+        self.repeated_values == other.repeated_values
+            && self.repeat_counts == other.repeat_counts
+            && self.repeat_visible_counts == other.repeat_visible_counts
+            && self.field_index == other.field_index
+            && self.completed == other.completed
+            && self.composite_spans == other.composite_spans
+    }
+}
+
+impl Eq for HeaderState {}
 
 impl HeaderState {
     pub fn new(fields: Vec<HeaderFieldConfig>) -> Self {
@@ -287,6 +301,7 @@ mod header_state_max_entries_tests {
             id: id.to_string(),
             name: id.to_string(),
             format: None,
+            preview: None,
             fields: Vec::new(),
             lists: vec![],
             collections: vec![],
@@ -351,8 +366,14 @@ mod header_state_max_entries_tests {
             2,
             "set_current_value should append; slot should have 2 entries"
         );
-        assert_eq!(state.repeated_values[0][0], HeaderFieldValue::Text("first".to_string()));
-        assert_eq!(state.repeated_values[0][1], HeaderFieldValue::Text("second".to_string()));
+        assert_eq!(
+            state.repeated_values[0][0],
+            HeaderFieldValue::Text("first".to_string())
+        );
+        assert_eq!(
+            state.repeated_values[0][1],
+            HeaderFieldValue::Text("second".to_string())
+        );
     }
 
     // ST49-2-TEST-5: advance() with max_entries not yet reached stays at same field_index and increments counter
@@ -468,7 +489,7 @@ mod header_state_max_entries_tests {
     // ST49-2-TEST-11: multiple advance calls cycle through repeat slots correctly
     #[test]
     fn advance_cycles_through_repeat_slots_with_limit_2() {
-    // max_entries = 2 -> expect 2 repeats (counter goes 0->1 stay, 1->2 advance)
+        // max_entries = 2 -> expect 2 repeats (counter goes 0->1 stay, 1->2 advance)
         let fields = vec![make_field("a", Some(2)), make_field("b", None)];
         let mut state = HeaderState::new(fields);
         // advance 1: counter 0->1, limit=2, not reached -> stay at 0

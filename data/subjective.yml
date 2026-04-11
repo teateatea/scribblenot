@@ -24,11 +24,11 @@ fields:
 
 lists:
   - id: region
-    label: "region"
+    label: "{requested_regions} + region"
     default: empty_space
     modal_start: search
-    joiner_style: comma
-    repeat_limit: 3
+   # joiner_style: comma
+   # repeat_limit: 3
     items:
       - id: empty_space
         label: "1 (Empty Space)"

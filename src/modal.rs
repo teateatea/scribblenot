@@ -2,7 +2,9 @@ use crate::data::{
     HeaderFieldConfig, HierarchyList, JoinerStyle, ModalStart, ResolvedCollectionConfig,
 };
 use crate::sections::collection::CollectionState;
-use crate::sections::header::{CollectionFieldValue, CollectionSelection, HeaderFieldValue};
+use crate::sections::header::{
+    CollectionFieldValue, CollectionSelection, HeaderFieldValue, HeaderState, ListFieldValue,
+};
 use std::collections::HashMap;
 
 pub const MODAL_HEIGHT_RATIO: f32 = 0.8;
@@ -34,6 +36,12 @@ pub struct BranchFrame {
 }
 
 #[derive(Debug, Clone)]
+pub struct NestedFrame {
+    pub field: HeaderFieldConfig,
+    pub state: HeaderState,
+}
+
+#[derive(Debug, Clone)]
 pub struct SearchModal {
     #[allow(dead_code)]
     pub field_idx: usize,
@@ -52,16 +60,119 @@ pub struct SearchModal {
     pub collection_state: Option<CollectionState>,
     pub collection_format: Option<String>,
     pub branch_stack: Vec<BranchFrame>,
+    pub nested_stack: Vec<NestedFrame>,
     pub window_size: usize,
 }
 
+#[derive(Debug)]
 pub enum FieldAdvance {
     NextList,
     Complete(HeaderFieldValue),
     StayOnList,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModalListViewSnapshot {
+    pub title: String,
+    pub query: String,
+    pub rows: Vec<String>,
+    pub filtered: Vec<usize>,
+    pub list_cursor: usize,
+    pub list_scroll: usize,
+    pub focus: ModalFocus,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CollectionPreviewSnapshot {
+    pub title: String,
+    pub rows: Vec<String>,
+    pub item_cursor: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CollectionPreviewNeighbors {
+    pub previous: Option<CollectionPreviewSnapshot>,
+    pub current: CollectionPreviewSnapshot,
+    pub next: Option<CollectionPreviewSnapshot>,
+}
+
 impl SearchModal {
+    fn current_collection_preview_index(&self) -> Option<usize> {
+        let state = self.collection_state.as_ref()?;
+        Some(match state.focus {
+            crate::sections::collection::CollectionFocus::Collections => state.collection_cursor,
+            crate::sections::collection::CollectionFocus::Items(collection_idx) => collection_idx,
+        })
+    }
+
+    fn supports_simple_list_teasers(&self) -> bool {
+        self.collection_state.is_none()
+            && self.branch_stack.is_empty()
+            && self.nested_stack.is_empty()
+            && self.query.trim().is_empty()
+            && self.filtered.len() == self.all_entries.len()
+            && self
+                .filtered
+                .iter()
+                .enumerate()
+                .all(|(idx, entry_idx)| idx == *entry_idx)
+            && !self.field_flow.lists.is_empty()
+    }
+
+    fn go_back_simple_list(&mut self, sticky_values: &HashMap<String, String>) -> bool {
+        if !self.supports_simple_list_teasers() || self.field_flow.list_idx == 0 {
+            return false;
+        }
+
+        let popped = self.field_flow.values.pop();
+        self.field_flow.list_idx -= 1;
+        let list = &self.field_flow.lists[self.field_flow.list_idx];
+        let labels = resolved_item_labels_for_list(
+            list,
+            &self.field_flow.values,
+            &self.field_flow.repeat_values,
+            &self.field_flow.lists,
+            sticky_values,
+        );
+        let outputs: Vec<String> = list.items.iter().map(item_output).collect();
+        let cursor = popped
+            .as_ref()
+            .and_then(|value| outputs.iter().position(|output| output == value))
+            .unwrap_or(0);
+        self.all_entries = labels;
+        self.all_outputs = outputs;
+        self.list_cursor = cursor;
+        self.sticky_cursor = cursor;
+        self.query = String::new();
+        self.list_scroll = 0;
+        self.focus = ModalFocus::List;
+        self.update_filter();
+        true
+    }
+
+    fn synced_nested_root_state(
+        &self,
+        sticky_values: &HashMap<String, String>,
+    ) -> Option<HeaderState> {
+        let mut frames = self.nested_stack.clone();
+        if frames.is_empty() {
+            return None;
+        }
+        if let Some(last) = frames.last_mut() {
+            last.state
+                .set_preview_value(self.preview_active_leaf_value(sticky_values));
+        }
+        if frames.len() >= 2 {
+            for idx in (1..frames.len()).rev() {
+                let child_state = frames[idx].state.clone();
+                frames[idx - 1]
+                    .state
+                    .set_preview_value(HeaderFieldValue::NestedState(Box::new(child_state)));
+            }
+        }
+        frames.first().map(|frame| frame.state.clone())
+    }
+
     pub fn new_field(
         field_idx: usize,
         field: HeaderFieldConfig,
@@ -70,7 +181,13 @@ impl SearchModal {
         window_size: usize,
     ) -> Self {
         if !field.fields.is_empty() {
-            return Self::new_nested_field(field_idx, field, current_value, sticky_values, window_size);
+            return Self::new_nested_field(
+                field_idx,
+                field,
+                current_value,
+                sticky_values,
+                window_size,
+            );
         }
         if !field.collections.is_empty() && field.lists.is_empty() {
             return Self::new_collection_field(field_idx, field, current_value, window_size);
@@ -104,6 +221,7 @@ impl SearchModal {
             collection_state: None,
             collection_format: None,
             branch_stack: Vec::new(),
+            nested_stack: Vec::new(),
             window_size,
         };
         modal.update_filter();
@@ -117,20 +235,19 @@ impl SearchModal {
         sticky_values: &HashMap<String, String>,
         window_size: usize,
     ) -> Self {
-        let synthetic_list = synthetic_list_for_field(&field);
-        let synthetic_field = HeaderFieldConfig {
-            id: field.id.clone(),
-            name: field.name.clone(),
-            format: None,
-            fields: Vec::new(),
-            lists: vec![synthetic_list],
-            collections: Vec::new(),
-            format_lists: Vec::new(),
-            joiner_style: None,
-            max_entries: None,
-            max_actives: None,
+        let nested_state = match current_value {
+            Some(HeaderFieldValue::NestedState(state)) => state.as_ref().clone(),
+            _ => HeaderState::new(field.fields.clone()),
         };
-        Self::new_field(field_idx, synthetic_field, current_value, sticky_values, window_size)
+        let synthetic_field = synthetic_container_field(&field);
+        let mut modal =
+            Self::new_field(field_idx, synthetic_field, None, sticky_values, window_size);
+        modal.nested_stack.push(NestedFrame {
+            field,
+            state: nested_state,
+        });
+        modal.refresh_nested_leaf(sticky_values, window_size);
+        modal
     }
 
     fn new_collection_field(
@@ -141,9 +258,13 @@ impl SearchModal {
     ) -> Self {
         let labels = collection_labels(&field.collections);
         let n = labels.len();
-        let use_default_activation = !matches!(current_value, Some(HeaderFieldValue::ExplicitEmpty));
-        let mut collection_state =
-            CollectionState::new_with_limits(field.collections, use_default_activation, field.max_actives);
+        let use_default_activation =
+            !matches!(current_value, Some(HeaderFieldValue::ExplicitEmpty));
+        let mut collection_state = CollectionState::new_with_limits(
+            field.collections,
+            use_default_activation,
+            field.max_actives,
+        );
         if let Some(HeaderFieldValue::CollectionState(value)) = current_value {
             restore_collection_state(&mut collection_state, value);
         }
@@ -170,8 +291,227 @@ impl SearchModal {
             collection_state: Some(collection_state),
             collection_format: field.format,
             branch_stack: Vec::new(),
+            nested_stack: Vec::new(),
             window_size,
         }
+    }
+
+    fn refresh_nested_leaf(&mut self, sticky_values: &HashMap<String, String>, window_size: usize) {
+        if self.nested_stack.is_empty() {
+            return;
+        }
+        self.sync_nested_state_chain();
+        self.nested_stack.truncate(1);
+
+        loop {
+            let Some(frame) = self.nested_stack.last_mut() else {
+                return;
+            };
+            if frame.state.field_configs.is_empty() {
+                return;
+            }
+            if frame.state.field_index >= frame.state.field_configs.len() {
+                frame.state.field_index = frame.state.field_configs.len() - 1;
+                frame.state.completed = false;
+            }
+            let active_idx = frame.state.field_index;
+            let active_field = frame.state.field_configs[active_idx].clone();
+            let value_index = frame.state.active_value_index();
+            let current_value = frame
+                .state
+                .repeated_values
+                .get(active_idx)
+                .and_then(|values| values.get(value_index))
+                .cloned();
+
+            if active_field.fields.is_empty() {
+                self.load_leaf_field(
+                    active_field,
+                    current_value.as_ref(),
+                    sticky_values,
+                    window_size,
+                );
+                return;
+            }
+
+            let child_state = match current_value {
+                Some(HeaderFieldValue::NestedState(state)) => state.as_ref().clone(),
+                _ => HeaderState::new(active_field.fields.clone()),
+            };
+            frame
+                .state
+                .set_preview_value(HeaderFieldValue::NestedState(Box::new(child_state.clone())));
+            self.nested_stack.push(NestedFrame {
+                field: active_field,
+                state: child_state,
+            });
+        }
+    }
+
+    fn sync_nested_state_chain(&mut self) {
+        if self.nested_stack.len() < 2 {
+            return;
+        }
+        for idx in (1..self.nested_stack.len()).rev() {
+            let child_state = self.nested_stack[idx].state.clone();
+            self.nested_stack[idx - 1]
+                .state
+                .set_preview_value(HeaderFieldValue::NestedState(Box::new(child_state)));
+        }
+    }
+
+    fn trim_active_nested_row(frame: &mut NestedFrame) {
+        let field_index = frame.state.field_index;
+        let retained = frame
+            .state
+            .repeated_values
+            .get(field_index)
+            .map(|values| values.len())
+            .unwrap_or(0);
+        if let Some(visible) = frame.state.repeat_visible_counts.get_mut(field_index) {
+            *visible = (*visible).min(retained.max(1));
+        }
+    }
+
+    fn force_advance_current_nested_field(state: &mut HeaderState) -> bool {
+        state.field_index += 1;
+        if state.field_index >= state.field_configs.len() {
+            state.completed = true;
+            if !state.field_configs.is_empty() {
+                state.field_index = state.field_configs.len() - 1;
+            }
+        } else {
+            state.completed = false;
+        }
+        state.completed
+    }
+
+    fn complete_nested_value(
+        &mut self,
+        mut pending_value: HeaderFieldValue,
+        sticky_values: &HashMap<String, String>,
+        window_size: usize,
+    ) -> FieldAdvance {
+        loop {
+            let Some(frame) = self.nested_stack.last_mut() else {
+                return FieldAdvance::Complete(pending_value);
+            };
+            let completed = if should_terminate_current_repeat(frame, &pending_value) {
+                frame.state.clear_active_value();
+                Self::trim_active_nested_row(frame);
+                Self::force_advance_current_nested_field(&mut frame.state)
+            } else {
+                frame.state.set_current_value(pending_value);
+                frame.state.advance()
+            };
+
+            if !completed {
+                self.sync_nested_state_chain();
+                self.refresh_nested_leaf(sticky_values, window_size);
+                return FieldAdvance::NextList;
+            }
+
+            let completed_frame = self.nested_stack.pop().unwrap();
+            pending_value = HeaderFieldValue::NestedState(Box::new(completed_frame.state));
+        }
+    }
+
+    fn load_leaf_field(
+        &mut self,
+        field: HeaderFieldConfig,
+        current_value: Option<&HeaderFieldValue>,
+        sticky_values: &HashMap<String, String>,
+        window_size: usize,
+    ) {
+        self.branch_stack.clear();
+        if !field.collections.is_empty() && field.lists.is_empty() {
+            let labels = collection_labels(&field.collections);
+            let n = labels.len();
+            let use_default_activation =
+                !matches!(current_value, Some(HeaderFieldValue::ExplicitEmpty));
+            let mut collection_state = CollectionState::new_with_limits(
+                field.collections.clone(),
+                use_default_activation,
+                field.max_actives,
+            );
+            if let Some(HeaderFieldValue::CollectionState(value)) = current_value {
+                restore_collection_state(&mut collection_state, value);
+            }
+            self.field_id = field.id;
+            self.field_name = field.name;
+            self.query = String::new();
+            self.all_entries = labels;
+            self.all_outputs = Vec::new();
+            self.filtered = (0..n).collect();
+            self.list_cursor = 0;
+            self.list_scroll = 0;
+            self.sticky_cursor = 0;
+            self.focus = ModalFocus::List;
+            self.field_flow = FieldModal {
+                format: field.format.clone(),
+                format_lists: field.format_lists,
+                lists: field.lists,
+                list_idx: 0,
+                values: Vec::new(),
+                repeat_values: Vec::new(),
+            };
+            self.collection_state = Some(collection_state);
+            self.collection_format = field.format;
+            self.window_size = window_size;
+            return;
+        }
+
+        let Some(_first_list) = field.lists.first() else {
+            return;
+        };
+        let (saved_values, saved_list_idx, saved_repeat_values) = match current_value {
+            Some(HeaderFieldValue::ListState(value)) => (
+                value.values.clone(),
+                value.list_idx.min(field.lists.len().saturating_sub(1)),
+                value.repeat_values.clone(),
+            ),
+            _ => (Vec::new(), 0, Vec::new()),
+        };
+        let active_list = &field.lists[saved_list_idx];
+        let outputs: Vec<String> = active_list.items.iter().map(item_output).collect();
+        let mut list_cursor = list_initial_cursor(active_list, &outputs, sticky_values);
+        if let Some(HeaderFieldValue::Text(value)) = current_value {
+            if field.lists.len() == 1 {
+                if let Some(pos) = outputs.iter().position(|output| output == value) {
+                    list_cursor = pos;
+                }
+            }
+        }
+        let labels = resolved_item_labels_for_list(
+            active_list,
+            &saved_values,
+            &saved_repeat_values,
+            &field.lists,
+            sticky_values,
+        );
+        let n = labels.len();
+        self.field_id = field.id;
+        self.field_name = field.name;
+        self.query = String::new();
+        self.all_entries = labels;
+        self.all_outputs = outputs;
+        self.filtered = (0..n).collect();
+        self.list_cursor = list_cursor;
+        self.list_scroll = 0;
+        self.sticky_cursor = list_cursor;
+        self.focus = modal_start_focus(active_list);
+        self.field_flow = FieldModal {
+            format: field.format,
+            format_lists: field.format_lists,
+            lists: field.lists,
+            list_idx: saved_list_idx,
+            values: saved_values,
+            repeat_values: saved_repeat_values,
+        };
+        self.collection_state = None;
+        self.collection_format = None;
+        self.window_size = window_size;
+        self.update_filter();
     }
 
     pub fn is_collection_mode(&self) -> bool {
@@ -189,13 +529,159 @@ impl SearchModal {
             .map(|label| resolve_display_template(label, &self.field_flow, sticky_values))
     }
 
+    #[allow(dead_code)]
     pub fn preview_collection(&self) -> Option<&crate::sections::collection::CollectionEntry> {
         let state = self.collection_state.as_ref()?;
-        let idx = match state.focus {
-            crate::sections::collection::CollectionFocus::Collections => state.collection_cursor,
-            crate::sections::collection::CollectionFocus::Items(collection_idx) => collection_idx,
-        };
+        let idx = self.current_collection_preview_index()?;
         state.collections.get(idx)
+    }
+
+    pub fn collection_preview_neighbors(&self) -> Option<CollectionPreviewNeighbors> {
+        let state = self.collection_state.as_ref()?;
+        let current_idx = self.current_collection_preview_index()?;
+        let current_collection = state.collections.get(current_idx)?;
+
+        Some(CollectionPreviewNeighbors {
+            previous: current_idx
+                .checked_sub(1)
+                .and_then(|idx| state.collections.get(idx))
+                .map(|collection| collection_preview_snapshot(collection, None)),
+            current: collection_preview_snapshot(
+                current_collection,
+                matches!(
+                    state.focus,
+                    crate::sections::collection::CollectionFocus::Items(collection_idx)
+                        if collection_idx == current_idx
+                )
+                .then_some(state.item_cursor),
+            ),
+            next: state
+                .collections
+                .get(current_idx + 1)
+                .map(|collection| collection_preview_snapshot(collection, None)),
+        })
+    }
+
+    pub fn list_view_snapshot(
+        &self,
+        sticky_values: &HashMap<String, String>,
+    ) -> Option<ModalListViewSnapshot> {
+        if !self.supports_simple_list_teasers() {
+            return None;
+        }
+
+        Some(ModalListViewSnapshot {
+            title: self
+                .current_part_label(sticky_values)
+                .unwrap_or_else(|| self.field_name.clone()),
+            query: self.query.clone(),
+            rows: self.all_entries.clone(),
+            filtered: self.filtered.clone(),
+            list_cursor: self.list_cursor,
+            list_scroll: self.list_scroll,
+            focus: self.focus.clone(),
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn peek_prev_list_view(
+        &self,
+        sticky_values: &HashMap<String, String>,
+    ) -> Option<ModalListViewSnapshot> {
+        if !self.supports_simple_list_teasers() || self.field_flow.list_idx == 0 {
+            return None;
+        }
+
+        let mut preview = self.clone();
+        if !preview.go_back_simple_list(sticky_values) {
+            return None;
+        }
+        preview.list_view_snapshot(sticky_values)
+    }
+
+    pub fn peek_prev_list_views(
+        &self,
+        sticky_values: &HashMap<String, String>,
+        limit: usize,
+    ) -> Vec<ModalListViewSnapshot> {
+        if limit == 0 || !self.supports_simple_list_teasers() || self.field_flow.list_idx == 0 {
+            return Vec::new();
+        }
+
+        let mut preview = self.clone();
+        let mut snapshots = Vec::new();
+        while snapshots.len() < limit && preview.go_back_simple_list(sticky_values) {
+            let Some(snapshot) = preview.list_view_snapshot(sticky_values) else {
+                break;
+            };
+            snapshots.push(snapshot);
+        }
+        snapshots
+    }
+
+    #[allow(dead_code)]
+    pub fn peek_next_list_view(
+        &self,
+        sticky_values: &HashMap<String, String>,
+    ) -> Option<ModalListViewSnapshot> {
+        if !self.supports_simple_list_teasers() {
+            return None;
+        }
+        let list = self.field_flow.lists.get(self.field_flow.list_idx)?;
+        if effective_joiner_style(list).is_some() {
+            return None;
+        }
+        let selected = self.selected_value()?.to_string();
+        if branch_for_value(list, &selected).is_some() {
+            return None;
+        }
+
+        let mut preview = self.clone();
+        let mut sticky_preview = sticky_values.clone();
+        match preview.finish_current_list(selected, &mut sticky_preview, preview.window_size) {
+            FieldAdvance::NextList => preview.list_view_snapshot(&sticky_preview),
+            FieldAdvance::Complete(_) | FieldAdvance::StayOnList => None,
+        }
+    }
+
+    pub fn peek_next_list_views(
+        &self,
+        sticky_values: &HashMap<String, String>,
+        limit: usize,
+    ) -> Vec<ModalListViewSnapshot> {
+        if limit == 0 || !self.supports_simple_list_teasers() {
+            return Vec::new();
+        }
+
+        let mut preview = self.clone();
+        let mut sticky_preview = sticky_values.clone();
+        let mut snapshots = Vec::new();
+        while snapshots.len() < limit {
+            let Some(list) = preview.field_flow.lists.get(preview.field_flow.list_idx) else {
+                break;
+            };
+            if effective_joiner_style(list).is_some() {
+                break;
+            }
+
+            let Some(selected) = preview.selected_value().map(str::to_string) else {
+                break;
+            };
+            if branch_for_value(list, &selected).is_some() {
+                break;
+            }
+
+            match preview.finish_current_list(selected, &mut sticky_preview, preview.window_size) {
+                FieldAdvance::NextList => {
+                    let Some(snapshot) = preview.list_view_snapshot(&sticky_preview) else {
+                        break;
+                    };
+                    snapshots.push(snapshot);
+                }
+                FieldAdvance::Complete(_) | FieldAdvance::StayOnList => break,
+            }
+        }
+        snapshots
     }
 
     #[allow(dead_code)]
@@ -292,7 +778,149 @@ impl SearchModal {
         true
     }
 
+    fn preview_active_leaf_value(
+        &self,
+        sticky_values: &HashMap<String, String>,
+    ) -> HeaderFieldValue {
+        if self.collection_state.is_some() {
+            return self.collection_value();
+        }
+        let _ = sticky_values;
+        HeaderFieldValue::ListState(ListFieldValue {
+            values: self.field_flow.values.clone(),
+            list_idx: self.field_flow.list_idx,
+            repeat_values: self.field_flow.repeat_values.clone(),
+        })
+    }
+
+    fn advance_nested_field(
+        &mut self,
+        value: String,
+        sticky_values: &mut HashMap<String, String>,
+        window_size: usize,
+    ) -> FieldAdvance {
+        let advance = self.advance_active_leaf_field(value, sticky_values, window_size);
+        match advance {
+            FieldAdvance::NextList | FieldAdvance::StayOnList => {
+                let preview = self.preview_active_leaf_value(sticky_values);
+                if let Some(frame) = self.nested_stack.last_mut() {
+                    frame.state.set_preview_value(preview);
+                }
+                self.sync_nested_state_chain();
+                advance
+            }
+            FieldAdvance::Complete(final_value) => {
+                self.complete_nested_value(final_value, sticky_values, window_size)
+            }
+        }
+    }
+
+    fn super_confirm_nested_field(
+        &mut self,
+        sticky_values: &mut HashMap<String, String>,
+        window_size: usize,
+    ) -> FieldAdvance {
+        let advance = self.super_confirm_active_leaf_field(sticky_values, window_size);
+        match advance {
+            FieldAdvance::NextList | FieldAdvance::StayOnList => {
+                let preview = self.preview_active_leaf_value(sticky_values);
+                if let Some(frame) = self.nested_stack.last_mut() {
+                    frame.state.set_preview_value(preview);
+                }
+                self.sync_nested_state_chain();
+                advance
+            }
+            FieldAdvance::Complete(final_value) => {
+                self.complete_nested_value(final_value, sticky_values, window_size)
+            }
+        }
+    }
+
+    pub fn go_back_one_step(
+        &mut self,
+        sticky_values: &HashMap<String, String>,
+        window_size: usize,
+    ) -> bool {
+        if self.nested_stack.is_empty() {
+            return false;
+        }
+        if self.collection_back() {
+            let preview = self.preview_active_leaf_value(sticky_values);
+            if let Some(frame) = self.nested_stack.last_mut() {
+                frame.state.set_preview_value(preview);
+            }
+            self.sync_nested_state_chain();
+            return true;
+        }
+        if self.restore_parent_branch(sticky_values, window_size) {
+            let preview = self.preview_active_leaf_value(sticky_values);
+            if let Some(frame) = self.nested_stack.last_mut() {
+                frame.state.set_preview_value(preview);
+            }
+            self.sync_nested_state_chain();
+            return true;
+        }
+        if self.field_flow.list_idx > 0 {
+            let popped = self.field_flow.values.pop();
+            self.field_flow.list_idx -= 1;
+            let list = &self.field_flow.lists[self.field_flow.list_idx];
+            let labels = resolved_item_labels_for_list(
+                list,
+                &self.field_flow.values,
+                &self.field_flow.repeat_values,
+                &self.field_flow.lists,
+                sticky_values,
+            );
+            let outputs: Vec<String> = list.items.iter().map(item_output).collect();
+            let cursor = popped
+                .as_ref()
+                .and_then(|value| outputs.iter().position(|output| output == value))
+                .unwrap_or(0);
+            self.all_entries = labels;
+            self.all_outputs = outputs;
+            self.list_cursor = cursor;
+            self.sticky_cursor = cursor;
+            self.query = String::new();
+            self.list_scroll = 0;
+            self.focus = ModalFocus::List;
+            self.update_filter();
+            let preview = self.preview_active_leaf_value(sticky_values);
+            if let Some(frame) = self.nested_stack.last_mut() {
+                frame.state.set_preview_value(preview);
+            }
+            self.sync_nested_state_chain();
+            return true;
+        }
+
+        loop {
+            let Some(frame) = self.nested_stack.last_mut() else {
+                return false;
+            };
+            if frame.state.go_back() {
+                self.sync_nested_state_chain();
+                self.refresh_nested_leaf(sticky_values, window_size);
+                return true;
+            }
+            if self.nested_stack.len() == 1 {
+                return false;
+            }
+            self.nested_stack.pop();
+        }
+    }
+
     pub fn advance_field(
+        &mut self,
+        value: String,
+        sticky_values: &mut HashMap<String, String>,
+        window_size: usize,
+    ) -> FieldAdvance {
+        if !self.nested_stack.is_empty() {
+            return self.advance_nested_field(value, sticky_values, window_size);
+        }
+        self.advance_active_leaf_field(value, sticky_values, window_size)
+    }
+
+    fn advance_active_leaf_field(
         &mut self,
         value: String,
         sticky_values: &mut HashMap<String, String>,
@@ -344,6 +972,17 @@ impl SearchModal {
         sticky_values: &mut HashMap<String, String>,
         window_size: usize,
     ) -> FieldAdvance {
+        if !self.nested_stack.is_empty() {
+            return self.super_confirm_nested_field(sticky_values, window_size);
+        }
+        self.super_confirm_active_leaf_field(sticky_values, window_size)
+    }
+
+    fn super_confirm_active_leaf_field(
+        &mut self,
+        sticky_values: &mut HashMap<String, String>,
+        window_size: usize,
+    ) -> FieldAdvance {
         if self.collection_state.is_some() {
             return FieldAdvance::Complete(self.collection_value());
         }
@@ -380,7 +1019,6 @@ impl SearchModal {
                 return advance;
             }
         }
-
         FieldAdvance::NextList
     }
 
@@ -510,25 +1148,18 @@ impl SearchModal {
         window_size: usize,
     ) {
         if !field.fields.is_empty() {
-            let synthetic_field = HeaderFieldConfig {
-                id: field.id.clone(),
-                name: field.name.clone(),
-                format: None,
-                fields: Vec::new(),
-                lists: vec![synthetic_list_for_field(&field)],
-                collections: Vec::new(),
-                format_lists: Vec::new(),
-                joiner_style: None,
-                max_entries: None,
-                max_actives: None,
-            };
+            let output_format = composite_output_format(&field);
+            let branch_fields = field.fields.clone();
+            let synthetic_field = synthetic_container_field(&field);
             self.load_field_flow(synthetic_field, sticky_values, window_size);
+            let _ = self.start_branch(output_format, branch_fields, sticky_values, window_size);
             return;
         }
         if !field.collections.is_empty() && field.lists.is_empty() {
             let labels = collection_labels(&field.collections);
             let n = labels.len();
             self.field_id = field.id;
+            self.field_name = field.name;
             self.query = String::new();
             self.all_entries = labels;
             self.all_outputs = Vec::new();
@@ -563,6 +1194,7 @@ impl SearchModal {
             resolved_item_labels_for_list(first_list, &[], &[], &field.lists, sticky_values);
         let n = labels.len();
         self.field_id = field.id;
+        self.field_name = field.name;
         self.query = String::new();
         self.all_entries = labels;
         self.all_outputs = outputs;
@@ -707,10 +1339,10 @@ impl SearchModal {
     }
 
     pub fn preview_field_value(&self, sticky_values: &HashMap<String, String>) -> HeaderFieldValue {
-        if self.collection_state.is_some() {
-            return self.collection_value();
+        if let Some(root) = self.synced_nested_root_state(sticky_values) {
+            return HeaderFieldValue::NestedState(Box::new(root));
         }
-        HeaderFieldValue::text(compute_preview_text(self, sticky_values))
+        self.preview_active_leaf_value(sticky_values)
     }
 
     fn collection_value(&self) -> HeaderFieldValue {
@@ -725,12 +1357,42 @@ fn branch_for_value(list: &HierarchyList, value: &str) -> Option<(String, Vec<He
     list.items
         .iter()
         .find(|item| item_output(item) == value && !item.branch_fields.is_empty())
-        .map(|item| {
-            (
-                item.output().to_string(),
-                item.branch_fields.clone(),
-            )
-        })
+        .map(|item| (item.output().to_string(), item.branch_fields.clone()))
+}
+
+fn should_terminate_current_repeat(frame: &NestedFrame, final_value: &HeaderFieldValue) -> bool {
+    let Some(cfg) = frame.state.field_configs.get(frame.state.field_index) else {
+        return false;
+    };
+    if cfg.max_entries.is_none() {
+        return false;
+    }
+    frame.state.active_value_index() > 0 && !has_concrete_field_content(final_value, cfg)
+}
+
+fn has_concrete_field_content(value: &HeaderFieldValue, cfg: &HeaderFieldConfig) -> bool {
+    match value {
+        HeaderFieldValue::ExplicitEmpty => false,
+        HeaderFieldValue::Text(value) => !value.trim().is_empty(),
+        HeaderFieldValue::ListState(value) => {
+            value.values.iter().any(|value| !value.trim().is_empty())
+                || value
+                    .repeat_values
+                    .iter()
+                    .any(|value| !value.trim().is_empty())
+        }
+        HeaderFieldValue::CollectionState(value) => decode_collection_display_value(value, cfg)
+            .is_some_and(|value| !value.trim().is_empty()),
+        HeaderFieldValue::NestedState(state) => {
+            cfg.fields.iter().enumerate().any(|(idx, child)| {
+                state.repeated_values.get(idx).is_some_and(|values| {
+                    values
+                        .iter()
+                        .any(|value| has_concrete_field_content(value, child))
+                })
+            })
+        }
+    }
 }
 
 fn format_branch_output(output_format: &str, values: &[(String, String)]) -> String {
@@ -943,13 +1605,29 @@ pub fn authored_collection_preview(
     (title, lines)
 }
 
+fn collection_preview_snapshot(
+    collection: &crate::sections::collection::CollectionEntry,
+    item_cursor: Option<usize>,
+) -> CollectionPreviewSnapshot {
+    let (title, rows) = authored_collection_preview(collection);
+    CollectionPreviewSnapshot {
+        title,
+        rows,
+        item_cursor,
+    }
+}
+
 pub fn decode_collection_display_value(
     value: &CollectionFieldValue,
     cfg: &HeaderFieldConfig,
 ) -> Option<String> {
-    let mut state = CollectionState::new_with_limits(cfg.collections.clone(), false, cfg.max_actives);
+    let mut state =
+        CollectionState::new_with_limits(cfg.collections.clone(), false, cfg.max_actives);
     if restore_collection_state(&mut state, value) {
-        Some(format_collection_field_value(&state.collections, cfg.format.is_some()))
+        Some(format_collection_field_value(
+            &state.collections,
+            cfg.format.is_some(),
+        ))
     } else {
         None
     }
@@ -977,7 +1655,7 @@ fn collection_field_value_from_state(state: &CollectionState) -> CollectionField
                     .zip(collection.item_enabled.iter())
                     .filter_map(|(item, enabled)| enabled.then_some(item.id.clone()))
                     .collect(),
-                })
+            })
             .collect(),
         activation_order: state
             .activation_order
@@ -1000,7 +1678,11 @@ fn restore_collection_state(state: &mut CollectionState, value: &CollectionField
         };
         collection.active = saved.active;
         collection.initialized = collection.active || !saved.enabled_item_ids.is_empty();
-        for (item, enabled) in collection.items.iter().zip(collection.item_enabled.iter_mut()) {
+        for (item, enabled) in collection
+            .items
+            .iter()
+            .zip(collection.item_enabled.iter_mut())
+        {
             *enabled = saved
                 .enabled_item_ids
                 .iter()
@@ -1030,46 +1712,6 @@ fn restore_collection_state(state: &mut CollectionState, value: &CollectionField
         }
     }
     true
-}
-
-fn compute_preview_text(modal: &SearchModal, sticky_values: &HashMap<String, String>) -> String {
-    let flow = &modal.field_flow;
-    let Some(format) = &flow.format else {
-        if !flow.values.is_empty() {
-            return flow.values.join(", ");
-        }
-        if let Some(list) = flow.lists.get(flow.list_idx) {
-            if !flow.repeat_values.is_empty() {
-                return joined_repeating_value(list, &flow.repeat_values)
-                    .unwrap_or_else(|| flow.repeat_values.join(", "));
-            }
-        }
-        return String::new();
-    };
-    let mut result = format.clone();
-    for (i, val) in flow.values.iter().enumerate() {
-        let placeholder = format!("{{{}}}", flow.lists[i].id);
-        result = result.replace(&placeholder, val);
-    }
-    for (i, list) in flow.lists.iter().enumerate().skip(flow.list_idx) {
-        let placeholder = format!("{{{}}}", list.id);
-        let value = if i == flow.list_idx && !flow.repeat_values.is_empty() {
-            joined_repeating_value(list, &flow.repeat_values)
-                .unwrap_or_else(|| flow.repeat_values.join(", "))
-        } else {
-            fallback_list_value(list, sticky_values)
-                .unwrap_or_else(|| list.preview.as_deref().unwrap_or("?").to_string())
-        };
-        result = result.replace(&placeholder, &value);
-    }
-    for list in &flow.format_lists {
-        let placeholder = format!("{{{}}}", list.id);
-        if result.contains(&placeholder) {
-            let value = fallback_list_value(list, sticky_values).unwrap_or_default();
-            result = result.replace(&placeholder, &value);
-        }
-    }
-    result
 }
 
 pub fn format_collection_field_value(
@@ -1158,11 +1800,13 @@ fn join_repeat_values(values: &[String], style: &JoinerStyle) -> String {
 
 fn effective_joiner_style(list: &HierarchyList) -> Option<&JoinerStyle> {
     static DEFAULT_REPEAT_LIMIT_JOINER: JoinerStyle = JoinerStyle::CommaAnd;
-    list.joiner_style.as_ref().or(if list.max_entries.is_some() {
-        Some(&DEFAULT_REPEAT_LIMIT_JOINER)
-    } else {
-        None
-    })
+    list.joiner_style
+        .as_ref()
+        .or(if list.max_entries.is_some() {
+            Some(&DEFAULT_REPEAT_LIMIT_JOINER)
+        } else {
+            None
+        })
 }
 
 fn dedupe_values(values: &[String]) -> Vec<String> {
@@ -1216,11 +1860,28 @@ fn synthetic_list_for_field(field: &HeaderFieldConfig) -> HierarchyList {
     }
 }
 
+fn synthetic_container_field(field: &HeaderFieldConfig) -> HeaderFieldConfig {
+    HeaderFieldConfig {
+        id: field.id.clone(),
+        name: field.name.clone(),
+        format: Some(format!("{{{}}}", field.id)),
+        preview: field.preview.clone(),
+        fields: Vec::new(),
+        lists: vec![synthetic_list_for_field(field)],
+        collections: Vec::new(),
+        format_lists: field.format_lists.clone(),
+        joiner_style: None,
+        max_entries: None,
+        max_actives: None,
+    }
+}
+
 fn composite_output_format(field: &HeaderFieldConfig) -> String {
     if let Some(format) = &field.format {
         return format.clone();
     }
-    field.fields
+    field
+        .fields
         .first()
         .map(|child| format!("{{{}}}", child.id))
         .unwrap_or_default()
@@ -1303,14 +1964,12 @@ mod modal_filter_tests {
         assert!(!modal_query_matches("Neck Only HNS", "HNS foot"));
     }
 
-    fn test_field(
-        joiner_style: Option<JoinerStyle>,
-        modal_start: ModalStart,
-    ) -> HeaderFieldConfig {
+    fn test_field(joiner_style: Option<JoinerStyle>, modal_start: ModalStart) -> HeaderFieldConfig {
         HeaderFieldConfig {
             id: "field".to_string(),
             name: "Field".to_string(),
             format: None,
+            preview: None,
             fields: Vec::new(),
             lists: vec![HierarchyList {
                 id: "list".to_string(),
@@ -1352,6 +2011,442 @@ mod modal_filter_tests {
     }
 
     #[test]
+    fn simple_list_peek_helpers_return_adjacent_real_views() {
+        let field = HeaderFieldConfig {
+            id: "body_region".to_string(),
+            name: "Body Region".to_string(),
+            format: Some("{side}{region}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![
+                HierarchyList {
+                    id: "side".to_string(),
+                    label: Some("Side".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        HierarchyItem {
+                            id: "left".to_string(),
+                            label: Some("Left".to_string()),
+                            default_enabled: true,
+                            output: Some("Left ".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                        },
+                        HierarchyItem {
+                            id: "right".to_string(),
+                            label: Some("Right".to_string()),
+                            default_enabled: true,
+                            output: Some("Right ".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                        },
+                    ],
+                },
+                HierarchyList {
+                    id: "region".to_string(),
+                    label: Some("Region".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        HierarchyItem {
+                            id: "shoulder".to_string(),
+                            label: Some("Shoulder".to_string()),
+                            default_enabled: true,
+                            output: Some("Shoulder".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                        },
+                        HierarchyItem {
+                            id: "neck".to_string(),
+                            label: Some("Neck".to_string()),
+                            default_enabled: true,
+                            output: Some("Neck".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                        },
+                    ],
+                },
+                HierarchyList {
+                    id: "pressure".to_string(),
+                    label: Some("Pressure".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![HierarchyItem {
+                        id: "medium".to_string(),
+                        label: Some("Medium".to_string()),
+                        default_enabled: true,
+                        output: Some("Medium".to_string()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                    }],
+                },
+            ],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let mut sticky_values = HashMap::new();
+        let mut modal = SearchModal::new_field(0, field, None, &sticky_values, 5);
+        let _ = modal.advance_field("Left ".to_string(), &mut sticky_values, 5);
+
+        let prev = modal
+            .peek_prev_list_view(&sticky_values)
+            .expect("previous list teaser should exist");
+        let next = modal
+            .peek_next_list_view(&sticky_values)
+            .expect("next list teaser should exist");
+
+        assert_eq!(prev.title, "Side");
+        assert_eq!(prev.rows, vec!["Left".to_string(), "Right".to_string()]);
+        assert_eq!(prev.list_cursor, 0);
+        assert_eq!(next.title, "Pressure");
+        assert_eq!(next.rows, vec!["Medium".to_string()]);
+        assert_eq!(next.list_cursor, 0);
+    }
+
+    #[test]
+    fn multi_step_list_snapshot_helpers_follow_sequential_flow() {
+        let field = HeaderFieldConfig {
+            id: "request".to_string(),
+            name: "Request".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![
+                HierarchyList {
+                    id: "side".to_string(),
+                    label: Some("Side".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        HierarchyItem {
+                            id: "left".to_string(),
+                            label: Some("Left".to_string()),
+                            default_enabled: true,
+                            output: Some("Left ".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                        },
+                        HierarchyItem {
+                            id: "right".to_string(),
+                            label: Some("Right".to_string()),
+                            default_enabled: true,
+                            output: Some("Right ".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                        },
+                    ],
+                },
+                HierarchyList {
+                    id: "region".to_string(),
+                    label: Some("Region".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        HierarchyItem {
+                            id: "shoulder".to_string(),
+                            label: Some("Shoulder".to_string()),
+                            default_enabled: true,
+                            output: Some("Shoulder".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                        },
+                        HierarchyItem {
+                            id: "neck".to_string(),
+                            label: Some("Neck".to_string()),
+                            default_enabled: true,
+                            output: Some("Neck".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                        },
+                    ],
+                },
+                HierarchyList {
+                    id: "pressure".to_string(),
+                    label: Some("Pressure".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![HierarchyItem {
+                        id: "medium".to_string(),
+                        label: Some("Medium".to_string()),
+                        default_enabled: true,
+                        output: Some("Medium".to_string()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                    }],
+                },
+                HierarchyList {
+                    id: "pace".to_string(),
+                    label: Some("Pace".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![HierarchyItem {
+                        id: "slow".to_string(),
+                        label: Some("Slow".to_string()),
+                        default_enabled: true,
+                        output: Some("Slow".to_string()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                    }],
+                },
+            ],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let mut sticky_values = HashMap::new();
+        let mut modal = SearchModal::new_field(0, field, None, &sticky_values, 5);
+        let _ = modal.advance_field("Left ".to_string(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Shoulder".to_string(), &mut sticky_values, 5);
+
+        let previous = modal.peek_prev_list_views(&sticky_values, 3);
+        let next = modal.peek_next_list_views(&sticky_values, 3);
+
+        assert_eq!(
+            previous
+                .iter()
+                .map(|snapshot| snapshot.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Region", "Side"]
+        );
+        assert_eq!(
+            next.iter()
+                .map(|snapshot| snapshot.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Pace"]
+        );
+        assert_eq!(next[0].rows, vec!["Slow".to_string()]);
+    }
+
+    #[test]
+    fn simple_list_peek_helpers_fail_closed_for_unsupported_flows() {
+        let sticky_values = HashMap::new();
+
+        let mut filtered_modal = SearchModal::new_field(
+            0,
+            test_field(None, ModalStart::Search),
+            None,
+            &sticky_values,
+            5,
+        );
+        filtered_modal.query = "One".to_string();
+        filtered_modal.update_filter();
+        assert!(filtered_modal.peek_prev_list_view(&sticky_values).is_none());
+        assert!(filtered_modal.peek_next_list_view(&sticky_values).is_none());
+
+        let nested = SearchModal::new_field(
+            0,
+            HeaderFieldConfig {
+                id: "request".to_string(),
+                name: "Request".to_string(),
+                format: None,
+                preview: None,
+                fields: vec![test_field(None, ModalStart::List)],
+                lists: Vec::new(),
+                collections: Vec::new(),
+                format_lists: Vec::new(),
+                joiner_style: None,
+                max_entries: None,
+                max_actives: None,
+            },
+            None,
+            &sticky_values,
+            5,
+        );
+        assert!(nested.peek_prev_list_view(&sticky_values).is_none());
+        assert!(nested.peek_next_list_view(&sticky_values).is_none());
+
+        let mut branch_item = HierarchyItem {
+            id: "branch".to_string(),
+            label: Some("Branch".to_string()),
+            default_enabled: true,
+            output: Some("{child}".to_string()),
+            fields: None,
+            branch_fields: vec![test_field(None, ModalStart::List)],
+        };
+        branch_item.branch_fields[0].id = "child".to_string();
+        let branch_field = HeaderFieldConfig {
+            id: "branch_root".to_string(),
+            name: "Branch Root".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "branch_root".to_string(),
+                label: Some("Branch Root".to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![branch_item],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let branch_modal = SearchModal::new_field(0, branch_field, None, &sticky_values, 5);
+        assert!(branch_modal.peek_next_list_view(&sticky_values).is_none());
+    }
+
+    #[test]
+    fn collection_preview_neighbors_follow_focused_collection() {
+        let sticky_values = HashMap::new();
+        let field = HeaderFieldConfig {
+            id: "regions".to_string(),
+            name: "Regions".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: Vec::new(),
+            collections: vec![
+                ResolvedCollectionConfig {
+                    id: "neck".to_string(),
+                    label: "Neck".to_string(),
+                    note_label: None,
+                    default_enabled: false,
+                    joiner_style: None,
+                    lists: vec![HierarchyList {
+                        id: "neck_list".to_string(),
+                        label: Some("Neck".to_string()),
+                        preview: None,
+                        sticky: false,
+                        default: None,
+                        modal_start: ModalStart::List,
+                        joiner_style: None,
+                        max_entries: None,
+                        items: vec![HierarchyItem {
+                            id: "upper".to_string(),
+                            label: Some("Upper Traps".to_string()),
+                            default_enabled: true,
+                            output: Some("Upper Traps".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                        }],
+                    }],
+                },
+                ResolvedCollectionConfig {
+                    id: "back".to_string(),
+                    label: "Back".to_string(),
+                    note_label: None,
+                    default_enabled: false,
+                    joiner_style: None,
+                    lists: vec![HierarchyList {
+                        id: "back_list".to_string(),
+                        label: Some("Back".to_string()),
+                        preview: None,
+                        sticky: false,
+                        default: None,
+                        modal_start: ModalStart::List,
+                        joiner_style: None,
+                        max_entries: None,
+                        items: vec![HierarchyItem {
+                            id: "erectors".to_string(),
+                            label: Some("Erectors".to_string()),
+                            default_enabled: true,
+                            output: Some("Erectors".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                        }],
+                    }],
+                },
+                ResolvedCollectionConfig {
+                    id: "glutes".to_string(),
+                    label: "Glutes".to_string(),
+                    note_label: None,
+                    default_enabled: false,
+                    joiner_style: None,
+                    lists: vec![HierarchyList {
+                        id: "glutes_list".to_string(),
+                        label: Some("Glutes".to_string()),
+                        preview: None,
+                        sticky: false,
+                        default: None,
+                        modal_start: ModalStart::List,
+                        joiner_style: None,
+                        max_entries: None,
+                        items: vec![HierarchyItem {
+                            id: "med".to_string(),
+                            label: Some("Glute Med".to_string()),
+                            default_enabled: true,
+                            output: Some("Glute Med".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                        }],
+                    }],
+                },
+            ],
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+
+        let mut modal = SearchModal::new_field(0, field, None, &sticky_values, 5);
+        let state = modal.collection_state.as_mut().expect("collection modal");
+        state.collection_cursor = 1;
+        state.enter_collection();
+        state.item_cursor = 0;
+
+        let neighbors = modal
+            .collection_preview_neighbors()
+            .expect("collection neighbors should exist");
+
+        assert_eq!(
+            neighbors
+                .previous
+                .as_ref()
+                .map(|snapshot| snapshot.title.as_str()),
+            Some("Neck")
+        );
+        assert_eq!(neighbors.current.title, "Back");
+        assert_eq!(neighbors.current.item_cursor, Some(0));
+        assert_eq!(
+            neighbors
+                .next
+                .as_ref()
+                .map(|snapshot| snapshot.title.as_str()),
+            Some("Glutes")
+        );
+    }
+
+    #[test]
     fn empty_search_enter_finishes_repeating_search_start_list_after_one_item() {
         let mut modal = SearchModal::new_field(
             0,
@@ -1367,8 +2462,13 @@ mod modal_filter_tests {
 
     #[test]
     fn empty_search_enter_does_not_finish_non_repeating_search_start_list() {
-        let modal =
-            SearchModal::new_field(0, test_field(None, ModalStart::Search), None, &HashMap::new(), 5);
+        let modal = SearchModal::new_field(
+            0,
+            test_field(None, ModalStart::Search),
+            None,
+            &HashMap::new(),
+            5,
+        );
 
         assert!(!modal.should_finish_repeating_from_empty_search());
     }
@@ -1412,6 +2512,7 @@ mod modal_filter_tests {
             id: "side".to_string(),
             name: "Side".to_string(),
             format: None,
+            preview: None,
             fields: Vec::new(),
             lists: vec![HierarchyList {
                 id: "side".to_string(),
@@ -1441,6 +2542,7 @@ mod modal_filter_tests {
             id: "body_part".to_string(),
             name: "Body Part".to_string(),
             format: None,
+            preview: None,
             fields: Vec::new(),
             lists: vec![HierarchyList {
                 id: "body_part".to_string(),
@@ -1480,6 +2582,7 @@ mod modal_filter_tests {
             id: "requested_region".to_string(),
             name: "Requested Region".to_string(),
             format: Some("{side}{body_part}".to_string()),
+            preview: None,
             fields: vec![side_field, body_part_field],
             lists: Vec::new(),
             collections: Vec::new(),
@@ -1490,21 +2593,537 @@ mod modal_filter_tests {
         };
 
         let mut sticky_values = HashMap::new();
-        let mut modal = SearchModal::new_field(0, requested_region, None, &sticky_values, 5);
+        let mut modal =
+            SearchModal::new_field(0, requested_region.clone(), None, &sticky_values, 5);
 
-        let advance = modal.advance_field("{side}{body_part}".to_string(), &mut sticky_values, 5);
-        assert!(matches!(advance, FieldAdvance::NextList));
         let advance = modal.advance_field("left ".to_string(), &mut sticky_values, 5);
         assert!(matches!(advance, FieldAdvance::NextList));
         let advance = modal.advance_field("shoulder".to_string(), &mut sticky_values, 5);
-        assert!(matches!(advance, FieldAdvance::StayOnList));
-        assert_eq!(modal.field_flow.repeat_values, vec!["left shoulder".to_string()]);
-        assert!(modal.should_finish_repeating_from_empty_search());
-
-        let advance = modal.advance_field(String::new(), &mut sticky_values, 5);
         assert!(matches!(
             advance,
-            FieldAdvance::Complete(HeaderFieldValue::Text(value)) if value == "the left shoulder"
+            FieldAdvance::Complete(HeaderFieldValue::NestedState(_))
+        ));
+        let FieldAdvance::Complete(HeaderFieldValue::NestedState(state)) = advance else {
+            panic!("nested field should complete into nested state");
+        };
+        let rendered = crate::sections::multi_field::resolve_multifield_value(
+            &HeaderFieldValue::NestedState(state),
+            &requested_region,
+            &HashMap::new(),
+        );
+        assert!(matches!(
+            rendered,
+            crate::sections::multi_field::ResolvedMultiFieldValue::Partial(value)
+                | crate::sections::multi_field::ResolvedMultiFieldValue::Complete(value)
+                if value == "the left shoulder" || value == "left shoulder"
+        ));
+    }
+
+    #[test]
+    fn nested_field_starts_on_first_real_child_instead_of_wrapper() {
+        let appointment_type = HierarchyList {
+            id: "appointment_type".to_string(),
+            label: Some("Appointment Type".to_string()),
+            preview: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::Search,
+            joiner_style: None,
+            max_entries: None,
+            items: vec![HierarchyItem {
+                id: "treatment".to_string(),
+                label: Some("Treatment massage".to_string()),
+                default_enabled: true,
+                output: Some("Treatment massage".to_string()),
+                fields: None,
+                branch_fields: Vec::new(),
+            }],
+        };
+        let appointment_type_field = HeaderFieldConfig {
+            id: "appointment_type".to_string(),
+            name: "Appointment Type".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![appointment_type],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let requested_regions = HeaderFieldConfig {
+            id: "requested_regions".to_string(),
+            name: "Requested Regions".to_string(),
+            format: Some("{single_region}".to_string()),
+            preview: None,
+            fields: vec![HeaderFieldConfig {
+                id: "single_region".to_string(),
+                name: "Requested Region".to_string(),
+                format: None,
+                preview: None,
+                fields: Vec::new(),
+                lists: vec![HierarchyList {
+                    id: "region".to_string(),
+                    label: Some("Region".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![HierarchyItem {
+                        id: "shoulder".to_string(),
+                        label: Some("Shoulder".to_string()),
+                        default_enabled: true,
+                        output: Some("shoulder".to_string()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                    }],
+                }],
+                collections: Vec::new(),
+                format_lists: Vec::new(),
+                joiner_style: None,
+                max_entries: None,
+                max_actives: None,
+            }],
+            lists: Vec::new(),
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let request = HeaderFieldConfig {
+            id: "request".to_string(),
+            name: "Request".to_string(),
+            format: Some("{appointment_type}{requested_regions}".to_string()),
+            preview: None,
+            fields: vec![appointment_type_field, requested_regions],
+            lists: Vec::new(),
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+
+        let modal = SearchModal::new_field(0, request, None, &HashMap::new(), 5);
+
+        assert_eq!(modal.field_id, "appointment_type");
+        assert_eq!(modal.all_entries, vec!["Treatment massage".to_string()]);
+        assert_eq!(
+            modal.current_part_label(&HashMap::new()).as_deref(),
+            Some("Appointment Type")
+        );
+    }
+
+    #[test]
+    fn nested_field_resolves_parent_format_lists_after_child_completion() {
+        let year = HierarchyList {
+            id: "year".to_string(),
+            label: Some("Year".to_string()),
+            preview: Some("YYYY".to_string()),
+            sticky: true,
+            default: None,
+            modal_start: ModalStart::Search,
+            joiner_style: None,
+            max_entries: None,
+            items: vec![HierarchyItem {
+                id: "year_2026".to_string(),
+                label: Some("2026".to_string()),
+                default_enabled: true,
+                output: Some("2026".to_string()),
+                fields: None,
+                branch_fields: Vec::new(),
+            }],
+        };
+        let appointment_type = HeaderFieldConfig {
+            id: "appointment_type".to_string(),
+            name: "Appointment Type".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "appointment_type".to_string(),
+                label: Some("Appointment Type".to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::Search,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![HierarchyItem {
+                    id: "treatment".to_string(),
+                    label: Some("Treatment massage".to_string()),
+                    default_enabled: true,
+                    output: Some("Treatment massage".to_string()),
+                    fields: None,
+                    branch_fields: Vec::new(),
+                }],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let request = HeaderFieldConfig {
+            id: "request".to_string(),
+            name: "Request".to_string(),
+            format: Some("{year}: {appointment_type}".to_string()),
+            preview: None,
+            fields: vec![appointment_type],
+            lists: Vec::new(),
+            collections: Vec::new(),
+            format_lists: vec![year],
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let mut sticky_values = HashMap::from([("year".to_string(), "2026".to_string())]);
+        let mut modal = SearchModal::new_field(0, request.clone(), None, &sticky_values, 5);
+
+        let advance = modal.advance_field("Treatment massage".to_string(), &mut sticky_values, 5);
+
+        let FieldAdvance::Complete(HeaderFieldValue::NestedState(state)) = advance else {
+            panic!("nested parent field should complete into nested state");
+        };
+        let rendered = crate::sections::multi_field::resolve_multifield_value(
+            &HeaderFieldValue::NestedState(state),
+            &request,
+            &sticky_values,
+        );
+        assert!(matches!(
+            rendered,
+            crate::sections::multi_field::ResolvedMultiFieldValue::Complete(value)
+                if value == "2026: Treatment massage"
+        ));
+    }
+
+    fn request_field_with_repeating_regions() -> HeaderFieldConfig {
+        let appointment_type = HeaderFieldConfig {
+            id: "appointment_type".to_string(),
+            name: "Appointment Type".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "appointment_type".to_string(),
+                label: Some("Appointment Type".to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::Search,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![HierarchyItem {
+                    id: "treatment".to_string(),
+                    label: Some("Treatment massage".to_string()),
+                    default_enabled: true,
+                    output: Some("Treatment massage".to_string()),
+                    fields: None,
+                    branch_fields: Vec::new(),
+                }],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let region_field = HeaderFieldConfig {
+            id: "region".to_string(),
+            name: "Region".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "region".to_string(),
+                label: Some("Region".to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::Search,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![HierarchyItem {
+                    id: "shoulder".to_string(),
+                    label: Some("Shoulder".to_string()),
+                    default_enabled: true,
+                    output: Some("Shoulder".to_string()),
+                    fields: None,
+                    branch_fields: Vec::new(),
+                }],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let place_field = HeaderFieldConfig {
+            id: "place".to_string(),
+            name: "Place".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "place".to_string(),
+                label: Some("Place".to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::Search,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![HierarchyItem {
+                    id: "left".to_string(),
+                    label: Some("Left ".to_string()),
+                    default_enabled: true,
+                    output: Some("Left ".to_string()),
+                    fields: None,
+                    branch_fields: Vec::new(),
+                }],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let single_region = HeaderFieldConfig {
+            id: "single_region".to_string(),
+            name: "Requested Region".to_string(),
+            format: Some("{place}{region}".to_string()),
+            preview: None,
+            fields: vec![region_field, place_field],
+            lists: Vec::new(),
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let requested_regions = HeaderFieldConfig {
+            id: "requested_regions".to_string(),
+            name: "Requested Regions".to_string(),
+            format: Some("{single_region}".to_string()),
+            preview: None,
+            fields: vec![single_region],
+            lists: Vec::new(),
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: Some(JoinerStyle::CommaAndThe),
+            max_entries: Some(2),
+            max_actives: None,
+        };
+        HeaderFieldConfig {
+            id: "request".to_string(),
+            name: "Request".to_string(),
+            format: Some("{appointment_type}{requested_regions}".to_string()),
+            preview: None,
+            fields: vec![appointment_type, requested_regions],
+            lists: Vec::new(),
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        }
+    }
+
+    fn find_field_by_id(
+        fields: &[HeaderFieldConfig],
+        target_id: &str,
+    ) -> Option<HeaderFieldConfig> {
+        for field in fields {
+            if field.id == target_id {
+                return Some(field.clone());
+            }
+            if let Some(found) = find_field_by_id(&field.fields, target_id) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    fn real_appointment_requested_field() -> HeaderFieldConfig {
+        let data =
+            crate::data::AppData::load(crate::data::find_data_dir()).expect("real data loads");
+        for section in &data.sections {
+            if let Some(fields) = &section.fields {
+                if let Some(field) = find_field_by_id(fields, "appointment_requested_field") {
+                    return field;
+                }
+            }
+        }
+        panic!("appointment_requested_field should exist in real authored data");
+    }
+
+    #[test]
+    fn nested_repeating_child_reopens_at_next_region_entry() {
+        let request = request_field_with_repeating_regions();
+        let mut sticky_values = HashMap::new();
+        let mut modal = SearchModal::new_field(0, request.clone(), None, &sticky_values, 5);
+
+        assert_eq!(modal.field_id, "appointment_type");
+        let advance = modal.advance_field("Treatment massage".to_string(), &mut sticky_values, 5);
+        assert!(matches!(advance, FieldAdvance::NextList));
+        assert_eq!(modal.field_id, "region");
+
+        let advance = modal.advance_field("Shoulder".to_string(), &mut sticky_values, 5);
+        assert!(matches!(advance, FieldAdvance::NextList));
+        assert_eq!(modal.field_id, "place");
+
+        let advance = modal.advance_field("Left ".to_string(), &mut sticky_values, 5);
+        assert!(matches!(advance, FieldAdvance::NextList));
+        assert_eq!(modal.field_id, "region");
+
+        let saved = modal.preview_field_value(&sticky_values);
+        let reopened = SearchModal::new_field(0, request, Some(&saved), &sticky_values, 5);
+        assert_eq!(reopened.field_id, "region");
+    }
+
+    #[test]
+    fn nested_partial_leaf_progress_survives_dismiss_and_reopen() {
+        let request = request_field_with_repeating_regions();
+        let mut sticky_values = HashMap::new();
+        let mut modal = SearchModal::new_field(0, request.clone(), None, &sticky_values, 5);
+
+        let _ = modal.advance_field("Treatment massage".to_string(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Shoulder".to_string(), &mut sticky_values, 5);
+        assert_eq!(modal.field_id, "place");
+
+        let saved = modal.preview_field_value(&sticky_values);
+        let reopened = SearchModal::new_field(0, request.clone(), Some(&saved), &sticky_values, 5);
+        assert_eq!(reopened.field_id, "place");
+
+        let rendered = crate::sections::multi_field::resolve_multifield_value(
+            &saved,
+            &request,
+            &sticky_values,
+        );
+        assert!(matches!(
+            rendered,
+            crate::sections::multi_field::ResolvedMultiFieldValue::Partial(value)
+                if value.contains("Shoulder")
+        ));
+    }
+
+    #[test]
+    fn nested_back_from_place_returns_to_region() {
+        let request = request_field_with_repeating_regions();
+        let mut sticky_values = HashMap::new();
+        let mut modal = SearchModal::new_field(0, request, None, &sticky_values, 5);
+
+        let _ = modal.advance_field("Treatment massage".to_string(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Shoulder".to_string(), &mut sticky_values, 5);
+        assert_eq!(modal.field_id, "place");
+
+        assert!(modal.go_back_one_step(&sticky_values, 5));
+        assert_eq!(modal.field_id, "region");
+    }
+
+    #[test]
+    fn empty_nested_repeat_entry_ends_cycle_without_adding_blank_value() {
+        let request = request_field_with_repeating_regions();
+        let mut sticky_values = HashMap::new();
+        let mut modal = SearchModal::new_field(0, request.clone(), None, &sticky_values, 5);
+
+        let _ = modal.advance_field("Treatment massage".to_string(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Shoulder".to_string(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Left ".to_string(), &mut sticky_values, 5);
+
+        assert_eq!(modal.field_id, "region");
+        let _ = modal.advance_field(String::new(), &mut sticky_values, 5);
+        let advance = modal.advance_field(String::new(), &mut sticky_values, 5);
+
+        let FieldAdvance::Complete(HeaderFieldValue::NestedState(state)) = advance else {
+            panic!("request should complete after empty nested repeat terminator");
+        };
+        let rendered = crate::sections::multi_field::resolve_multifield_value(
+            &HeaderFieldValue::NestedState(state),
+            &request,
+            &sticky_values,
+        );
+        let display = rendered.display_value().unwrap_or_default().to_string();
+        assert!(display.contains("Treatment massage"));
+        assert!(display.contains("Left Shoulder"));
+        assert!(!display.contains(", and "));
+    }
+
+    #[test]
+    fn real_appointment_requested_field_ends_repeat_before_hitting_max_entries() {
+        let request = real_appointment_requested_field();
+        let mut sticky_values = HashMap::new();
+        let mut modal = SearchModal::new_field(0, request.clone(), None, &sticky_values, 5);
+
+        let _ = modal.advance_field(
+            "Relaxation massage, focusing on ".to_string(),
+            &mut sticky_values,
+            5,
+        );
+        assert_eq!(
+            modal
+                .nested_stack
+                .first()
+                .map(|frame| frame.state.field_index),
+            Some(1),
+            "request root should advance to requested_regions after appointment type"
+        );
+        let _ = modal.advance_field("Shoulder".to_string(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Left ".to_string(), &mut sticky_values, 5);
+        assert_eq!(
+            modal
+                .nested_stack
+                .first()
+                .map(|frame| frame.state.field_index),
+            Some(1),
+            "request root should still be on requested_regions while adding repeats"
+        );
+
+        let _ = modal.advance_field(String::new(), &mut sticky_values, 5);
+        let advance = modal.advance_field(String::new(), &mut sticky_values, 5);
+
+        assert!(
+            matches!(advance, FieldAdvance::Complete(_)),
+            "blank nested repeat entry should finish the repeating field immediately, got {advance:?}"
+        );
+    }
+
+    #[test]
+    fn real_appointment_requested_field_reopens_partial_region_at_place() {
+        let request = real_appointment_requested_field();
+        let mut sticky_values = HashMap::new();
+        let mut modal = SearchModal::new_field(0, request.clone(), None, &sticky_values, 5);
+
+        let _ = modal.advance_field(
+            "Relaxation massage, focusing on ".to_string(),
+            &mut sticky_values,
+            5,
+        );
+        let _ = modal.advance_field("Shoulder".to_string(), &mut sticky_values, 5);
+
+        let saved = modal.preview_field_value(&sticky_values);
+        let reopened = SearchModal::new_field(0, request.clone(), Some(&saved), &sticky_values, 5);
+
+        assert_eq!(
+            reopened.current_part_label(&sticky_values).as_deref(),
+            Some("place Shoulder")
+        );
+
+        let rendered = crate::sections::multi_field::resolve_multifield_value(
+            &saved,
+            &request,
+            &sticky_values,
+        );
+        assert!(matches!(
+            rendered,
+            crate::sections::multi_field::ResolvedMultiFieldValue::Partial(value)
+                if value.contains("Relaxation massage, focusing on ")
+                    && value.contains("Shoulder")
+                    && !value.contains("regionpreview")
         ));
     }
 }
@@ -1578,6 +3197,7 @@ mod branch_field_tests {
             id: id.to_string(),
             name: id.to_string(),
             format: Some(format!("{{{}}}", list.id)),
+            preview: None,
             fields: Vec::new(),
             lists: vec![list],
             collections: Vec::new(),
@@ -1651,7 +3271,11 @@ mod collection_field_tests {
         }
     }
 
-    fn collection(id: &str, label: &str, joiner_style: Option<JoinerStyle>) -> ResolvedCollectionConfig {
+    fn collection(
+        id: &str,
+        label: &str,
+        joiner_style: Option<JoinerStyle>,
+    ) -> ResolvedCollectionConfig {
         ResolvedCollectionConfig {
             id: id.to_string(),
             label: label.to_string(),
@@ -1667,10 +3291,7 @@ mod collection_field_tests {
                 modal_start: ModalStart::List,
                 joiner_style: None,
                 max_entries: None,
-                items: vec![
-                    item("one", "One", "Upper traps"),
-                    item("two", "Two", "SCM"),
-                ],
+                items: vec![item("one", "One", "Upper traps"), item("two", "Two", "SCM")],
             }],
         }
     }
@@ -1681,6 +3302,7 @@ mod collection_field_tests {
             id: "regions".to_string(),
             name: "Regions".to_string(),
             format: None,
+            preview: None,
             fields: Vec::new(),
             lists: Vec::new(),
             collections: vec![collection("neck", "Neck", Some(JoinerStyle::CommaAnd))],
@@ -1718,6 +3340,7 @@ mod collection_field_tests {
             id: "regions".to_string(),
             name: "Regions".to_string(),
             format: None,
+            preview: None,
             fields: Vec::new(),
             lists: Vec::new(),
             collections: vec![cfg],
@@ -1736,12 +3359,10 @@ mod collection_field_tests {
         );
 
         assert!(modal.is_collection_mode());
-        assert!(
-            !modal
-                .collection_state
-                .as_ref()
-                .is_some_and(|state| state.collections[0].active)
-        );
+        assert!(!modal
+            .collection_state
+            .as_ref()
+            .is_some_and(|state| state.collections[0].active));
     }
 
     #[test]
