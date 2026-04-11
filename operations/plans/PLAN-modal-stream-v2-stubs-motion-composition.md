@@ -1,7 +1,7 @@
 # Plan: Modal Stream V2 - Stubs, Motion, Chunking, Composition Panel
 
 **Date:** 2026-04-10
-**Status:** In Progress
+**Status:** Implemented
 **Supersedes:** follow-up scope decisions after `IMPLEMENTATION-BRIEF-modal-stream-ui.md`
 
 ## Purpose
@@ -17,15 +17,12 @@ This document is a design-and-sequencing plan. It captures product direction, pa
 
 ## Implementation Status
 
-Implemented through `v0.3.7-alpha`:
+Implemented through `v0.3.8-alpha`:
 
 - Phase 1: horizontal stub packing
 - Phase 2: animated horizontal stream motion with easing support
 - Phase 3: display-only top composition panel
 - Phase 4: field-level manual override editing with preview/composition styling
-
-Remaining:
-
 - Phase 5: chunked/unit modal paging
 
 ## Plain-English Summary

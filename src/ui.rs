@@ -1789,6 +1789,15 @@ impl PackedSimpleModalCard {
 #[derive(Debug, Clone, PartialEq)]
 struct PackedSimpleModalStream {
     cards: Vec<PackedSimpleModalCard>,
+    alignment: PackedStreamAlignment,
+    page_start: usize,
+    page_end: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PackedStreamAlignment {
+    CenterActive,
+    CenterStream,
 }
 
 impl PackedSimpleModalStream {
@@ -1809,6 +1818,9 @@ impl PackedSimpleModalStream {
     }
 
     fn active_center_offset(&self, active_width: f32) -> f32 {
+        if matches!(self.alignment, PackedStreamAlignment::CenterStream) {
+            return self.total_width(active_width) * 0.5;
+        }
         let mut offset = 0.0;
         for (idx, card) in self.cards.iter().enumerate() {
             if idx > 0 {
@@ -1849,11 +1861,19 @@ impl PackedSimpleModalStream {
 
         Some((centers[target_idx] - centers[active_idx]).abs())
     }
+
+    fn same_chunk_window(&self, other: &Self) -> bool {
+        matches!(self.alignment, PackedStreamAlignment::CenterStream)
+            && matches!(other.alignment, PackedStreamAlignment::CenterStream)
+            && self.page_start == other.page_start
+            && self.page_end == other.page_end
+    }
 }
 
 fn pack_simple_modal_stream(
     available_width: f32,
     active_width: f32,
+    active_sequence_index: usize,
     current: crate::modal::ModalListViewSnapshot,
     previous: Vec<crate::modal::ModalListViewSnapshot>,
     next: Vec<crate::modal::ModalListViewSnapshot>,
@@ -1902,7 +1922,13 @@ fn pack_simple_modal_stream(
                 });
             }
         }
-        PackedSimpleModalStream { cards }.total_width(active_width)
+        PackedSimpleModalStream {
+            cards,
+            alignment: PackedStreamAlignment::CenterActive,
+            page_start: active_sequence_index,
+            page_end: active_sequence_index,
+        }
+        .total_width(active_width)
     };
 
     if show_left_stub
@@ -2007,7 +2033,119 @@ fn pack_simple_modal_stream(
         }
     }
 
-    PackedSimpleModalStream { cards }
+    PackedSimpleModalStream {
+        cards,
+        alignment: PackedStreamAlignment::CenterActive,
+        page_start: active_sequence_index,
+        page_end: active_sequence_index,
+    }
+}
+
+fn chunk_page_width(
+    sequence: &[crate::modal::ModalListViewSnapshot],
+    active_width: f32,
+    start: usize,
+    end: usize,
+) -> f32 {
+    let full_count = end.saturating_sub(start) + 1;
+    let left_stub = if start > 0 {
+        preview_modal_stub_width(&sequence[start - 1].title)
+    } else {
+        0.0
+    };
+    let right_stub = if end + 1 < sequence.len() {
+        preview_modal_stub_width(&sequence[end + 1].title)
+    } else {
+        0.0
+    };
+    let card_count = full_count + usize::from(start > 0) + usize::from(end + 1 < sequence.len());
+    let full_width =
+        active_width + HORIZONTAL_MODAL_TEASER_WIDTH * full_count.saturating_sub(1) as f32;
+    let spacing = HORIZONTAL_MODAL_STREAM_SPACING * card_count.saturating_sub(1) as f32;
+    full_width + left_stub + right_stub + spacing
+}
+
+fn build_chunked_modal_page(
+    sequence: &[crate::modal::ModalListViewSnapshot],
+    active_sequence_index: usize,
+    start: usize,
+    end: usize,
+) -> PackedSimpleModalStream {
+    let mut cards = Vec::new();
+    if start > 0 {
+        cards.push(PackedSimpleModalCard::LeftStub {
+            title: sequence[start - 1].title.clone(),
+        });
+    }
+    for (idx, snapshot) in sequence[start..=end].iter().enumerate() {
+        let sequence_idx = start + idx;
+        if sequence_idx < active_sequence_index {
+            cards.push(PackedSimpleModalCard::PreviousFull {
+                snapshot: snapshot.clone(),
+            });
+        } else if sequence_idx == active_sequence_index {
+            cards.push(PackedSimpleModalCard::Active {
+                snapshot: snapshot.clone(),
+            });
+        } else {
+            cards.push(PackedSimpleModalCard::NextFull {
+                snapshot: snapshot.clone(),
+            });
+        }
+    }
+    if end + 1 < sequence.len() {
+        cards.push(PackedSimpleModalCard::RightStub {
+            title: sequence[end + 1].title.clone(),
+        });
+    }
+
+    PackedSimpleModalStream {
+        cards,
+        alignment: PackedStreamAlignment::CenterStream,
+        page_start: start,
+        page_end: end,
+    }
+}
+
+fn pack_chunked_simple_modal_stream(
+    available_width: f32,
+    active_width: f32,
+    active_sequence_index: usize,
+    sequence: &[crate::modal::ModalListViewSnapshot],
+) -> Option<PackedSimpleModalStream> {
+    if sequence.len() <= 1 {
+        return None;
+    }
+
+    let mut start = 0usize;
+    while start < sequence.len() {
+        if chunk_page_width(sequence, active_width, start, start) > available_width {
+            return None;
+        }
+
+        let mut end = start;
+        while end + 1 < sequence.len()
+            && chunk_page_width(sequence, active_width, start, end + 1) <= available_width
+        {
+            end += 1;
+        }
+
+        if (start..=end).contains(&active_sequence_index) {
+            if end == start {
+                return None;
+            }
+            return Some(build_chunked_modal_page(
+                sequence,
+                active_sequence_index,
+                start,
+                end,
+            ));
+        }
+
+        start = end + 1;
+    }
+
+    None
 }
 
 fn packed_simple_modal_stream_for_modal(
@@ -2016,7 +2154,8 @@ fn packed_simple_modal_stream_for_modal(
     modal_width: f32,
 ) -> Option<PackedSimpleModalStream> {
     let current_snapshot = modal.list_view_snapshot(&app.config.sticky_values)?;
-    let prev_snapshots = modal.peek_prev_list_views(&app.config.sticky_values, 2);
+    let prev_limit = modal.field_flow.list_idx.max(2);
+    let prev_snapshots = modal.peek_prev_list_views(&app.config.sticky_values, prev_limit);
     let next_limit = modal
         .field_flow
         .lists
@@ -2027,13 +2166,26 @@ fn packed_simple_modal_stream_for_modal(
         .viewport_size
         .map(|size| (size.width - 48.0).max(modal_width))
         .unwrap_or(f32::INFINITY);
-    Some(pack_simple_modal_stream(
-        available_width,
-        modal_width,
-        current_snapshot,
-        prev_snapshots,
-        next_snapshots,
-    ))
+    let chunk_budget = app
+        .viewport_size
+        .map(|size| (size.width * 0.9).max(modal_width))
+        .unwrap_or(f32::INFINITY);
+    let active_sequence_index = prev_snapshots.len();
+    let mut sequence = prev_snapshots.iter().rev().cloned().collect::<Vec<_>>();
+    sequence.push(current_snapshot.clone());
+    sequence.extend(next_snapshots.iter().cloned());
+
+    pack_chunked_simple_modal_stream(chunk_budget, modal_width, active_sequence_index, &sequence)
+        .or_else(|| {
+            Some(pack_simple_modal_stream(
+                available_width,
+                modal_width,
+                active_sequence_index,
+                current_snapshot,
+                prev_snapshots.into_iter().take(2).collect(),
+                next_snapshots,
+            ))
+        })
 }
 
 fn packed_stream_alignment_padding(
@@ -2477,47 +2629,60 @@ fn modal_overlay<'a>(app: &'a App, modal: &'a crate::modal::SearchModal) -> Elem
                     &transition.previous_modal,
                     modal_width,
                 ) {
-                    let progress = transition.eased_progress();
-                    let distance = packed_stream_slide_distance(
-                        &previous_packed,
-                        &current_packed,
-                        modal_width,
-                        transition.direction,
-                    );
-                    let (old_shift, new_shift) = match transition.direction {
-                        crate::app::ModalStreamDirection::Forward => {
-                            (-distance * progress, distance * (1.0 - progress))
-                        }
-                        crate::app::ModalStreamDirection::Backward => {
-                            (distance * progress, -distance * (1.0 - progress))
-                        }
-                    };
-                    let old_alpha = 1.0 - progress;
-                    let new_preview_alpha = (0.55 + 0.45 * progress).clamp(0.0, 1.0);
-
-                    Stack::new()
-                        .push(render_packed_simple_modal_stream(
+                    if previous_packed.same_chunk_window(&current_packed) {
+                        render_packed_simple_modal_stream(
                             app,
-                            previous_packed,
-                            None,
-                            modal_height,
-                            modal_width,
-                            old_shift,
-                            old_alpha,
-                            false,
-                        ))
-                        .push(render_packed_simple_modal_stream(
-                            app,
-                            current_packed.clone(),
+                            current_packed,
                             Some(modal),
                             modal_height,
                             modal_width,
-                            new_shift,
-                            new_preview_alpha,
+                            0.0,
+                            1.0,
                             true,
-                        ))
-                        .width(Length::Fill)
-                        .into()
+                        )
+                    } else {
+                        let progress = transition.eased_progress();
+                        let distance = packed_stream_slide_distance(
+                            &previous_packed,
+                            &current_packed,
+                            modal_width,
+                            transition.direction,
+                        );
+                        let (old_shift, new_shift) = match transition.direction {
+                            crate::app::ModalStreamDirection::Forward => {
+                                (-distance * progress, distance * (1.0 - progress))
+                            }
+                            crate::app::ModalStreamDirection::Backward => {
+                                (distance * progress, -distance * (1.0 - progress))
+                            }
+                        };
+                        let old_alpha = 1.0 - progress;
+                        let new_preview_alpha = (0.55 + 0.45 * progress).clamp(0.0, 1.0);
+
+                        Stack::new()
+                            .push(render_packed_simple_modal_stream(
+                                app,
+                                previous_packed,
+                                None,
+                                modal_height,
+                                modal_width,
+                                old_shift,
+                                old_alpha,
+                                false,
+                            ))
+                            .push(render_packed_simple_modal_stream(
+                                app,
+                                current_packed.clone(),
+                                Some(modal),
+                                modal_height,
+                                modal_width,
+                                new_shift,
+                                new_preview_alpha,
+                                true,
+                            ))
+                            .width(Length::Fill)
+                            .into()
+                    }
                 } else {
                     render_packed_simple_modal_stream(
                         app,
@@ -3067,7 +3232,10 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
 #[cfg(test)]
 mod tests {
-    use super::{collection_preview_metrics, pack_simple_modal_stream, PackedSimpleModalCard};
+    use super::{
+        collection_preview_metrics, pack_chunked_simple_modal_stream, pack_simple_modal_stream,
+        PackedSimpleModalCard, PackedStreamAlignment,
+    };
     use crate::data::{HierarchyItem, HierarchyList, ModalStart, ResolvedCollectionConfig};
     use crate::modal::{ModalFocus, ModalListViewSnapshot};
     use crate::sections::collection::CollectionEntry;
@@ -3150,6 +3318,7 @@ mod tests {
         let packed = pack_simple_modal_stream(
             950.0,
             360.0,
+            2,
             snapshot("Current"),
             vec![snapshot("Previous"), snapshot("Earlier")],
             vec![snapshot("Next"), snapshot("Later")],
@@ -3179,6 +3348,7 @@ mod tests {
         let packed = pack_simple_modal_stream(
             1210.0,
             360.0,
+            2,
             snapshot("Current"),
             vec![snapshot("Previous"), snapshot("Earlier")],
             vec![snapshot("Next"), snapshot("Later"), snapshot("Farther")],
@@ -3201,6 +3371,73 @@ mod tests {
                 },
                 PackedSimpleModalCard::RightStub {
                     title: "Later".to_string()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn chunked_stream_keeps_same_page_for_middle_active_modal() {
+        let sequence = vec![
+            snapshot("One"),
+            snapshot("Two"),
+            snapshot("Three"),
+            snapshot("Four"),
+            snapshot("Five"),
+        ];
+
+        let packed = pack_chunked_simple_modal_stream(1200.0, 360.0, 1, &sequence)
+            .expect("chunked page should fit");
+
+        assert_eq!(packed.alignment, PackedStreamAlignment::CenterStream);
+        assert_eq!(packed.page_start, 0);
+        assert_eq!(packed.page_end, 2);
+        assert_eq!(
+            packed.cards,
+            vec![
+                PackedSimpleModalCard::PreviousFull {
+                    snapshot: snapshot("One")
+                },
+                PackedSimpleModalCard::Active {
+                    snapshot: snapshot("Two")
+                },
+                PackedSimpleModalCard::NextFull {
+                    snapshot: snapshot("Three")
+                },
+                PackedSimpleModalCard::RightStub {
+                    title: "Four".to_string()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn chunked_stream_advances_to_next_non_overlapping_page() {
+        let sequence = vec![
+            snapshot("One"),
+            snapshot("Two"),
+            snapshot("Three"),
+            snapshot("Four"),
+            snapshot("Five"),
+        ];
+
+        let packed = pack_chunked_simple_modal_stream(1200.0, 360.0, 3, &sequence)
+            .expect("chunked page should fit");
+
+        assert_eq!(packed.alignment, PackedStreamAlignment::CenterStream);
+        assert_eq!(packed.page_start, 3);
+        assert_eq!(packed.page_end, 4);
+        assert_eq!(
+            packed.cards,
+            vec![
+                PackedSimpleModalCard::LeftStub {
+                    title: "Three".to_string()
+                },
+                PackedSimpleModalCard::Active {
+                    snapshot: snapshot("Four")
+                },
+                PackedSimpleModalCard::NextFull {
+                    snapshot: snapshot("Five")
                 },
             ]
         );
