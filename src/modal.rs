@@ -62,6 +62,7 @@ pub struct SearchModal {
     pub branch_stack: Vec<BranchFrame>,
     pub nested_stack: Vec<NestedFrame>,
     pub window_size: usize,
+    pub manual_override: Option<String>,
 }
 
 #[derive(Debug)]
@@ -197,6 +198,9 @@ impl SearchModal {
         let list_cursor = list_initial_cursor(first_list, &outputs, sticky_values);
         let labels =
             resolved_item_labels_for_list(first_list, &[], &[], &field.lists, sticky_values);
+        let manual_override = current_value
+            .and_then(HeaderFieldValue::manual_override_text)
+            .map(str::to_string);
         let n = labels.len();
         let mut modal = Self {
             field_idx,
@@ -223,6 +227,7 @@ impl SearchModal {
             branch_stack: Vec::new(),
             nested_stack: Vec::new(),
             window_size,
+            manual_override,
         };
         modal.update_filter();
         modal
@@ -235,6 +240,10 @@ impl SearchModal {
         sticky_values: &HashMap<String, String>,
         window_size: usize,
     ) -> Self {
+        let manual_override = current_value
+            .and_then(HeaderFieldValue::manual_override_text)
+            .map(str::to_string);
+        let current_value = current_value.map(HeaderFieldValue::source_value);
         let nested_state = match current_value {
             Some(HeaderFieldValue::NestedState(state)) => state.as_ref().clone(),
             _ => HeaderState::new(field.fields.clone()),
@@ -242,6 +251,7 @@ impl SearchModal {
         let synthetic_field = synthetic_container_field(&field);
         let mut modal =
             Self::new_field(field_idx, synthetic_field, None, sticky_values, window_size);
+        modal.manual_override = manual_override;
         modal.nested_stack.push(NestedFrame {
             field,
             state: nested_state,
@@ -256,6 +266,10 @@ impl SearchModal {
         current_value: Option<&HeaderFieldValue>,
         window_size: usize,
     ) -> Self {
+        let manual_override = current_value
+            .and_then(HeaderFieldValue::manual_override_text)
+            .map(str::to_string);
+        let current_value = current_value.map(HeaderFieldValue::source_value);
         let labels = collection_labels(&field.collections);
         let n = labels.len();
         let use_default_activation =
@@ -293,6 +307,7 @@ impl SearchModal {
             branch_stack: Vec::new(),
             nested_stack: Vec::new(),
             window_size,
+            manual_override,
         }
     }
 
@@ -423,6 +438,10 @@ impl SearchModal {
         sticky_values: &HashMap<String, String>,
         window_size: usize,
     ) {
+        let manual_override = current_value
+            .and_then(HeaderFieldValue::manual_override_text)
+            .map(str::to_string);
+        let current_value = current_value.map(HeaderFieldValue::source_value);
         self.branch_stack.clear();
         if !field.collections.is_empty() && field.lists.is_empty() {
             let labels = collection_labels(&field.collections);
@@ -458,6 +477,7 @@ impl SearchModal {
             self.collection_state = Some(collection_state);
             self.collection_format = field.format;
             self.window_size = window_size;
+            self.manual_override = manual_override;
             return;
         }
 
@@ -475,7 +495,7 @@ impl SearchModal {
         let active_list = &field.lists[saved_list_idx];
         let outputs: Vec<String> = active_list.items.iter().map(item_output).collect();
         let mut list_cursor = list_initial_cursor(active_list, &outputs, sticky_values);
-        if let Some(HeaderFieldValue::Text(value)) = current_value {
+        if let Some(value) = current_value.and_then(HeaderFieldValue::as_text) {
             if field.lists.len() == 1 {
                 if let Some(pos) = outputs.iter().position(|output| output == value) {
                     list_cursor = pos;
@@ -511,6 +531,7 @@ impl SearchModal {
         self.collection_state = None;
         self.collection_format = None;
         self.window_size = window_size;
+        self.manual_override = manual_override;
         self.update_filter();
     }
 
@@ -1374,6 +1395,7 @@ fn has_concrete_field_content(value: &HeaderFieldValue, cfg: &HeaderFieldConfig)
     match value {
         HeaderFieldValue::ExplicitEmpty => false,
         HeaderFieldValue::Text(value) => !value.trim().is_empty(),
+        HeaderFieldValue::ManualOverride { text, .. } => !text.trim().is_empty(),
         HeaderFieldValue::ListState(value) => {
             value.values.iter().any(|value| !value.trim().is_empty())
                 || value

@@ -948,6 +948,120 @@ fn blend_color(base: Color, flash: Color, amount: f32) -> Color {
     }
 }
 
+fn italic_font(base: iced::Font) -> iced::Font {
+    iced::Font {
+        style: iced::font::Style::Italic,
+        ..base
+    }
+}
+
+fn preview_font(app: &App, italic: bool) -> iced::Font {
+    if italic {
+        italic_font(app.ui_theme.font_preview)
+    } else {
+        app.ui_theme.font_preview
+    }
+}
+
+fn modal_composition_font(app: &App, italic: bool) -> iced::Font {
+    if italic {
+        italic_font(app.ui_theme.font_modal)
+    } else {
+        app.ui_theme.font_modal
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HeaderPreviewLineMatch {
+    section_idx: usize,
+    field_idx: usize,
+    manual_override: bool,
+}
+
+fn multifield_renders_without_field_label(
+    section: &crate::data::SectionConfig,
+    field: &crate::data::HeaderFieldConfig,
+) -> bool {
+    section.id == "appointment_section"
+        || (!field.collections.is_empty() && field.lists.is_empty() && field.format.is_none())
+}
+
+fn match_header_preview_line(app: &App, line: &str) -> Option<HeaderPreviewLineMatch> {
+    for (section_idx, section) in app.sections.iter().enumerate() {
+        let Some(SectionState::Header(state)) = app.section_states.get(section_idx) else {
+            continue;
+        };
+
+        for (field_idx, field) in state.field_configs.iter().enumerate() {
+            let values = state
+                .repeated_values
+                .get(field_idx)
+                .map(|values| values.as_slice())
+                .unwrap_or(&[]);
+
+            if values.is_empty() {
+                let empty_value = crate::sections::header::HeaderFieldValue::Text(String::new());
+                let resolved = crate::sections::multi_field::resolve_multifield_value(
+                    &empty_value,
+                    field,
+                    &app.config.sticky_values,
+                );
+                let Some(rendered) = resolved.export_value() else {
+                    continue;
+                };
+                let label = crate::sections::multi_field::resolve_field_label(
+                    &empty_value,
+                    field,
+                    &app.config.sticky_values,
+                );
+                let candidate = if multifield_renders_without_field_label(section, field) {
+                    rendered.to_string()
+                } else {
+                    format!("{label}: {rendered}")
+                };
+                if line == candidate {
+                    return Some(HeaderPreviewLineMatch {
+                        section_idx,
+                        field_idx,
+                        manual_override: false,
+                    });
+                }
+                continue;
+            }
+
+            for value in values {
+                let resolved = crate::sections::multi_field::resolve_multifield_value(
+                    value,
+                    field,
+                    &app.config.sticky_values,
+                );
+                let Some(rendered) = resolved.export_value() else {
+                    continue;
+                };
+                let label = crate::sections::multi_field::resolve_field_label(
+                    value,
+                    field,
+                    &app.config.sticky_values,
+                );
+                let candidate = if multifield_renders_without_field_label(section, field) {
+                    rendered.to_string()
+                } else {
+                    format!("{label}: {rendered}")
+                };
+                if line == candidate {
+                    return Some(HeaderPreviewLineMatch {
+                        section_idx,
+                        field_idx,
+                        manual_override: value.is_manual_override(),
+                    });
+                }
+            }
+        }
+    }
+
+    None
+}
+
 fn preview_lines(app: &App) -> Vec<Element<'_, Message>> {
     let preview_text = crate::document::export_editable_document(&app.editable_note);
     let mut group_idx: Option<usize> = None;
@@ -963,9 +1077,11 @@ fn preview_lines(app: &App) -> Vec<Element<'_, Message>> {
 }
 
 fn preview_line(app: &App, line: String, group_idx: Option<usize>) -> Element<'_, Message> {
+    let manual_override =
+        match_header_preview_line(app, &line).is_some_and(|line_match| line_match.manual_override);
     if let Some(spans) = appointment_header_line_spans(app, &line, group_idx) {
         return rich_text::<Message, iced::Theme, iced::Renderer>(spans)
-            .font(app.ui_theme.font_preview)
+            .font(preview_font(app, manual_override))
             .size(14)
             .width(Length::Fill)
             .into();
@@ -973,7 +1089,7 @@ fn preview_line(app: &App, line: String, group_idx: Option<usize>) -> Element<'_
 
     let color = preview_line_color(app, &line, group_idx);
     text(line)
-        .font(app.ui_theme.font_preview)
+        .font(preview_font(app, manual_override))
         .size(14)
         .width(Length::Fill)
         .color(color)
@@ -993,25 +1109,23 @@ fn preview_line_color(app: &App, line: &str, group_idx: Option<usize>) -> Color 
         };
     }
 
+    if let Some(line_match) = match_header_preview_line(app, line) {
+        let Some(SectionState::Header(state)) = app.section_states.get(line_match.section_idx)
+        else {
+            return app.ui_theme.text;
+        };
+        return header_field_preview_color(
+            app,
+            line_match.section_idx,
+            state,
+            line_match.field_idx,
+            in_current_group,
+        );
+    }
+
     for (section_idx, section) in app.sections.iter().enumerate() {
         if crate::note::managed_heading_for_section(section).as_deref() == Some(line) {
             return section_preview_color(app, section_idx, in_current_group);
-        }
-
-        let Some(SectionState::Header(state)) = app.section_states.get(section_idx) else {
-            continue;
-        };
-        for (field_idx, field) in state.field_configs.iter().enumerate() {
-            let prefix = format!("{}: ", field.name);
-            if line.starts_with(&prefix) {
-                return header_field_preview_color(
-                    app,
-                    section_idx,
-                    state,
-                    field_idx,
-                    in_current_group,
-                );
-            }
         }
     }
 
@@ -1265,6 +1379,9 @@ fn status_bar(app: &App) -> Element<'_, Message> {
 
 fn panel_status_text(app: &App) -> String {
     if let Some(modal) = app.modal.as_ref() {
+        if app.modal_composition_editing {
+            return "Modal: composition edit | Enter/Esc exits | Ctrl+R resets".to_string();
+        }
         if let Some(state) = modal.collection_state.as_ref() {
             let focus = match state.focus {
                 CollectionFocus::Collections => "collections",
@@ -1279,7 +1396,7 @@ fn panel_status_text(app: &App) -> String {
             ModalFocus::List => "list",
         };
         return format!(
-            "Modal: {focus} | {} matches | Enter selects | Esc closes",
+            "Modal: {focus} | {} matches | Enter selects | Ctrl+E edits entry | Esc closes",
             modal.filtered.len()
         );
     }
@@ -2158,12 +2275,14 @@ fn entry_composition_panel<'a>(
     modal: &'a crate::modal::SearchModal,
     modal_width: f32,
 ) -> Option<Element<'a, Message>> {
-    let spans = crate::app::compute_field_composition_spans(modal, &app.config.sticky_values);
-    if spans.is_empty() {
+    let structured_spans =
+        crate::app::compute_field_composition_spans(modal, &app.config.sticky_values);
+    if structured_spans.is_empty() && modal.manual_override.is_none() {
         return None;
     }
 
-    let styled_spans = spans
+    let styled_spans = structured_spans
+        .clone()
         .into_iter()
         .map(|span_data| {
             let color = match span_data.kind {
@@ -2172,6 +2291,21 @@ fn entry_composition_panel<'a>(
                 crate::app::FieldCompositionSpanKind::Preview => app.ui_theme.modal_muted_text,
             };
             span::<Message, iced::Font>(span_data.text).color(color)
+        })
+        .collect::<Vec<_>>();
+    let subdued_source_spans = structured_spans
+        .into_iter()
+        .map(|span_data| {
+            let base = match span_data.kind {
+                crate::app::FieldCompositionSpanKind::Literal => app.ui_theme.text,
+                crate::app::FieldCompositionSpanKind::Confirmed => app.ui_theme.selected,
+                crate::app::FieldCompositionSpanKind::Preview => app.ui_theme.modal_muted_text,
+            };
+            span::<Message, iced::Font>(span_data.text).color(blend_color(
+                base,
+                app.ui_theme.modal_muted_text,
+                0.45,
+            ))
         })
         .collect::<Vec<_>>();
 
@@ -2186,35 +2320,85 @@ fn entry_composition_panel<'a>(
         app.ui_theme.modal_input_background,
         0.15,
     );
-    let border_color = blend_color(
-        app.ui_theme.modal_input_border,
-        app.ui_theme.text,
-        0.25,
-    );
+    let border_color = blend_color(app.ui_theme.modal_input_border, app.ui_theme.text, 0.25);
+    let helper_text = if app.modal_composition_editing {
+        "Manual edit mode | Enter or Esc exits | Ctrl+R resets"
+    } else if modal.manual_override.is_some() {
+        "Manual override active | Ctrl+E edits | Ctrl+R resets"
+    } else {
+        "Structured composition | Ctrl+E edits current field"
+    };
+    let helper_color = blend_color(app.ui_theme.modal_muted_text, app.ui_theme.text, 0.2);
+    let input_theme = app.ui_theme.clone();
+
+    let main_content: Element<'a, Message> = if app.modal_composition_editing {
+        let current_text = modal.manual_override.as_deref().unwrap_or_default();
+        text_input("Edit current field", current_text)
+            .on_input(Message::ModalCompositionChanged)
+            .font(modal_composition_font(app, true))
+            .width(Length::Fill)
+            .style(move |_theme, status| modal_input_style(&input_theme, status))
+            .into()
+    } else if let Some(override_text) = modal.manual_override.as_deref() {
+        let display_text = if override_text.is_empty() {
+            "[empty override]"
+        } else {
+            override_text
+        };
+        text(display_text)
+            .font(modal_composition_font(app, true))
+            .size(16)
+            .width(Length::Fill)
+            .color(blend_color(app.ui_theme.text, app.ui_theme.selected, 0.18))
+            .into()
+    } else {
+        rich_text::<Message, iced::Theme, iced::Renderer>(styled_spans)
+            .font(app.ui_theme.font_modal)
+            .size(16)
+            .width(Length::Fill)
+            .into()
+    };
+
+    let mut panel_items: Vec<Element<'a, Message>> = vec![
+        text("Entry Composition")
+            .font(app.ui_theme.font_modal)
+            .color(label_color)
+            .into(),
+        main_content,
+        text(helper_text)
+            .font(app.ui_theme.font_modal)
+            .color(helper_color)
+            .into(),
+    ];
+
+    if modal.manual_override.is_some() {
+        panel_items.push(
+            text("Structured source")
+                .font(app.ui_theme.font_modal)
+                .color(label_color)
+                .into(),
+        );
+        panel_items.push(
+            rich_text::<Message, iced::Theme, iced::Renderer>(subdued_source_spans)
+                .font(app.ui_theme.font_modal)
+                .size(16)
+                .width(Length::Fill)
+                .into(),
+        );
+    }
 
     Some(
-        container(
-            column![
-                text("Entry Composition")
-                    .font(app.ui_theme.font_modal)
-                    .color(label_color),
-                rich_text::<Message, iced::Theme, iced::Renderer>(styled_spans)
-                    .font(app.ui_theme.font_modal)
-                    .size(16)
-                    .width(Length::Fill)
-            ]
-            .spacing(8),
-        )
-        .width(Length::Fixed(panel_width))
-        .padding(12)
-        .style(move |_| {
-            background_style(panel_background, app.ui_theme.text).border(Border {
-                color: border_color,
-                width: 1.0,
-                radius: 6.0.into(),
+        container(column(panel_items).spacing(8))
+            .width(Length::Fixed(panel_width))
+            .padding(12)
+            .style(move |_| {
+                background_style(panel_background, app.ui_theme.text).border(Border {
+                    color: border_color,
+                    width: 1.0,
+                    radius: 6.0.into(),
+                })
             })
-        })
-        .into(),
+            .into(),
     )
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "scribblenot"
-version = "0.3.6-alpha"
+version = "0.3.7-alpha"
 edition = "2021"
 
 [[bin]]

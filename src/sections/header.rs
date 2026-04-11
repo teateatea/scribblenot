@@ -24,6 +24,10 @@ pub struct ListFieldValue {
 pub enum HeaderFieldValue {
     ExplicitEmpty,
     Text(String),
+    ManualOverride {
+        text: String,
+        source: Box<HeaderFieldValue>,
+    },
     ListState(ListFieldValue),
     CollectionState(CollectionFieldValue),
     NestedState(Box<HeaderState>),
@@ -33,8 +37,27 @@ impl HeaderFieldValue {
     pub fn as_text(&self) -> Option<&str> {
         match self {
             Self::Text(value) => Some(value.as_str()),
+            Self::ManualOverride { text, .. } => Some(text.as_str()),
             _ => None,
         }
+    }
+
+    pub fn source_value(&self) -> &HeaderFieldValue {
+        match self {
+            Self::ManualOverride { source, .. } => source.source_value(),
+            _ => self,
+        }
+    }
+
+    pub fn manual_override_text(&self) -> Option<&str> {
+        match self {
+            Self::ManualOverride { text, .. } => Some(text.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn is_manual_override(&self) -> bool {
+        matches!(self, Self::ManualOverride { .. })
     }
 }
 

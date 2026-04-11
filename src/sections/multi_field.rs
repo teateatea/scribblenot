@@ -113,6 +113,7 @@ pub fn resolve_field_label(
     cfg: &HeaderFieldConfig,
     sticky_values: &HashMap<String, String>,
 ) -> String {
+    let confirmed = confirmed.source_value();
     if !cfg.name.contains('{') {
         return cfg.name.clone();
     }
@@ -142,10 +143,16 @@ pub fn resolve_field_label(
 
     let mut placeholders = Vec::new();
     for list in &cfg.lists {
-        let value = if matches!(confirmed, HeaderFieldValue::Text(value) if !value.is_empty())
-            && cfg.lists.len() == 1
-        {
-            confirmed.as_text().map(ToOwned::to_owned)
+        let value = if cfg.lists.len() == 1 {
+            match confirmed {
+                HeaderFieldValue::ListState(value) => resolve_list_state(value, cfg, sticky_values)
+                    .display_value()
+                    .map(str::to_string),
+                value if value.as_text().is_some_and(|text| !text.is_empty()) => {
+                    value.as_text().map(ToOwned::to_owned)
+                }
+                _ => resolve_list_value(list, sticky_values),
+            }
         } else {
             resolve_list_value(list, sticky_values)
         }
@@ -165,7 +172,9 @@ pub fn resolve_field_label(
                         .map(|_| collection.label.clone())
                         .or_else(|| decode_collection_display_value(value, cfg))
                 }
-                HeaderFieldValue::Text(value) if !value.is_empty() => Some(value.to_string()),
+                value if value.as_text().is_some_and(|text| !text.is_empty()) => {
+                    value.as_text().map(ToOwned::to_owned)
+                }
                 _ => None,
             }
         } else if collection.default_enabled {
@@ -231,6 +240,13 @@ fn resolve_single_value(
 ) -> ResolvedMultiFieldValue {
     match confirmed {
         HeaderFieldValue::ExplicitEmpty => ResolvedMultiFieldValue::Empty,
+        HeaderFieldValue::ManualOverride { text, .. } => {
+            if text.trim().is_empty() {
+                ResolvedMultiFieldValue::Empty
+            } else {
+                ResolvedMultiFieldValue::Complete(text.clone())
+            }
+        }
         HeaderFieldValue::CollectionState(value)
             if !cfg.collections.is_empty() && cfg.lists.is_empty() =>
         {
@@ -239,8 +255,8 @@ fn resolve_single_value(
                 .map(ResolvedMultiFieldValue::Complete)
                 .unwrap_or(ResolvedMultiFieldValue::Empty)
         }
-        HeaderFieldValue::Text(value) if !value.is_empty() => {
-            ResolvedMultiFieldValue::Complete(value.to_string())
+        value if value.as_text().is_some_and(|text| !text.is_empty()) => {
+            ResolvedMultiFieldValue::Complete(value.as_text().unwrap().to_string())
         }
         HeaderFieldValue::ListState(value) if !cfg.lists.is_empty() => {
             resolve_list_state(value, cfg, sticky_values)
@@ -742,5 +758,116 @@ mod tests {
             resolved,
             ResolvedMultiFieldValue::Partial(value) if value.contains("Shoulder")
         ));
+    }
+
+    #[test]
+    fn manual_override_uses_override_text_for_output() {
+        let cfg = HeaderFieldConfig {
+            id: "region".to_string(),
+            name: "Region".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: Vec::new(),
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+
+        let resolved = resolve_multifield_value(
+            &crate::sections::header::HeaderFieldValue::ManualOverride {
+                text: "Manual shoulder".to_string(),
+                source: Box::new(crate::sections::header::HeaderFieldValue::Text(
+                    "Shoulder".to_string(),
+                )),
+            },
+            &cfg,
+            &HashMap::new(),
+        );
+
+        assert!(matches!(
+            resolved,
+            ResolvedMultiFieldValue::Complete(value) if value == "Manual shoulder"
+        ));
+    }
+
+    #[test]
+    fn empty_manual_override_renders_as_empty() {
+        let cfg = HeaderFieldConfig {
+            id: "region".to_string(),
+            name: "Region".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: Vec::new(),
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+
+        let resolved = resolve_multifield_value(
+            &crate::sections::header::HeaderFieldValue::ManualOverride {
+                text: String::new(),
+                source: Box::new(crate::sections::header::HeaderFieldValue::Text(
+                    "Shoulder".to_string(),
+                )),
+            },
+            &cfg,
+            &HashMap::new(),
+        );
+
+        assert!(matches!(resolved, ResolvedMultiFieldValue::Empty));
+    }
+
+    #[test]
+    fn manual_override_keeps_field_label_from_structured_source() {
+        let cfg = HeaderFieldConfig {
+            id: "requested_region".to_string(),
+            name: "Requested {region}".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "region".to_string(),
+                label: Some("Region".to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: crate::data::ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![crate::data::HierarchyItem {
+                    id: "shoulder".to_string(),
+                    label: Some("Shoulder".to_string()),
+                    default_enabled: true,
+                    output: Some("Shoulder".to_string()),
+                    fields: None,
+                    branch_fields: Vec::new(),
+                }],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let value = crate::sections::header::HeaderFieldValue::ManualOverride {
+            text: "Manual shoulder".to_string(),
+            source: Box::new(crate::sections::header::HeaderFieldValue::ListState(
+                crate::sections::header::ListFieldValue {
+                    values: vec!["Shoulder".to_string()],
+                    list_idx: 0,
+                    repeat_values: Vec::new(),
+                },
+            )),
+        };
+
+        let label = resolve_field_label(&value, &cfg, &HashMap::new());
+
+        assert_eq!(label, "Requested Shoulder");
     }
 }

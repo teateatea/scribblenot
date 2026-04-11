@@ -216,6 +216,7 @@ pub struct App {
     pub modal_mouse_mode: bool,
     modal_restore_snapshot: Option<ModalRestoreSnapshot>,
     pub modal_stream_transition: Option<ModalStreamTransition>,
+    pub modal_composition_editing: bool,
     pub editable_note: String,
     pub note_headings_valid: bool,
     pub note_structure_warning: Option<String>,
@@ -305,6 +306,7 @@ impl App {
             modal_mouse_mode: false,
             modal_restore_snapshot: None,
             modal_stream_transition: None,
+            modal_composition_editing: false,
             editable_note,
             note_headings_valid,
             note_structure_warning,
@@ -343,6 +345,7 @@ impl App {
         self.modal_mouse_mode = false;
         self.modal_restore_snapshot = None;
         self.modal_stream_transition = None;
+        self.modal_composition_editing = false;
         self.hint_buffer.clear();
     }
 
@@ -401,6 +404,7 @@ impl App {
         self.modal = None;
         self.modal_mouse_mode = false;
         self.modal_stream_transition = None;
+        self.modal_composition_editing = false;
         self.hint_buffer.clear();
     }
 
@@ -411,6 +415,84 @@ impl App {
             }
             modal.query = new_text;
             modal.update_filter();
+        }
+    }
+
+    pub fn set_modal_composition_text(&mut self, new_text: String) {
+        if let Some(modal) = self.modal.as_mut() {
+            if modal.is_collection_mode() {
+                return;
+            }
+            modal.manual_override = Some(new_text);
+            self.sync_modal_preview_state(self.current_idx);
+        }
+    }
+
+    fn start_modal_composition_editing(&mut self) {
+        let current_text = self
+            .modal
+            .as_ref()
+            .map(|modal| compute_field_preview(modal, &self.config.sticky_values))
+            .unwrap_or_default();
+        if let Some(modal) = self.modal.as_mut() {
+            if modal.is_collection_mode() {
+                return;
+            }
+            if modal.manual_override.is_none() {
+                modal.manual_override = Some(current_text);
+            }
+            self.modal_composition_editing = true;
+            self.sync_modal_preview_state(self.current_idx);
+        }
+    }
+
+    fn reset_modal_composition_override(&mut self) {
+        if let Some(modal) = self.modal.as_mut() {
+            modal.manual_override = None;
+            self.modal_composition_editing = false;
+            self.sync_modal_preview_state(self.current_idx);
+        }
+    }
+
+    fn handle_modal_composition_key(&mut self, key: AppKey) {
+        match key {
+            AppKey::Tab
+            | AppKey::Enter
+            | AppKey::ShiftEnter
+            | AppKey::Esc
+            | AppKey::CtrlChar('e') => {
+                self.modal_composition_editing = false;
+            }
+            AppKey::Backspace => {
+                if let Some(modal) = self.modal.as_mut() {
+                    if let Some(text) = modal.manual_override.as_mut() {
+                        text.pop();
+                    }
+                }
+                self.sync_modal_preview_state(self.current_idx);
+            }
+            AppKey::CtrlChar('r') => {
+                self.reset_modal_composition_override();
+            }
+            AppKey::Char(c) => {
+                if let Some(modal) = self.modal.as_mut() {
+                    modal
+                        .manual_override
+                        .get_or_insert_with(String::new)
+                        .push(c);
+                }
+                self.sync_modal_preview_state(self.current_idx);
+            }
+            AppKey::Space => {
+                if let Some(modal) = self.modal.as_mut() {
+                    modal
+                        .manual_override
+                        .get_or_insert_with(String::new)
+                        .push(' ');
+                }
+                self.sync_modal_preview_state(self.current_idx);
+            }
+            _ => {}
         }
     }
 
@@ -1454,6 +1536,7 @@ impl App {
             );
             self.modal = Some(modal);
             self.modal_mouse_mode = false;
+            self.modal_composition_editing = false;
             self.modal_restore_snapshot = Some(ModalRestoreSnapshot {
                 field_idx,
                 value_index,
@@ -1464,6 +1547,11 @@ impl App {
     }
 
     fn handle_modal_key(&mut self, key: AppKey) {
+        if self.modal_composition_editing {
+            self.handle_modal_composition_key(key);
+            return;
+        }
+
         if self.is_super_confirm(&key) {
             self.super_confirm_modal_field();
             return;
@@ -1480,6 +1568,16 @@ impl App {
 
         if matches!(key, AppKey::Esc) {
             self.dismiss_modal();
+            return;
+        }
+
+        if matches!(key, AppKey::CtrlChar('e')) {
+            self.start_modal_composition_editing();
+            return;
+        }
+
+        if matches!(key, AppKey::CtrlChar('r')) {
+            self.reset_modal_composition_override();
             return;
         }
 
@@ -1855,6 +1953,29 @@ impl App {
         }
     }
 
+    fn sync_modal_preview_state(&mut self, idx: usize) {
+        let Some(modal) = self.modal.as_ref() else {
+            return;
+        };
+        let preview_value = modal.preview_field_value(&self.config.sticky_values);
+        if let Some(override_text) = modal.manual_override.clone() {
+            if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                s.set_preview_value(HeaderFieldValue::ManualOverride {
+                    text: override_text,
+                    source: Box::new(preview_value),
+                });
+                s.composite_spans = None;
+            }
+            return;
+        }
+
+        let spans = compute_field_spans(modal, &self.config.sticky_values);
+        if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+            s.set_preview_value(preview_value);
+            s.composite_spans = Some(spans);
+        }
+    }
+
     fn confirm_modal_value(&mut self, value: String) {
         let idx = self.current_idx;
         if self.modal.is_some() {
@@ -1867,38 +1988,24 @@ impl App {
             );
             match advance {
                 FieldAdvance::NextList => {
-                    let preview = self
-                        .modal
-                        .as_ref()
-                        .unwrap()
-                        .preview_field_value(&self.config.sticky_values);
-                    let spans = compute_field_spans(
-                        self.modal.as_ref().unwrap(),
-                        &self.config.sticky_values,
-                    );
-                    if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
-                        s.set_preview_value(preview);
-                        s.composite_spans = Some(spans);
-                    }
+                    self.sync_modal_preview_state(idx);
                     let _ = self.config.save(&self.data_dir);
                     self.start_modal_stream_transition(previous_modal);
                 }
                 FieldAdvance::StayOnList => {
-                    let preview = self
+                    self.sync_modal_preview_state(idx);
+                }
+                FieldAdvance::Complete(mut final_value) => {
+                    if let Some(override_text) = self
                         .modal
                         .as_ref()
-                        .unwrap()
-                        .preview_field_value(&self.config.sticky_values);
-                    let spans = compute_field_spans(
-                        self.modal.as_ref().unwrap(),
-                        &self.config.sticky_values,
-                    );
-                    if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
-                        s.set_preview_value(preview);
-                        s.composite_spans = Some(spans);
+                        .and_then(|modal| modal.manual_override.clone())
+                    {
+                        final_value = HeaderFieldValue::ManualOverride {
+                            text: override_text,
+                            source: Box::new(final_value),
+                        };
                     }
-                }
-                FieldAdvance::Complete(final_value) => {
                     if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                         s.composite_spans = None;
                         s.set_current_value(final_value);
@@ -1931,21 +2038,21 @@ impl App {
 
         match advance {
             FieldAdvance::NextList | FieldAdvance::StayOnList => {
-                let preview = self
-                    .modal
-                    .as_ref()
-                    .unwrap()
-                    .preview_field_value(&self.config.sticky_values);
-                let spans =
-                    compute_field_spans(self.modal.as_ref().unwrap(), &self.config.sticky_values);
-                if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
-                    s.set_preview_value(preview);
-                    s.composite_spans = Some(spans);
-                }
+                self.sync_modal_preview_state(idx);
                 let _ = self.config.save(&self.data_dir);
                 self.start_modal_stream_transition(previous_modal);
             }
-            FieldAdvance::Complete(final_value) => {
+            FieldAdvance::Complete(mut final_value) => {
+                if let Some(override_text) = self
+                    .modal
+                    .as_ref()
+                    .and_then(|modal| modal.manual_override.clone())
+                {
+                    final_value = HeaderFieldValue::ManualOverride {
+                        text: override_text,
+                        source: Box::new(final_value),
+                    };
+                }
                 if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                     s.composite_spans = None;
                     s.set_current_value(final_value);
@@ -2312,19 +2419,7 @@ impl App {
             .as_mut()
             .is_some_and(|modal| modal.go_back_one_step(&self.config.sticky_values, window_size))
         {
-            let spans = {
-                let modal = self.modal.as_ref().unwrap();
-                compute_field_spans(modal, &self.config.sticky_values)
-            };
-            if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
-                s.set_preview_value(
-                    self.modal
-                        .as_ref()
-                        .unwrap()
-                        .preview_field_value(&self.config.sticky_values),
-                );
-                s.composite_spans = Some(spans);
-            }
+            self.sync_modal_preview_state(idx);
             self.start_modal_stream_transition(previous_modal);
             return;
         }
@@ -2377,17 +2472,7 @@ impl App {
                 s.clear_active_value();
             }
         } else {
-            let (preview, spans) = {
-                let modal = self.modal.as_ref().unwrap();
-                (
-                    compute_field_preview(modal, &self.config.sticky_values),
-                    compute_field_spans(modal, &self.config.sticky_values),
-                )
-            };
-            if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
-                s.set_preview_value(HeaderFieldValue::Text(preview));
-                s.composite_spans = Some(spans);
-            }
+            self.sync_modal_preview_state(idx);
         }
         self.start_modal_stream_transition(previous_modal);
     }
@@ -2419,18 +2504,18 @@ pub fn compute_field_composition_spans(
             sticky_values,
         );
         return match resolved {
-            crate::sections::multi_field::ResolvedMultiFieldValue::Complete(value) => vec![
-                FieldCompositionSpan {
+            crate::sections::multi_field::ResolvedMultiFieldValue::Complete(value) => {
+                vec![FieldCompositionSpan {
                     text: value,
                     kind: FieldCompositionSpanKind::Confirmed,
-                },
-            ],
-            crate::sections::multi_field::ResolvedMultiFieldValue::Partial(value) => vec![
-                FieldCompositionSpan {
+                }]
+            }
+            crate::sections::multi_field::ResolvedMultiFieldValue::Partial(value) => {
+                vec![FieldCompositionSpan {
                     text: value,
                     kind: FieldCompositionSpanKind::Preview,
-                },
-            ],
+                }]
+            }
             crate::sections::multi_field::ResolvedMultiFieldValue::Empty => Vec::new(),
         };
     }
@@ -3244,10 +3329,18 @@ mod tests {
 
 #[cfg(test)]
 mod composition_span_tests {
-    use super::{compute_field_composition_spans, FieldCompositionSpanKind};
-    use crate::data::{HeaderFieldConfig, HierarchyItem, HierarchyList, ModalStart};
+    use super::{
+        compute_field_composition_spans, App, AppKey, FieldCompositionSpanKind, SectionState,
+    };
+    use crate::config::Config;
+    use crate::data::{
+        AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem, HierarchyList, KeyBindings,
+        ModalStart, RuntimeNodeKind, RuntimeTemplate, SectionConfig, SectionGroup,
+    };
     use crate::modal::SearchModal;
+    use crate::sections::header::HeaderFieldValue;
     use std::collections::HashMap;
+    use std::path::PathBuf;
 
     #[test]
     fn composition_spans_distinguish_literal_confirmed_and_preview_segments() {
@@ -3320,5 +3413,104 @@ mod composition_span_tests {
                 (&"Region".to_string(), &FieldCompositionSpanKind::Preview),
             ]
         );
+    }
+
+    #[test]
+    fn modal_composition_override_persists_on_confirm_and_reopens_with_source_intact() {
+        let field = HeaderFieldConfig {
+            id: "region".to_string(),
+            name: "Region".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "region".to_string(),
+                label: Some("Region".to_string()),
+                preview: Some("Region".to_string()),
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![HierarchyItem {
+                    id: "shoulder".to_string(),
+                    label: Some("Shoulder".to_string()),
+                    default_enabled: true,
+                    output: Some("Shoulder".to_string()),
+                    fields: None,
+                    branch_fields: Vec::new(),
+                }],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let section = SectionConfig {
+            id: "request_section".to_string(),
+            name: "Request".to_string(),
+            map_label: "Request".to_string(),
+            section_type: "multi_field".to_string(),
+            data_file: None,
+            fields: Some(vec![field]),
+            lists: Vec::new(),
+            note_label: None,
+            group_id: "intake".to_string(),
+            node_kind: RuntimeNodeKind::Section,
+        };
+        let group = SectionGroup {
+            id: "intake".to_string(),
+            num: None,
+            nav_label: "Intake".to_string(),
+            sections: vec![section.clone()],
+            note: GroupNoteMeta::default(),
+        };
+        let data = AppData {
+            template: RuntimeTemplate {
+                id: "test".to_string(),
+                children: Vec::new(),
+            },
+            groups: vec![group],
+            sections: vec![section],
+            list_data: HashMap::new(),
+            checklist_data: HashMap::new(),
+            collection_data: HashMap::new(),
+            boilerplate_texts: HashMap::new(),
+            keybindings: KeyBindings::default(),
+        };
+
+        let mut app = App::new(data, Config::default(), PathBuf::new());
+        app.open_header_modal();
+
+        app.handle_key(AppKey::CtrlChar('e'));
+        app.set_modal_composition_text("Manual shoulder".to_string());
+        app.handle_key(AppKey::Enter);
+        app.confirm_modal_value("Shoulder".to_string());
+
+        let SectionState::Header(state) = &app.section_states[0] else {
+            panic!("expected header state");
+        };
+        match &state.repeated_values[0][0] {
+            HeaderFieldValue::ManualOverride { text, source } => {
+                assert_eq!(text, "Manual shoulder");
+                assert!(matches!(
+                    source.as_ref(),
+                    HeaderFieldValue::Text(value) if value == "Shoulder"
+                ));
+            }
+            other => panic!("expected manual override, got {other:?}"),
+        }
+        assert!(app.editable_note.contains("Region: Manual shoulder"));
+
+        app.current_idx = 0;
+        app.open_header_modal();
+
+        let modal = app.modal.as_ref().expect("modal should reopen");
+        assert_eq!(modal.manual_override.as_deref(), Some("Manual shoulder"));
+        assert!(matches!(
+            modal.preview_field_value(&app.config.sticky_values),
+            HeaderFieldValue::ListState(_)
+        ));
     }
 }

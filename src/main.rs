@@ -21,6 +21,7 @@ pub enum Message {
     KeyPressed(iced::keyboard::Key, iced::keyboard::Modifiers),
     EditableNoteChanged(String),
     ModalQueryChanged(String),
+    ModalCompositionChanged(String),
     ModalSelect(usize),
     ModalPanePressed(app::ModalPaneTarget),
     ModalRowPressed(app::ModalPaneTarget, usize),
@@ -63,6 +64,10 @@ fn update(state: &mut ScribbleApp, message: Message) -> Task<Message> {
         }
         Message::ModalQueryChanged(new_text) => {
             state.inner.set_modal_query(new_text);
+        }
+        Message::ModalCompositionChanged(new_text) => {
+            state.inner.set_modal_composition_text(new_text);
+            should_scroll_preview = true;
         }
         Message::ModalSelect(filtered_index) => {
             state.inner.select_modal_filtered_index(filtered_index);
