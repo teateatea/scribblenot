@@ -1836,8 +1836,8 @@ fn collection_group_values(
             .iter()
             .zip(collection.item_enabled.iter())
             .filter_map(|(item, enabled)| enabled.then_some(item.output().to_string()))
-            .filter(|value| !value.trim().is_empty())
             .collect::<Vec<_>>();
+        let values = dedupe_values(&values);
         if values.is_empty() {
             continue;
         }
@@ -3602,6 +3602,50 @@ mod collection_field_tests {
         let rendered = format_collection_field_value(&state.collections, true);
 
         assert_eq!(rendered, "Neck: Upper traps and SCM");
+    }
+
+    #[test]
+    fn collection_field_value_dedupes_duplicate_outputs_without_joiner_style() {
+        let mut cfg = collection("legs", "POST_LEG", None);
+        cfg.default_enabled = true;
+        cfg.lists = vec![
+            HierarchyList {
+                id: "upper".to_string(),
+                label: Some("Upper".to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![
+                    item("broad_upper", "Broad", "- Broad Compressions"),
+                    item("knee_upper", "Knee", "- Ulnar Kneading"),
+                ],
+            },
+            HierarchyList {
+                id: "lower".to_string(),
+                label: Some("Lower".to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![
+                    item("broad_lower", "Broad", "- Broad Compressions"),
+                    item("toe_lower", "Toe", "- Fingertip Kneading"),
+                ],
+            },
+        ];
+        let state = CollectionState::new(vec![cfg]);
+
+        let rendered = format_collection_field_value(&state.collections, false);
+
+        assert_eq!(
+            rendered,
+            "##### POST_LEG\n- Broad Compressions\n- Ulnar Kneading\n- Fingertip Kneading"
+        );
     }
 
     #[test]

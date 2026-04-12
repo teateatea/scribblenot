@@ -135,7 +135,7 @@ copy_note: [c]
 | `navigate_down` / `navigate_up` | Move cursor or selection |
 | `select` | Toggle current item in multi-select or collection flows |
 | `confirm` | Confirm current value or advance |
-| `add_entry` | Start a new free-text entry; in list-select sections this now shows an error because custom list entry creation was removed |
+| `add_entry` | Start a new free-text entry; it is not used for reusable list authoring, and in list-select sections it currently shows an error because custom list entry creation was removed |
 | `back` | Go back, dismiss a modal, or leave a sub-context |
 | `swap_panes` | Toggle pane layout |
 | `help` | Show help overlay |

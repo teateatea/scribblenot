@@ -135,13 +135,16 @@ fields:                                          # POST_LEG
 
 collections:                                     # POST_LEG
   - id: prone_legs_collection
-    label: "POST_LEG"
+    label: "POSTERIOR LEGS & FEET (Prone)"
     nav_label: "POST_LEGPC"
     default_enabled: false
     contains:
       - list: post_legs_prone
       - list: post_upper_legs_prone
       - list: lower_legs_prone
+    note:
+      note_label: "#### POSTERIOR LEGS & FEET (Prone)"
+      
 lists:                                           # POST_LEG
   - id: post_legs_prone
     label: "POSTERIOR LEGS & FEET (Prone)"
@@ -158,6 +161,8 @@ lists:                                           # POST_LEG
       - id: fingertip_knead
         label: "Fingertip Kneading"
         output: "- Fingertip Kneading"
+
+
 
   - id: post_upper_legs_prone
     label: "POSTERIOR UPPER LEGS / HAMSTRINGS (Prone)"

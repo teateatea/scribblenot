@@ -260,6 +260,7 @@ mod tests {
     use crate::sections::free_text::FreeTextState;
     use crate::sections::header::HeaderState;
     use crate::sections::list_select::ListSelectState;
+    use std::fs;
     use std::path::PathBuf;
 
     fn states_for_real_data(data: &AppData) -> Vec<SectionState> {
@@ -290,6 +291,39 @@ mod tests {
                 _ => SectionState::Pending,
             })
             .collect()
+    }
+
+    fn set_header_field_text(
+        states: &mut [SectionState],
+        sections: &[SectionConfig],
+        section_id: &str,
+        field_index: usize,
+        text: &str,
+    ) {
+        let Some(section_index) = sections.iter().position(|section| section.id == section_id) else {
+            panic!("missing section '{section_id}'");
+        };
+        let SectionState::Header(state) = &mut states[section_index] else {
+            panic!("section '{section_id}' should create header state");
+        };
+        state.repeated_values[field_index] = vec![crate::sections::header::HeaderFieldValue::Text(
+            text.to_string(),
+        )];
+    }
+
+    fn set_header_field_explicit_empty(
+        states: &mut [SectionState],
+        sections: &[SectionConfig],
+        section_id: &str,
+        field_index: usize,
+    ) {
+        let Some(section_index) = sections.iter().position(|section| section.id == section_id) else {
+            panic!("missing section '{section_id}'");
+        };
+        let SectionState::Header(state) = &mut states[section_index] else {
+            panic!("section '{section_id}' should create header state");
+        };
+        state.repeated_values[field_index] = vec![crate::sections::header::HeaderFieldValue::ExplicitEmpty];
     }
 
     #[test]
@@ -362,6 +396,27 @@ mod tests {
     }
 
     #[test]
+    fn real_data_render_skips_group_heading_when_note_label_is_omitted() {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data");
+        let data = AppData::load(dir).expect("real data loads");
+        let states = states_for_real_data(&data);
+
+        let note = render_note(
+            &data.groups,
+            &data.sections,
+            &states,
+            &HashMap::new(),
+            &data.boilerplate_texts,
+            NoteRenderMode::Preview,
+        );
+
+        assert!(
+            !note.lines().any(|line| line.trim() == "INTAKE"),
+            "groups without note_label should not render a top-level note heading"
+        );
+    }
+
+    #[test]
     fn real_data_render_uses_live_field_outputs() {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data");
         let data = AppData::load(dir).expect("real data loads");
@@ -400,6 +455,87 @@ mod tests {
                 "rendered note should include seeded field output"
             );
         }
+    }
+
+    #[test]
+    fn representative_note_matches_golden_file() {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data");
+        let data = AppData::load(dir).expect("real data loads");
+        let mut states = states_for_real_data(&data);
+
+        set_header_field_explicit_empty(
+            &mut states,
+            &data.sections,
+            "appointment_section",
+            0,
+        );
+        set_header_field_text(
+            &mut states,
+            &data.sections,
+            "appointment_section",
+            1,
+            "# Apr 12, 2026 at 1:30PM (60 min)",
+        );
+        set_header_field_text(
+            &mut states,
+            &data.sections,
+            "appointment_section",
+            2,
+            "2026-04-12: Pt requested a Treatment massage, focusing on the Head, Neck, and Shoulders, the Low Back, and the Left Knee.",
+        );
+        set_header_field_text(
+            &mut states,
+            &data.sections,
+            "subjective_section",
+            0,
+            "2026-04-12: BL Head, Neck, and Shoulders: Pt describes ongoing minor discomfort, tightness (without pain)",
+        );
+        set_header_field_text(
+            &mut states,
+            &data.sections,
+            "treatment_section",
+            0,
+            "#### ALL - UPPER MIDDLE & LOW BACK\n- General Swedish Techniques\n- Specific Compressions:\n- - Trapezius (Upper Fiber)\n- - Levator Scapula\n- - Teres Major & Minor\n- - Quadratus Lumborum\n- Stretch (Serratus Anterior)\n- Broad Compressions (Triceps Brachii)",
+        );
+        set_header_field_explicit_empty(
+            &mut states,
+            &data.sections,
+            "treatment_section",
+            1,
+        );
+        set_header_field_text(
+            &mut states,
+            &data.sections,
+            "treatment_section",
+            2,
+            "#### POSTERIOR LEGS & FEET (Prone)\n- Broad Compressions\n- Ulnar Kneading\n- - Biceps Femoris\n- - Semitendinosus\n- Knuckle Kneading\n- Fingertip Kneading",
+        );
+        set_header_field_text(
+            &mut states,
+            &data.sections,
+            "objective_section",
+            0,
+            "2026-04-12: BL Trapezius (Upper Fibers): Increased Resting Muscle Tension",
+        );
+
+        let rendered = render_note(
+            &data.groups,
+            &data.sections,
+            &states,
+            &HashMap::new(),
+            &data.boilerplate_texts,
+            NoteRenderMode::Preview,
+        );
+        let expected = fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("golden_note.md"),
+        )
+        .expect("golden note fixture should load");
+
+        assert_eq!(rendered.trim(), expected.trim());
+        assert!(rendered.contains("#### ALL - UPPER MIDDLE & LOW BACK"));
+        assert!(rendered.contains("- Broad Compressions (Triceps Brachii)"));
+        assert!(!rendered.contains("- Muscle Stripping (Erector Spinae)"));
+        assert!(!rendered.lines().any(|line| line.trim() == "INTAKE"));
     }
 
     #[test]

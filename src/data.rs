@@ -595,19 +595,18 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
         let hierarchy_group = groups_by_id
             .get(group.as_str())
             .ok_or_else(|| format!("unknown group '{}'", group))?;
-        let group_note_label = hierarchy_group
-            .note_label
-            .clone()
-            .or_else(|| hierarchy_group.nav_label.clone())
-            .unwrap_or_else(|| hierarchy_group.id.clone());
+        let group_note_label = hierarchy_group.note_label.clone();
         let group_nav_label = hierarchy_group
             .nav_label
             .clone()
-            .unwrap_or_else(|| group_note_label.clone());
+            .unwrap_or_else(|| hierarchy_group.id.clone());
         let group_note = GroupNoteMeta {
-            note_label: Some(group_note_label.clone()),
+            note_label: group_note_label.clone(),
             boilerplate_refs: hierarchy_group.boilerplate_refs.clone(),
         };
+        let child_fallback_name = group_note_label
+            .clone()
+            .unwrap_or_else(|| group_nav_label.clone());
         let mut runtime_children = Vec::new();
         let mut ui_sections = Vec::new();
 
@@ -619,7 +618,7 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
                         .ok_or_else(|| format!("unknown section '{}'", section))?;
                     let section_config = section_to_config(
                         section_data,
-                        &group_note_label,
+                        &child_fallback_name,
                         hierarchy_group.id.as_str(),
                         &fields_by_id,
                         &collections_by_id,
@@ -640,7 +639,7 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
                         .ok_or_else(|| format!("unknown collection '{}'", collection))?;
                     let collection_config = collection_to_config(
                         collection_def,
-                        &group_note_label,
+                        &child_fallback_name,
                         hierarchy_group.id.as_str(),
                         &lists_by_id,
                     )?;
@@ -649,7 +648,7 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
                         collection_config.id.clone(),
                         vec![resolve_collection(
                             collection_def,
-                            &group_note_label,
+                            &child_fallback_name,
                             &lists_by_id,
                         )?],
                     );
@@ -1862,20 +1861,16 @@ mod tests {
             let authored_group = authored_groups
                 .get(runtime_group.id.as_str())
                 .expect("runtime group should come from authored group");
-            let expected_note_label = authored_group
-                .note_label
-                .clone()
-                .or_else(|| authored_group.nav_label.clone())
-                .unwrap_or_else(|| authored_group.id.clone());
+            let expected_note_label = authored_group.note_label.clone();
             let expected_nav_label = authored_group
                 .nav_label
                 .clone()
-                .unwrap_or_else(|| expected_note_label.clone());
+                .unwrap_or_else(|| authored_group.id.clone());
 
             assert_eq!(runtime_group.nav_label, expected_nav_label);
             assert_eq!(
                 runtime_group.note.note_label.as_deref(),
-                Some(expected_note_label.as_str())
+                expected_note_label.as_deref()
             );
             assert_eq!(
                 runtime_group.note.boilerplate_refs,
