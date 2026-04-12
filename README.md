@@ -1,6 +1,6 @@
 # scribblenot
 
-**v0.3.2-alpha** - A structured clinical note authoring tool built with Rust and Iced.
+**v0.4.0-alpha** - A structured clinical note authoring tool built with Rust and Iced.
 
 scribblenot is a keyboard-driven desktop app for building formatted clinical notes from YAML-defined structure and picker data. You move through a map of note sections, confirm values in the wizard pane, and watch the note update in the preview pane. Press `c` to copy the exported note to the clipboard.
 
@@ -174,7 +174,7 @@ Main theme keys:
 
 - Text and highlight: `text`, `active`, `active_preview`, `selected`, `selected_dark`, `hint`, `hint_prefix`, `modal`, `muted`, `error`, `displaced`
 - Pane layout: `background`, `pane_background`, `pane_active_background`, `pane_inactive_background`, `pane_active_border`, `pane_inactive_border`, `pane_border_width`, `pane_buffer_width`
-- Modal: `modal_background`, `modal_panel_background`, `modal_item_background`, `modal_item_hovered_background`, `modal_text`, `modal_selected_text`, `modal_muted_text`, `modal_hint_text`, `modal_input_background`, `modal_input_text`, `modal_input_placeholder`, `modal_input_border`
+- Modal: `modal_background`, `modal_panel_background`, `modal_active_background`, `modal_inactive_background`, `modal_stub_background`, `modal_item_background`, `modal_item_hovered_background`, `modal_text`, `modal_selected_text`, `modal_muted_text`, `modal_hint_text`, `modal_input_background`, `modal_input_text`, `modal_input_placeholder`, `modal_input_border`, `modal_spacer_width`, `modal_stub_width`, `modal_stream_transition_duration_ms`, `modal_stream_transition_easing`
 - Preview and status: `sticky_default_preview`, `confirmed_muted_preview`, `preview_copy_flash_background`, `preview_copy_flash_duration_ms`, `text_color_flash`, `text_color_flash_duration`, `status_background`
 - Scroll: `scroll_rail`, `scroll_scroller`, `scroll_rail_hovered`, `scroll_scroller_hovered`, `scroll_rail_dragged`, `scroll_scroller_dragged`, `scroll_gap`, `scroll_border_width`, `scroll_width`, `scroll_spacing`
 - Fonts: `font_pane`, `font_heading`, `font_preview`, `font_modal`, `font_status`

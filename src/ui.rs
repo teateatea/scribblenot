@@ -1,5 +1,8 @@
 use crate::app::{App, Focus, MapHintLevel, SectionState};
-use crate::modal::{modal_height_for_viewport, ModalFocus};
+use crate::modal::{
+    modal_height_for_viewport, modal_list_view_dimensions, ModalFocus, ModalListViewSnapshot,
+    ModalUnitRange, SimpleModalUnitLayout,
+};
 use crate::sections::collection::CollectionFocus;
 use crate::sections::free_text::FreeTextMode;
 use crate::sections::list_select::ListSelectMode;
@@ -948,6 +951,14 @@ fn blend_color(base: Color, flash: Color, amount: f32) -> Color {
     }
 }
 
+fn apply_alpha(color: Color, alpha: f32) -> Color {
+    let alpha = alpha.clamp(0.0, 1.0);
+    Color {
+        a: color.a * alpha,
+        ..color
+    }
+}
+
 fn italic_font(base: iced::Font) -> iced::Font {
     iced::Font {
         style: iced::font::Style::Italic,
@@ -1536,25 +1547,38 @@ impl ModalRenderMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModalCardRole {
+    Active,
+    Inactive,
+    Stub,
+}
+
+#[allow(dead_code)]
 const HORIZONTAL_MODAL_TEASER_WIDTH: f32 = 300.0;
+#[allow(dead_code)]
 const HORIZONTAL_MODAL_STUB_MIN_WIDTH: f32 = 96.0;
+#[allow(dead_code)]
 const HORIZONTAL_MODAL_STUB_MAX_WIDTH: f32 = 150.0;
+#[allow(dead_code)]
 const HORIZONTAL_MODAL_STREAM_SPACING: f32 = 12.0;
 const COLLECTION_STREAM_SPACING: f32 = 6.0;
 
 fn modal_card_style(
     app: &App,
     mode: ModalRenderMode,
+    role: ModalCardRole,
     focused: bool,
     alpha: f32,
 ) -> iced::widget::container::Style {
+    let preview_background = match role {
+        ModalCardRole::Active => app.ui_theme.modal_inactive_background,
+        ModalCardRole::Inactive => app.ui_theme.modal_inactive_background,
+        ModalCardRole::Stub => app.ui_theme.modal_stub_background,
+    };
     let (mut background, mut text_color, mut border_color) = if mode.is_preview() {
         (
-            blend_color(
-                app.ui_theme.modal_panel_background,
-                app.ui_theme.modal_input_background,
-                0.55,
-            ),
+            preview_background,
             blend_color(app.ui_theme.modal_text, app.ui_theme.modal_muted_text, 0.6),
             blend_color(
                 app.ui_theme.modal_input_border,
@@ -1564,7 +1588,7 @@ fn modal_card_style(
         )
     } else {
         (
-            app.ui_theme.modal_panel_background,
+            app.ui_theme.modal_active_background,
             app.ui_theme.text,
             if focused {
                 app.ui_theme.text
@@ -1574,10 +1598,10 @@ fn modal_card_style(
         )
     };
 
-    if mode.is_preview() && alpha < 1.0 {
-        background = blend_color(app.ui_theme.background, background, alpha);
-        text_color = blend_color(app.ui_theme.background, text_color, alpha);
-        border_color = blend_color(app.ui_theme.background, border_color, alpha);
+    if alpha < 1.0 {
+        background = apply_alpha(background, alpha);
+        text_color = apply_alpha(text_color, alpha);
+        border_color = apply_alpha(border_color, alpha);
     }
 
     background_style(background, text_color).border(Border {
@@ -1591,6 +1615,7 @@ fn modal_card<'a>(
     app: &'a App,
     content: impl Into<Element<'a, Message>>,
     mode: ModalRenderMode,
+    role: ModalCardRole,
     focused: bool,
     width: f32,
     height: f32,
@@ -1599,7 +1624,7 @@ fn modal_card<'a>(
     let panel = container(content)
         .width(Length::Fixed(width))
         .height(Length::Fixed(height))
-        .style(move |_| modal_card_style(app, mode, focused, alpha));
+        .style(move |_| modal_card_style(app, mode, role, focused, alpha));
 
     if mode.is_preview() {
         mouse_area(panel)
@@ -1629,9 +1654,9 @@ fn preview_modal_search_strip<'a>(
     );
     let mut text_color = app.ui_theme.modal_muted_text;
     if alpha < 1.0 {
-        panel_background = blend_color(app.ui_theme.background, panel_background, alpha);
-        border_color = blend_color(app.ui_theme.background, border_color, alpha);
-        text_color = blend_color(app.ui_theme.background, text_color, alpha);
+        panel_background = apply_alpha(panel_background, alpha);
+        border_color = apply_alpha(border_color, alpha);
+        text_color = apply_alpha(text_color, alpha);
     }
     let value = if query.is_empty() {
         "Search".to_string()
@@ -1661,11 +1686,7 @@ fn preview_simple_modal_content<'a>(
     items.push(
         text(title)
             .font(app.ui_theme.font_modal)
-            .color(blend_color(
-                app.ui_theme.background,
-                app.ui_theme.modal_hint_text,
-                alpha,
-            ))
+            .color(apply_alpha(app.ui_theme.modal_hint_text, alpha))
             .into(),
     );
     items.push(preview_modal_search_strip(app, query, alpha).into());
@@ -1695,8 +1716,7 @@ fn preview_simple_modal_content<'a>(
             container(
                 text(if is_current { ">" } else { " " })
                     .font(app.ui_theme.font_modal)
-                    .color(blend_color(
-                        app.ui_theme.background,
+                    .color(apply_alpha(
                         if is_current {
                             app.ui_theme.modal_text
                         } else {
@@ -1709,15 +1729,10 @@ fn preview_simple_modal_content<'a>(
             container(
                 text(format!("{hint:<4}"))
                     .font(app.ui_theme.font_modal)
-                    .color(blend_color(
-                        app.ui_theme.background,
-                        app.ui_theme.modal_muted_text,
-                        alpha,
-                    )),
+                    .color(apply_alpha(app.ui_theme.modal_muted_text, alpha)),
             )
             .align_left(Length::Fixed(24.0)),
-            text(label).font(app.ui_theme.font_modal).color(blend_color(
-                app.ui_theme.background,
+            text(label).font(app.ui_theme.font_modal).color(apply_alpha(
                 if is_current {
                     app.ui_theme.active_preview
                 } else {
@@ -1736,6 +1751,7 @@ fn preview_simple_modal_content<'a>(
         .into()
 }
 
+#[allow(dead_code)]
 fn preview_modal_stub_width(title: &str) -> f32 {
     (title.chars().count().max(4) as f32 * 8.0 + 28.0).clamp(
         HORIZONTAL_MODAL_STUB_MIN_WIDTH,
@@ -1743,9 +1759,9 @@ fn preview_modal_stub_width(title: &str) -> f32 {
     )
 }
 
+#[allow(dead_code)]
 fn preview_modal_stub_content<'a>(app: &'a App, title: String, alpha: f32) -> Element<'a, Message> {
-    container(text(title).font(app.ui_theme.font_modal).color(blend_color(
-        app.ui_theme.background,
+    container(text(title).font(app.ui_theme.font_modal).color(apply_alpha(
         app.ui_theme.modal_hint_text,
         alpha,
     )))
@@ -1758,8 +1774,12 @@ fn preview_modal_stub_content<'a>(app: &'a App, title: String, alpha: f32) -> El
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 enum PackedSimpleModalCard {
     LeftStub {
+        title: String,
+    },
+    LeftGhostStub {
         title: String,
     },
     PreviousFull {
@@ -1771,15 +1791,22 @@ enum PackedSimpleModalCard {
     NextFull {
         snapshot: crate::modal::ModalListViewSnapshot,
     },
+    RightGhostStub {
+        title: String,
+    },
     RightStub {
         title: String,
     },
 }
 
+#[allow(dead_code)]
 impl PackedSimpleModalCard {
     fn width(&self, active_width: f32) -> f32 {
         match self {
-            Self::LeftStub { title } | Self::RightStub { title } => preview_modal_stub_width(title),
+            Self::LeftStub { title }
+            | Self::LeftGhostStub { title }
+            | Self::RightGhostStub { title }
+            | Self::RightStub { title } => preview_modal_stub_width(title),
             Self::PreviousFull { .. } | Self::NextFull { .. } => HORIZONTAL_MODAL_TEASER_WIDTH,
             Self::Active { .. } => active_width,
         }
@@ -1787,6 +1814,7 @@ impl PackedSimpleModalCard {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 struct PackedSimpleModalStream {
     cards: Vec<PackedSimpleModalCard>,
     alignment: PackedStreamAlignment,
@@ -1795,11 +1823,13 @@ struct PackedSimpleModalStream {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 enum PackedStreamAlignment {
     CenterActive,
     CenterStream,
 }
 
+#[allow(dead_code)]
 impl PackedSimpleModalStream {
     fn total_width(&self, active_width: f32) -> f32 {
         let card_widths = self
@@ -1848,16 +1878,7 @@ impl PackedSimpleModalStream {
             return None;
         }
 
-        let mut centers = Vec::with_capacity(self.cards.len());
-        let mut offset = 0.0;
-        for (idx, card) in self.cards.iter().enumerate() {
-            if idx > 0 {
-                offset += HORIZONTAL_MODAL_STREAM_SPACING;
-            }
-            let width = card.width(active_width);
-            centers.push(offset + width * 0.5);
-            offset += width;
-        }
+        let centers = self.card_centers(active_width);
 
         Some((centers[target_idx] - centers[active_idx]).abs())
     }
@@ -1868,8 +1889,137 @@ impl PackedSimpleModalStream {
             && self.page_start == other.page_start
             && self.page_end == other.page_end
     }
+
+    fn card_centers(&self, active_width: f32) -> Vec<f32> {
+        let mut centers = Vec::with_capacity(self.cards.len());
+        let mut offset = 0.0;
+        for (idx, card) in self.cards.iter().enumerate() {
+            if idx > 0 {
+                offset += HORIZONTAL_MODAL_STREAM_SPACING;
+            }
+            let width = card.width(active_width);
+            centers.push(offset + width * 0.5);
+            offset += width;
+        }
+        centers
+    }
+
+    fn transition_anchor_center(
+        &self,
+        active_width: f32,
+        side: TransitionAnchorSide,
+    ) -> Option<f32> {
+        let idx = match side {
+            TransitionAnchorSide::Left => 0,
+            TransitionAnchorSide::Right => self.cards.len().checked_sub(1)?,
+        };
+        let card = self.cards.get(idx)?;
+        let matches_side = match (side, card) {
+            (
+                TransitionAnchorSide::Left,
+                PackedSimpleModalCard::LeftStub { .. } | PackedSimpleModalCard::LeftGhostStub { .. },
+            ) => true,
+            (
+                TransitionAnchorSide::Right,
+                PackedSimpleModalCard::RightStub { .. }
+                    | PackedSimpleModalCard::RightGhostStub { .. },
+            ) => true,
+            _ => false,
+        };
+        if !matches_side {
+            return None;
+        }
+        self.card_centers(active_width).get(idx).copied()
+    }
+
+    fn transition_adjusted_outgoing(
+        &self,
+        incoming: &Self,
+        direction: crate::app::ModalStreamDirection,
+    ) -> Self {
+        let mut adjusted = self.clone();
+        match direction {
+            crate::app::ModalStreamDirection::Forward => {
+                let replacement_title = incoming.cards.first().and_then(|card| match card {
+                    PackedSimpleModalCard::LeftStub { title } => Some(title.clone()),
+                    _ => None,
+                });
+                if let (Some(title), Some(PackedSimpleModalCard::RightStub { title: edge_title })) =
+                    (replacement_title, adjusted.cards.last_mut())
+                {
+                    *edge_title = title;
+                }
+            }
+            crate::app::ModalStreamDirection::Backward => {
+                let replacement_title = incoming.cards.last().and_then(|card| match card {
+                    PackedSimpleModalCard::RightStub { title } => Some(title.clone()),
+                    _ => None,
+                });
+                if let (Some(title), Some(PackedSimpleModalCard::LeftStub { title: edge_title })) =
+                    (replacement_title, adjusted.cards.first_mut())
+                {
+                    *edge_title = title;
+                }
+            }
+        }
+        adjusted
+    }
+
+    fn suppress_duplicate_transition_stub(
+        &self,
+        outgoing: &Self,
+        direction: crate::app::ModalStreamDirection,
+    ) -> Self {
+        let mut adjusted = self.clone();
+        match direction {
+            crate::app::ModalStreamDirection::Forward => {
+                let outgoing_has_arrival_stub = matches!(
+                    outgoing.cards.last(),
+                    Some(PackedSimpleModalCard::RightStub { .. })
+                );
+                let incoming_has_departure_stub = matches!(
+                    adjusted.cards.first(),
+                    Some(PackedSimpleModalCard::LeftStub { .. })
+                );
+                if outgoing_has_arrival_stub && incoming_has_departure_stub {
+                    if let Some(PackedSimpleModalCard::LeftStub { title }) = adjusted.cards.first() {
+                        adjusted.cards[0] = PackedSimpleModalCard::LeftGhostStub {
+                            title: title.clone(),
+                        };
+                    }
+                }
+            }
+            crate::app::ModalStreamDirection::Backward => {
+                let outgoing_has_arrival_stub = matches!(
+                    outgoing.cards.first(),
+                    Some(PackedSimpleModalCard::LeftStub { .. })
+                );
+                let incoming_has_departure_stub = matches!(
+                    adjusted.cards.last(),
+                    Some(PackedSimpleModalCard::RightStub { .. })
+                );
+                if outgoing_has_arrival_stub && incoming_has_departure_stub {
+                    if let Some(PackedSimpleModalCard::RightStub { title }) = adjusted.cards.last() {
+                        let idx = adjusted.cards.len().saturating_sub(1);
+                        adjusted.cards[idx] = PackedSimpleModalCard::RightGhostStub {
+                            title: title.clone(),
+                        };
+                    }
+                }
+            }
+        }
+        adjusted
+    }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum TransitionAnchorSide {
+    Left,
+    Right,
+}
+
+#[allow(dead_code)]
 fn pack_simple_modal_stream(
     available_width: f32,
     active_width: f32,
@@ -2041,6 +2191,7 @@ fn pack_simple_modal_stream(
     }
 }
 
+#[allow(dead_code)]
 fn chunk_page_width(
     sequence: &[crate::modal::ModalListViewSnapshot],
     active_width: f32,
@@ -2065,6 +2216,7 @@ fn chunk_page_width(
     full_width + left_stub + right_stub + spacing
 }
 
+#[allow(dead_code)]
 fn build_chunked_modal_page(
     sequence: &[crate::modal::ModalListViewSnapshot],
     active_sequence_index: usize,
@@ -2107,6 +2259,7 @@ fn build_chunked_modal_page(
     }
 }
 
+#[allow(dead_code)]
 fn pack_chunked_simple_modal_stream(
     available_width: f32,
     active_width: f32,
@@ -2148,6 +2301,7 @@ fn pack_chunked_simple_modal_stream(
     None
 }
 
+#[allow(dead_code)]
 fn packed_simple_modal_stream_for_modal(
     app: &App,
     modal: &crate::modal::SearchModal,
@@ -2188,6 +2342,7 @@ fn packed_simple_modal_stream_for_modal(
         })
 }
 
+#[allow(dead_code)]
 fn packed_stream_alignment_padding(
     stream_width: f32,
     active_center_offset: f32,
@@ -2201,12 +2356,27 @@ fn packed_stream_alignment_padding(
     }
 }
 
+#[allow(dead_code)]
 fn packed_stream_slide_distance(
     old_stream: &PackedSimpleModalStream,
     new_stream: &PackedSimpleModalStream,
     active_width: f32,
     direction: crate::app::ModalStreamDirection,
 ) -> f32 {
+    let anchor_distance = match direction {
+        crate::app::ModalStreamDirection::Forward => old_stream
+            .transition_anchor_center(active_width, TransitionAnchorSide::Right)
+            .zip(new_stream.transition_anchor_center(active_width, TransitionAnchorSide::Left))
+            .map(|(old_anchor, new_anchor)| (old_anchor - new_anchor).abs()),
+        crate::app::ModalStreamDirection::Backward => old_stream
+            .transition_anchor_center(active_width, TransitionAnchorSide::Left)
+            .zip(new_stream.transition_anchor_center(active_width, TransitionAnchorSide::Right))
+            .map(|(old_anchor, new_anchor)| (old_anchor - new_anchor).abs()),
+    };
+    if let Some(anchor_distance) = anchor_distance {
+        return anchor_distance.max(HORIZONTAL_MODAL_STREAM_SPACING + 1.0);
+    }
+
     let default_distance =
         HORIZONTAL_MODAL_STREAM_SPACING + active_width * 0.5 + HORIZONTAL_MODAL_TEASER_WIDTH * 0.5;
     let adjacent = match direction {
@@ -2222,6 +2392,7 @@ fn packed_stream_slide_distance(
     adjacent.max(default_distance * 0.75)
 }
 
+#[allow(dead_code)]
 fn render_packed_simple_modal_stream<'a>(
     app: &'a App,
     packed: PackedSimpleModalStream,
@@ -2241,18 +2412,28 @@ fn render_packed_simple_modal_stream<'a>(
                     app,
                     preview_modal_stub_content(app, title.clone(), preview_alpha),
                     ModalRenderMode::Preview,
+                    ModalCardRole::Stub,
                     false,
                     preview_modal_stub_width(title),
                     modal_height,
                     preview_alpha,
                 ));
             }
+            PackedSimpleModalCard::LeftGhostStub { title }
+            | PackedSimpleModalCard::RightGhostStub { title } => cards.push(
+                Space::new(
+                    Length::Fixed(preview_modal_stub_width(title)),
+                    Length::Fixed(modal_height),
+                )
+                .into(),
+            ),
             PackedSimpleModalCard::PreviousFull { snapshot }
             | PackedSimpleModalCard::NextFull { snapshot } => {
                 cards.push(modal_card(
                     app,
                     preview_simple_modal_content(app, snapshot.clone(), preview_alpha),
                     ModalRenderMode::Preview,
+                    ModalCardRole::Inactive,
                     false,
                     HORIZONTAL_MODAL_TEASER_WIDTH,
                     modal_height,
@@ -2264,8 +2445,9 @@ fn render_packed_simple_modal_stream<'a>(
                     if let Some(modal) = current_modal {
                         cards.push(modal_card(
                             app,
-                            active_simple_modal_content(app, modal),
+                            active_simple_modal_content(app, modal, 1.0),
                             ModalRenderMode::Interactive,
+                            ModalCardRole::Active,
                             true,
                             active_width,
                             modal_height,
@@ -2276,6 +2458,7 @@ fn render_packed_simple_modal_stream<'a>(
                             app,
                             preview_simple_modal_content(app, snapshot.clone(), preview_alpha),
                             ModalRenderMode::Preview,
+                            ModalCardRole::Active,
                             false,
                             active_width,
                             modal_height,
@@ -2287,6 +2470,7 @@ fn render_packed_simple_modal_stream<'a>(
                         app,
                         preview_simple_modal_content(app, snapshot.clone(), preview_alpha),
                         ModalRenderMode::Preview,
+                        ModalCardRole::Active,
                         false,
                         active_width,
                         modal_height,
@@ -2314,28 +2498,75 @@ fn render_packed_simple_modal_stream<'a>(
         .align_y(iced::alignment::Vertical::Center),
     )
     .width(Length::Fill)
+    .center_x(Length::Fill)
     .into()
+}
+
+fn blended_modal_theme(app: &App, alpha: f32) -> crate::theme::AppTheme {
+    if alpha >= 1.0 {
+        return app.ui_theme.clone();
+    }
+    let mut theme = app.ui_theme.clone();
+    let blend = |color| apply_alpha(color, alpha);
+    theme.active = blend(theme.active);
+    theme.modal = blend(theme.modal);
+    theme.text = blend(theme.text);
+    theme.modal_text = blend(theme.modal_text);
+    theme.modal_selected_text = blend(theme.modal_selected_text);
+    theme.modal_muted_text = blend(theme.modal_muted_text);
+    theme.modal_hint_text = blend(theme.modal_hint_text);
+    theme.modal_input_background = blend(theme.modal_input_background);
+    theme.modal_input_text = blend(theme.modal_input_text);
+    theme.modal_input_placeholder = blend(theme.modal_input_placeholder);
+    theme.modal_input_border = blend(theme.modal_input_border);
+    theme.modal_item_background = blend(theme.modal_item_background);
+    theme.modal_item_hovered_background = blend(theme.modal_item_hovered_background);
+    theme.scroll_rail = blend(theme.scroll_rail);
+    theme.scroll_scroller = blend(theme.scroll_scroller);
+    theme.scroll_rail_hovered = blend(theme.scroll_rail_hovered);
+    theme.scroll_scroller_hovered = blend(theme.scroll_scroller_hovered);
+    theme.scroll_rail_dragged = blend(theme.scroll_rail_dragged);
+    theme.scroll_scroller_dragged = blend(theme.scroll_scroller_dragged);
+    theme.scroll_gap = blend(theme.scroll_gap);
+    theme
+}
+
+fn themed_scrollable_with_theme<'a>(
+    app_theme: crate::theme::AppTheme,
+    content: impl Into<Element<'a, Message>>,
+) -> Scrollable<'a, Message> {
+    let scrollbar = iced::widget::scrollable::Scrollbar::new()
+        .width(app_theme.scroll_width)
+        .scroller_width(app_theme.scroll_width)
+        .spacing(app_theme.scroll_spacing);
+    scrollable(content)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .direction(iced::widget::scrollable::Direction::Vertical(scrollbar))
+        .style(move |_theme, status| scrollable_style(&app_theme, status))
 }
 
 fn active_simple_modal_content<'a>(
     app: &'a App,
     modal: &'a crate::modal::SearchModal,
+    alpha: f32,
 ) -> Element<'a, Message> {
+    let ui_theme = blended_modal_theme(app, alpha);
     let mut modal_items: Vec<Element<'a, Message>> = Vec::new();
     if let Some(part_label) = modal.current_part_label(&app.config.sticky_values) {
         modal_items.push(
             text(part_label)
-                .font(app.ui_theme.font_modal)
-                .color(app.ui_theme.modal_text)
+                .font(ui_theme.font_modal)
+                .color(ui_theme.modal_text)
                 .into(),
         );
     }
 
-    let app_theme = app.ui_theme.clone();
+    let app_theme = ui_theme.clone();
     modal_items.push(
         text_input("Search", &modal.query)
             .on_input(Message::ModalQueryChanged)
-            .font(app.ui_theme.font_modal)
+            .font(ui_theme.font_modal)
             .width(Length::Fill)
             .style(move |_theme, status| modal_input_style(&app_theme, status))
             .into(),
@@ -2355,18 +2586,18 @@ fn active_simple_modal_content<'a>(
         if let Some(&entry_idx) = modal.filtered.get(window_pos) {
             let label = &modal.all_entries[entry_idx];
             let color = if window_pos == modal.list_cursor {
-                app.ui_theme.active
+                ui_theme.active
             } else {
-                app.ui_theme.modal_muted_text
+                ui_theme.modal_muted_text
             };
             let hint = modal_hints
                 .get(window_pos - modal.list_scroll)
                 .map(|hint| display_hint_label(app, hint))
                 .unwrap_or_default();
             let hint_color = if matches!(modal.focus, ModalFocus::List) {
-                app.ui_theme.modal_hint_text
+                ui_theme.modal_hint_text
             } else {
-                app.ui_theme.modal_muted_text
+                ui_theme.modal_muted_text
             };
             let marker = if window_pos == modal.list_cursor {
                 ">"
@@ -2375,27 +2606,27 @@ fn active_simple_modal_content<'a>(
             };
             let marker_color =
                 if matches!(modal.focus, ModalFocus::List) && window_pos == modal.list_cursor {
-                    app.ui_theme.active
+                    ui_theme.active
                 } else {
-                    app.ui_theme.modal_muted_text
+                    ui_theme.modal_muted_text
                 };
             let button_label = row![
                 container(
                     text(marker)
-                        .font(app.ui_theme.font_modal)
+                        .font(ui_theme.font_modal)
                         .color(marker_color)
                 )
                 .align_left(Length::Fixed(14.0)),
                 container(
                     text(format!("{hint:<4}"))
-                        .font(app.ui_theme.font_modal)
+                        .font(ui_theme.font_modal)
                         .color(hint_color),
                 )
                 .align_left(Length::Fixed(24.0)),
-                text(label).font(app.ui_theme.font_modal).color(color),
+                text(label).font(ui_theme.font_modal).color(color),
             ]
             .spacing(0);
-            let app_theme = app.ui_theme.clone();
+            let app_theme = ui_theme.clone();
             list_items.push(
                 button(button_label)
                     .width(Length::Fill)
@@ -2406,7 +2637,7 @@ fn active_simple_modal_content<'a>(
         }
     }
     modal_items.push(
-        themed_scrollable(app, column(list_items))
+        themed_scrollable_with_theme(ui_theme.clone(), column(list_items))
             .height(Length::Fill)
             .into(),
     );
@@ -2415,6 +2646,7 @@ fn active_simple_modal_content<'a>(
         column(modal_items)
             .width(Length::Fill)
             .height(Length::Fill)
+            .spacing(4)
             .padding(8),
     )
     .width(Length::Fill)
@@ -2440,6 +2672,7 @@ fn entry_composition_panel<'a>(
             let color = match span_data.kind {
                 crate::app::FieldCompositionSpanKind::Literal => app.ui_theme.text,
                 crate::app::FieldCompositionSpanKind::Confirmed => app.ui_theme.selected,
+                crate::app::FieldCompositionSpanKind::Active => app.ui_theme.active,
                 crate::app::FieldCompositionSpanKind::Preview => app.ui_theme.modal_muted_text,
             };
             span::<Message, iced::Font>(span_data.text).color(color)
@@ -2451,6 +2684,7 @@ fn entry_composition_panel<'a>(
             let base = match span_data.kind {
                 crate::app::FieldCompositionSpanKind::Literal => app.ui_theme.text,
                 crate::app::FieldCompositionSpanKind::Confirmed => app.ui_theme.selected,
+                crate::app::FieldCompositionSpanKind::Active => app.ui_theme.active,
                 crate::app::FieldCompositionSpanKind::Preview => app.ui_theme.modal_muted_text,
             };
             span::<Message, iced::Font>(span_data.text).color(blend_color(
@@ -2554,6 +2788,338 @@ fn entry_composition_panel<'a>(
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModalUnitStubMode {
+    Ghost,
+    Visible(char),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModalUnitSide {
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum ModalUnitCardKind {
+    Stub {
+        side: ModalUnitSide,
+        mode: ModalUnitStubMode,
+    },
+    Preview {
+        snapshot: ModalListViewSnapshot,
+    },
+    Active {
+        snapshot: ModalListViewSnapshot,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ModalUnitCardData {
+    kind: ModalUnitCardKind,
+    width: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct RenderedModalUnit {
+    cards: Vec<ModalUnitCardData>,
+}
+
+impl RenderedModalUnit {
+    fn total_width(&self, spacer_width: f32) -> f32 {
+        let card_widths = self.cards.iter().map(|card| card.width).sum::<f32>();
+        let spacing = spacer_width * self.cards.len().saturating_sub(1) as f32;
+        card_widths + spacing
+    }
+
+    fn bounds(&self, spacer_width: f32) -> Vec<(f32, f32)> {
+        let mut bounds = Vec::with_capacity(self.cards.len());
+        let mut offset = 0.0;
+        for (idx, card) in self.cards.iter().enumerate() {
+            if idx > 0 {
+                offset += spacer_width;
+            }
+            let left = offset;
+            let right = offset + card.width;
+            bounds.push((left, right));
+            offset = right;
+        }
+        bounds
+    }
+
+    fn stub_bounds(&self, side: ModalUnitSide, spacer_width: f32) -> Option<(f32, f32)> {
+        let target_idx = match side {
+            ModalUnitSide::Left => 0,
+            ModalUnitSide::Right => self.cards.len().checked_sub(1)?,
+        };
+        let card = self.cards.get(target_idx)?;
+        match &card.kind {
+            ModalUnitCardKind::Stub { side: card_side, .. } if *card_side == side => {
+                self.bounds(spacer_width).get(target_idx).copied()
+            }
+            _ => None,
+        }
+    }
+
+    fn first_visible_card_left(&self, spacer_width: f32) -> Option<f32> {
+        self.cards
+            .iter()
+            .enumerate()
+            .find(|(_, card)| {
+                !matches!(
+                    card.kind,
+                    ModalUnitCardKind::Stub {
+                        mode: ModalUnitStubMode::Ghost,
+                        ..
+                    }
+                )
+            })
+            .and_then(|(idx, _)| self.bounds(spacer_width).get(idx).map(|(left, _)| *left))
+    }
+
+    fn last_visible_card_right(&self, spacer_width: f32) -> Option<f32> {
+        self.cards
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, card)| {
+                !matches!(
+                    card.kind,
+                    ModalUnitCardKind::Stub {
+                        mode: ModalUnitStubMode::Ghost,
+                        ..
+                    }
+                )
+            })
+            .and_then(|(idx, _)| self.bounds(spacer_width).get(idx).map(|(_, right)| *right))
+    }
+}
+
+fn default_stub_mode(side: ModalUnitSide) -> ModalUnitStubMode {
+    match side {
+        ModalUnitSide::Left => ModalUnitStubMode::Visible('<'),
+        ModalUnitSide::Right => ModalUnitStubMode::Visible('>'),
+    }
+}
+
+fn build_rendered_modal_unit(
+    app: &App,
+    layout: &SimpleModalUnitLayout,
+    unit: &ModalUnitRange,
+    left_stub_mode: ModalUnitStubMode,
+    right_stub_mode: ModalUnitStubMode,
+) -> RenderedModalUnit {
+    let mut cards = Vec::new();
+    if unit.shows_stubs && unit.start > 0 {
+        cards.push(ModalUnitCardData {
+            kind: ModalUnitCardKind::Stub {
+                side: ModalUnitSide::Left,
+                mode: left_stub_mode,
+            },
+            width: app.ui_theme.modal_stub_width,
+        });
+    }
+    for sequence_idx in unit.start..=unit.end {
+        let Some(snapshot) = layout.sequence.snapshots.get(sequence_idx).cloned() else {
+            continue;
+        };
+        let width = modal_list_view_dimensions(&snapshot).0;
+        let kind = if sequence_idx == layout.sequence.active_sequence_index {
+            ModalUnitCardKind::Active { snapshot }
+        } else {
+            ModalUnitCardKind::Preview { snapshot }
+        };
+        cards.push(ModalUnitCardData { kind, width });
+    }
+    if unit.shows_stubs && unit.end + 1 < layout.sequence.snapshots.len() {
+        cards.push(ModalUnitCardData {
+            kind: ModalUnitCardKind::Stub {
+                side: ModalUnitSide::Right,
+                mode: right_stub_mode,
+            },
+            width: app.ui_theme.modal_stub_width,
+        });
+    }
+    RenderedModalUnit { cards }
+}
+
+fn modal_unit_slide_distance(
+    outgoing: &RenderedModalUnit,
+    incoming: &RenderedModalUnit,
+    spacer_width: f32,
+    direction: crate::app::ModalStreamDirection,
+) -> f32 {
+    let separation = match direction {
+        crate::app::ModalStreamDirection::Forward => outgoing
+            .stub_bounds(ModalUnitSide::Right, spacer_width)
+            .zip(incoming.first_visible_card_left(spacer_width))
+            .map(|((_, outgoing_right), incoming_left)| {
+                outgoing_right + spacer_width - incoming_left
+            }),
+        crate::app::ModalStreamDirection::Backward => outgoing
+            .stub_bounds(ModalUnitSide::Left, spacer_width)
+            .zip(incoming.last_visible_card_right(spacer_width))
+            .map(|((outgoing_left, _), incoming_right)| {
+                incoming_right - outgoing_left + spacer_width
+            }),
+    };
+    separation.unwrap_or_else(|| {
+        outgoing.total_width(spacer_width) * 0.5
+            + spacer_width
+            + incoming.total_width(spacer_width) * 0.5
+    })
+}
+
+fn modal_unit_runway_layout(viewport_width: f32, row_width: f32, shift: f32) -> (f32, f32, f32) {
+    let base_offset = (viewport_width - row_width) * 0.5;
+    let runway = ((row_width - viewport_width) * 0.5).max(0.0) + shift.abs();
+    let left_pad = (runway + base_offset + shift).max(0.0);
+    let right_pad = (runway + base_offset - shift).max(0.0);
+    let outer_width = viewport_width + runway * 2.0;
+    (outer_width, left_pad, right_pad)
+}
+
+fn render_modal_unit<'a>(
+    app: &'a App,
+    rendered: &RenderedModalUnit,
+    current_modal: Option<&'a crate::modal::SearchModal>,
+    modal_height: f32,
+    shift: f32,
+    alpha: f32,
+    interactive_active: bool,
+) -> Element<'a, Message> {
+    let spacer_width = app.modal_spacer_width();
+    let mut cards: Vec<Element<'a, Message>> = Vec::new();
+    for card in &rendered.cards {
+        match &card.kind {
+            ModalUnitCardKind::Stub { mode, .. } => match mode {
+                ModalUnitStubMode::Ghost => cards.push(
+                    Space::new(Length::Fixed(card.width), Length::Fixed(modal_height)).into(),
+                ),
+                ModalUnitStubMode::Visible(arrow) => cards.push(modal_card(
+                    app,
+                    container(text(arrow.to_string()).font(app.ui_theme.font_modal).size(24).color(
+                        apply_alpha(app.ui_theme.modal_hint_text, alpha),
+                    ))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .center_x(Length::Fill)
+                    .center_y(Length::Fill),
+                    ModalRenderMode::Preview,
+                    ModalCardRole::Stub,
+                    false,
+                    card.width,
+                    modal_height,
+                    alpha,
+                )),
+            },
+            ModalUnitCardKind::Preview { snapshot } => cards.push(modal_card(
+                app,
+                preview_simple_modal_content(app, snapshot.clone(), alpha),
+                ModalRenderMode::Preview,
+                ModalCardRole::Inactive,
+                false,
+                card.width,
+                modal_height,
+                alpha,
+            )),
+            ModalUnitCardKind::Active { snapshot } => {
+                if interactive_active {
+                    if let Some(modal) = current_modal {
+                        cards.push(modal_card(
+                            app,
+                            active_simple_modal_content(app, modal, alpha),
+                            ModalRenderMode::Interactive,
+                            ModalCardRole::Active,
+                            true,
+                            card.width,
+                            modal_height,
+                            alpha,
+                        ));
+                    } else {
+                        cards.push(modal_card(
+                            app,
+                            preview_simple_modal_content(app, snapshot.clone(), alpha),
+                            ModalRenderMode::Preview,
+                            ModalCardRole::Active,
+                            false,
+                            card.width,
+                            modal_height,
+                            alpha,
+                        ));
+                    }
+                } else {
+                    cards.push(modal_card(
+                        app,
+                        preview_simple_modal_content(app, snapshot.clone(), alpha),
+                        ModalRenderMode::Preview,
+                        ModalCardRole::Active,
+                        false,
+                        card.width,
+                        modal_height,
+                        alpha,
+                    ));
+                }
+            }
+        }
+    }
+
+    let row_width = rendered.total_width(spacer_width);
+    let viewport_width = app.viewport_size.map(|size| size.width).unwrap_or(row_width);
+    let (outer_width, left_pad, right_pad) =
+        modal_unit_runway_layout(viewport_width, row_width, shift);
+
+    container(
+        container(
+            row![
+                Space::with_width(Length::Fixed(left_pad)),
+                row(cards).spacing(spacer_width).align_y(iced::alignment::Vertical::Center),
+                Space::with_width(Length::Fixed(right_pad))
+            ]
+            .align_y(iced::alignment::Vertical::Center),
+        )
+        .width(Length::Fixed(outer_width)),
+    )
+    .width(Length::Fill)
+    .center_x(Length::Fill)
+    .into()
+}
+
+fn transition_shared_stub_modes(
+    direction: crate::app::ModalStreamDirection,
+    _progress: f32,
+) -> (ModalUnitStubMode, ModalUnitStubMode, ModalUnitStubMode, ModalUnitStubMode) {
+    match direction {
+        crate::app::ModalStreamDirection::Forward => (
+            default_stub_mode(ModalUnitSide::Left),
+            ModalUnitStubMode::Visible('>'),
+            ModalUnitStubMode::Ghost,
+            default_stub_mode(ModalUnitSide::Right),
+        ),
+        crate::app::ModalStreamDirection::Backward => (
+            ModalUnitStubMode::Visible('<'),
+            default_stub_mode(ModalUnitSide::Right),
+            default_stub_mode(ModalUnitSide::Left),
+            ModalUnitStubMode::Ghost,
+        ),
+    }
+}
+
+fn simple_modal_unit_layout_for_modal(
+    app: &App,
+    modal: &crate::modal::SearchModal,
+) -> Option<SimpleModalUnitLayout> {
+    app.simple_modal_unit_layout_for(modal)
+}
+
+fn simple_modal_unit_root_width(layout: &SimpleModalUnitLayout) -> Option<f32> {
+    layout
+        .sequence
+        .snapshots
+        .get(layout.sequence.active_sequence_index)
+        .map(|snapshot| modal_list_view_dimensions(snapshot).0)
+}
+
 fn collection_neighbor_previews_supported(app: &App) -> bool {
     app.viewport_size
         .map(|size| size.height >= 760.0)
@@ -2570,8 +3136,18 @@ fn modal_overlay<'a>(app: &'a App, modal: &'a crate::modal::SearchModal) -> Elem
     let show_collection_preview =
         modal.is_collection_mode() && collection_modal_supports_preview(app);
 
-    let (modal_width, fallback_height) =
+    let simple_unit_layout = if !modal.is_collection_mode() {
+        simple_modal_unit_layout_for_modal(app, modal)
+    } else {
+        None
+    };
+    let (mut modal_width, fallback_height) =
         modal_dimensions_for_content(app, modal, show_collection_preview);
+    if let Some(layout) = simple_unit_layout.as_ref() {
+        if let Some(unit_width) = simple_modal_unit_root_width(layout) {
+            modal_width = unit_width;
+        }
+    }
     let modal_height = if modal.is_collection_mode() {
         let collection_count = modal
             .collection_state
@@ -2611,6 +3187,7 @@ fn modal_overlay<'a>(app: &'a App, modal: &'a crate::modal::SearchModal) -> Elem
             app,
             content,
             ModalRenderMode::Interactive,
+            ModalCardRole::Active,
             true,
             modal_width,
             modal_height,
@@ -2621,97 +3198,283 @@ fn modal_overlay<'a>(app: &'a App, modal: &'a crate::modal::SearchModal) -> Elem
     };
 
     let modal_stream: Element<'a, Message> = if !modal.is_collection_mode() {
-        if let Some(current_packed) = packed_simple_modal_stream_for_modal(app, modal, modal_width)
-        {
-            if let Some(transition) = app.modal_stream_transition.as_ref() {
-                if let Some(previous_packed) = packed_simple_modal_stream_for_modal(
-                    app,
-                    &transition.previous_modal,
-                    modal_width,
-                ) {
-                    if previous_packed.same_chunk_window(&current_packed) {
-                        render_packed_simple_modal_stream(
+        if let Some(current_layout) = simple_unit_layout.as_ref() {
+            if let Some(current_unit) = current_layout.units.get(current_layout.active_unit_index) {
+                let spacer_width = app.modal_spacer_width();
+                let mut layers = Stack::new();
+
+                for departure in &app.modal_stream_departures {
+                    let Some(departure_layout) =
+                        simple_modal_unit_layout_for_modal(app, &departure.modal)
+                    else {
+                        continue;
+                    };
+                    let Some(departure_unit) =
+                        departure_layout.units.get(departure_layout.active_unit_index)
+                    else {
+                        continue;
+                    };
+                    let mut left_mode = default_stub_mode(ModalUnitSide::Left);
+                    let mut right_mode = default_stub_mode(ModalUnitSide::Right);
+                    if let Some(active_transition) = app.modal_stream_transition.as_ref() {
+                        if active_transition.from_modal.field_flow.list_idx
+                            == departure.modal.field_flow.list_idx
+                        {
+                            let progress = active_transition.eased_progress();
+                            let (out_left, out_right, _, _) =
+                                transition_shared_stub_modes(active_transition.direction, progress);
+                            left_mode = out_left;
+                            right_mode = out_right;
+                        }
+                    }
+                    let rendered_departure = build_rendered_modal_unit(
+                        app,
+                        &departure_layout,
+                        departure_unit,
+                        left_mode,
+                        right_mode,
+                    );
+                    let distance = app
+                        .modal_stream_transition
+                        .as_ref()
+                        .filter(|transition| {
+                            transition.from_modal.field_flow.list_idx
+                                == departure.modal.field_flow.list_idx
+                        })
+                        .and_then(|transition| {
+                            let from_layout =
+                                simple_modal_unit_layout_for_modal(app, &transition.from_modal)?;
+                            let from_unit = from_layout.units.get(from_layout.active_unit_index)?;
+                            let (_, _, in_left, in_right) = transition_shared_stub_modes(
+                                transition.direction,
+                                transition.eased_progress(),
+                            );
+                            let rendered_from = build_rendered_modal_unit(
+                                app,
+                                &from_layout,
+                                from_unit,
+                                default_stub_mode(ModalUnitSide::Left),
+                                default_stub_mode(ModalUnitSide::Right),
+                            );
+                            let rendered_to = build_rendered_modal_unit(
+                                app,
+                                &departure_layout,
+                                departure_unit,
+                                in_left,
+                                in_right,
+                            );
+                            Some(modal_unit_slide_distance(
+                                &rendered_from,
+                                &rendered_to,
+                                spacer_width,
+                                transition.direction,
+                            ))
+                        })
+                        .unwrap_or(rendered_departure.total_width(spacer_width));
+                    let progress = departure.eased_progress();
+                    let final_shift = match departure.direction {
+                        crate::app::ModalStreamDirection::Forward => -distance,
+                        crate::app::ModalStreamDirection::Backward => distance,
+                    };
+                    let (start_shift, start_alpha) = departure
+                        .carry
+                        .as_ref()
+                        .and_then(|carry| {
+                            let from_layout =
+                                simple_modal_unit_layout_for_modal(app, &carry.from_modal)?;
+                            let from_unit = from_layout.units.get(from_layout.active_unit_index)?;
+                            let rendered_from = build_rendered_modal_unit(
+                                app,
+                                &from_layout,
+                                from_unit,
+                                default_stub_mode(ModalUnitSide::Left),
+                                default_stub_mode(ModalUnitSide::Right),
+                            );
+                            let rendered_to = build_rendered_modal_unit(
+                                app,
+                                &departure_layout,
+                                departure_unit,
+                                default_stub_mode(ModalUnitSide::Left),
+                                default_stub_mode(ModalUnitSide::Right),
+                            );
+                            let carry_distance = modal_unit_slide_distance(
+                                &rendered_from,
+                                &rendered_to,
+                                spacer_width,
+                                carry.direction,
+                            );
+                            let carry_shift = match carry.direction {
+                                crate::app::ModalStreamDirection::Forward => {
+                                    carry_distance * (1.0 - carry.progress)
+                                }
+                                crate::app::ModalStreamDirection::Backward => {
+                                    -carry_distance * (1.0 - carry.progress)
+                                }
+                            };
+                            Some((carry_shift, carry.progress))
+                        })
+                        .unwrap_or((0.0, 1.0));
+                    let shift = start_shift + (final_shift - start_shift) * progress;
+                    let alpha = start_alpha * (1.0 - progress);
+                    layers = layers.push(render_modal_unit(
+                        app,
+                        &rendered_departure,
+                        None,
+                        modal_height,
+                        shift,
+                        alpha,
+                        false,
+                    ));
+                }
+
+                if let Some(transition) = app.modal_stream_transition.as_ref() {
+                    if let Some(from_layout) =
+                        simple_modal_unit_layout_for_modal(app, &transition.from_modal)
+                    {
+                        if let (Some(from_unit), Some(to_unit)) = (
+                            from_layout.units.get(from_layout.active_unit_index),
+                            current_layout.units.get(current_layout.active_unit_index),
+                        ) {
+                            if !(from_unit.start == to_unit.start
+                                && from_unit.end == to_unit.end
+                                && from_unit.shows_stubs == to_unit.shows_stubs)
+                            {
+                                let progress = transition.eased_progress();
+                                let (_, _, in_left, in_right) =
+                                    transition_shared_stub_modes(transition.direction, progress);
+                                let rendered_from = build_rendered_modal_unit(
+                                    app,
+                                    &from_layout,
+                                    from_unit,
+                                    default_stub_mode(ModalUnitSide::Left),
+                                    default_stub_mode(ModalUnitSide::Right),
+                                );
+                                let rendered_incoming = build_rendered_modal_unit(
+                                    app,
+                                    current_layout,
+                                    to_unit,
+                                    in_left,
+                                    in_right,
+                                );
+                                let distance = modal_unit_slide_distance(
+                                    &rendered_from,
+                                    &rendered_incoming,
+                                    spacer_width,
+                                    transition.direction,
+                                );
+                                let shift = match transition.direction {
+                                    crate::app::ModalStreamDirection::Forward => {
+                                        distance * (1.0 - progress)
+                                    }
+                                    crate::app::ModalStreamDirection::Backward => {
+                                        -distance * (1.0 - progress)
+                                    }
+                                };
+                                let alpha = progress.clamp(0.0, 1.0);
+                                layers = layers.push(render_modal_unit(
+                                    app,
+                                    &rendered_incoming,
+                                    Some(modal),
+                                    modal_height,
+                                    shift,
+                                    alpha,
+                                    true,
+                                ));
+                                layers.width(Length::Fill).into()
+                            } else {
+                                let rendered_current = build_rendered_modal_unit(
+                                    app,
+                                    current_layout,
+                                    current_unit,
+                                    default_stub_mode(ModalUnitSide::Left),
+                                    default_stub_mode(ModalUnitSide::Right),
+                                );
+                                layers = layers.push(render_modal_unit(
+                                    app,
+                                    &rendered_current,
+                                    Some(modal),
+                                    modal_height,
+                                    0.0,
+                                    1.0,
+                                    true,
+                                ));
+                                layers.width(Length::Fill).into()
+                            }
+                        } else {
+                            let rendered_current = build_rendered_modal_unit(
+                                app,
+                                current_layout,
+                                current_unit,
+                                default_stub_mode(ModalUnitSide::Left),
+                                default_stub_mode(ModalUnitSide::Right),
+                            );
+                            layers = layers.push(render_modal_unit(
+                                app,
+                                &rendered_current,
+                                Some(modal),
+                                modal_height,
+                                0.0,
+                                1.0,
+                                true,
+                            ));
+                            layers.width(Length::Fill).into()
+                        }
+                    } else {
+                        let rendered_current = build_rendered_modal_unit(
                             app,
-                            current_packed,
+                            current_layout,
+                            current_unit,
+                            default_stub_mode(ModalUnitSide::Left),
+                            default_stub_mode(ModalUnitSide::Right),
+                        );
+                        layers = layers.push(render_modal_unit(
+                            app,
+                            &rendered_current,
                             Some(modal),
                             modal_height,
-                            modal_width,
                             0.0,
                             1.0,
                             true,
-                        )
-                    } else {
-                        let progress = transition.eased_progress();
-                        let distance = packed_stream_slide_distance(
-                            &previous_packed,
-                            &current_packed,
-                            modal_width,
-                            transition.direction,
-                        );
-                        let (old_shift, new_shift) = match transition.direction {
-                            crate::app::ModalStreamDirection::Forward => {
-                                (-distance * progress, distance * (1.0 - progress))
-                            }
-                            crate::app::ModalStreamDirection::Backward => {
-                                (distance * progress, -distance * (1.0 - progress))
-                            }
-                        };
-                        let old_alpha = 1.0 - progress;
-                        let new_preview_alpha = (0.55 + 0.45 * progress).clamp(0.0, 1.0);
-
-                        Stack::new()
-                            .push(render_packed_simple_modal_stream(
-                                app,
-                                previous_packed,
-                                None,
-                                modal_height,
-                                modal_width,
-                                old_shift,
-                                old_alpha,
-                                false,
-                            ))
-                            .push(render_packed_simple_modal_stream(
-                                app,
-                                current_packed.clone(),
-                                Some(modal),
-                                modal_height,
-                                modal_width,
-                                new_shift,
-                                new_preview_alpha,
-                                true,
-                            ))
-                            .width(Length::Fill)
-                            .into()
+                        ));
+                        layers.width(Length::Fill).into()
                     }
                 } else {
-                    render_packed_simple_modal_stream(
+                    let rendered_current = build_rendered_modal_unit(
                         app,
-                        current_packed,
+                        current_layout,
+                        current_unit,
+                        default_stub_mode(ModalUnitSide::Left),
+                        default_stub_mode(ModalUnitSide::Right),
+                    );
+                    layers = layers.push(render_modal_unit(
+                        app,
+                        &rendered_current,
                         Some(modal),
                         modal_height,
-                        modal_width,
                         0.0,
                         1.0,
                         true,
-                    )
+                    ));
+                    layers.width(Length::Fill).into()
                 }
             } else {
-                render_packed_simple_modal_stream(
+                modal_card(
                     app,
-                    current_packed,
-                    Some(modal),
-                    modal_height,
-                    modal_width,
-                    0.0,
-                    1.0,
+                    active_simple_modal_content(app, modal, 1.0),
+                    ModalRenderMode::Interactive,
+                    ModalCardRole::Active,
                     true,
+                    modal_width,
+                    modal_height,
+                    1.0,
                 )
             }
         } else {
             modal_card(
                 app,
-                active_simple_modal_content(app, modal),
+                active_simple_modal_content(app, modal, 1.0),
                 ModalRenderMode::Interactive,
+                ModalCardRole::Active,
                 true,
                 modal_width,
                 modal_height,
@@ -3211,14 +3974,10 @@ fn modal_subpanel<'a>(
 }
 
 fn modal_top_offset(app: &App) -> f32 {
-    let field_offset = match app.section_states.get(app.current_idx) {
-        Some(SectionState::Header(state)) => {
-            let range = wizard_window(app, state.field_index, state.field_configs.len());
-            state.field_index.saturating_sub(range.start) as f32
-        }
-        _ => 0.0,
-    };
-    88.0 + field_offset * 24.0
+    let _ = app;
+    // Leave some air above the composition panel, but keep more of the spare height
+    // below the modal stack so it does not feel glued to the bottom edge.
+    44.0
 }
 
 /// Public entry point called from main.rs view().
@@ -3234,8 +3993,11 @@ pub fn view(app: &App) -> Element<'_, Message> {
 mod tests {
     use super::{
         collection_preview_metrics, pack_chunked_simple_modal_stream, pack_simple_modal_stream,
-        PackedSimpleModalCard, PackedStreamAlignment,
+        modal_unit_runway_layout, modal_unit_slide_distance, ModalUnitCardData, ModalUnitCardKind, ModalUnitSide,
+        ModalUnitStubMode, PackedSimpleModalCard, PackedSimpleModalStream,
+        PackedStreamAlignment, RenderedModalUnit,
     };
+    use crate::app::ModalStreamDirection;
     use crate::data::{HierarchyItem, HierarchyList, ModalStart, ResolvedCollectionConfig};
     use crate::modal::{ModalFocus, ModalListViewSnapshot};
     use crate::sections::collection::CollectionEntry;
@@ -3311,6 +4073,10 @@ mod tests {
             list_scroll: 0,
             focus: ModalFocus::List,
         }
+    }
+
+    fn rendered_unit(cards: Vec<ModalUnitCardData>) -> RenderedModalUnit {
+        RenderedModalUnit { cards }
     }
 
     #[test]
@@ -3441,5 +4207,222 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn forward_transition_retitles_outgoing_arrival_stub() {
+        let outgoing = PackedSimpleModalStream {
+            cards: vec![
+                PackedSimpleModalCard::PreviousFull {
+                    snapshot: snapshot("Two"),
+                },
+                PackedSimpleModalCard::Active {
+                    snapshot: snapshot("Three"),
+                },
+                PackedSimpleModalCard::NextFull {
+                    snapshot: snapshot("Four"),
+                },
+                PackedSimpleModalCard::RightStub {
+                    title: "Five".to_string(),
+                },
+            ],
+            alignment: PackedStreamAlignment::CenterStream,
+            page_start: 1,
+            page_end: 3,
+        };
+        let incoming = PackedSimpleModalStream {
+            cards: vec![
+                PackedSimpleModalCard::LeftStub {
+                    title: "Three".to_string(),
+                },
+                PackedSimpleModalCard::Active {
+                    snapshot: snapshot("Four"),
+                },
+                PackedSimpleModalCard::NextFull {
+                    snapshot: snapshot("Five"),
+                },
+            ],
+            alignment: PackedStreamAlignment::CenterStream,
+            page_start: 3,
+            page_end: 4,
+        };
+
+        let adjusted = outgoing.transition_adjusted_outgoing(&incoming, ModalStreamDirection::Forward);
+
+        assert_eq!(
+            adjusted.cards.last(),
+            Some(&PackedSimpleModalCard::RightStub {
+                title: "Three".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn forward_transition_suppresses_duplicate_incoming_departure_stub() {
+        let outgoing = PackedSimpleModalStream {
+            cards: vec![
+                PackedSimpleModalCard::Active {
+                    snapshot: snapshot("Three"),
+                },
+                PackedSimpleModalCard::NextFull {
+                    snapshot: snapshot("Four"),
+                },
+                PackedSimpleModalCard::RightStub {
+                    title: "Five".to_string(),
+                },
+            ],
+            alignment: PackedStreamAlignment::CenterStream,
+            page_start: 2,
+            page_end: 3,
+        };
+        let incoming = PackedSimpleModalStream {
+            cards: vec![
+                PackedSimpleModalCard::LeftStub {
+                    title: "Three".to_string(),
+                },
+                PackedSimpleModalCard::Active {
+                    snapshot: snapshot("Four"),
+                },
+                PackedSimpleModalCard::NextFull {
+                    snapshot: snapshot("Five"),
+                },
+            ],
+            alignment: PackedStreamAlignment::CenterStream,
+            page_start: 3,
+            page_end: 4,
+        };
+
+        let adjusted =
+            incoming.suppress_duplicate_transition_stub(&outgoing, ModalStreamDirection::Forward);
+
+        assert_eq!(
+            adjusted.cards,
+            vec![
+                PackedSimpleModalCard::LeftGhostStub {
+                    title: "Three".to_string()
+                },
+                PackedSimpleModalCard::Active {
+                    snapshot: snapshot("Four")
+                },
+                PackedSimpleModalCard::NextFull {
+                    snapshot: snapshot("Five")
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn modal_unit_slide_distance_keeps_forward_incoming_offscreen_past_shared_stub() {
+        let outgoing = rendered_unit(vec![
+            ModalUnitCardData {
+                kind: ModalUnitCardKind::Preview {
+                    snapshot: snapshot("Two"),
+                },
+                width: 300.0,
+            },
+            ModalUnitCardData {
+                kind: ModalUnitCardKind::Active {
+                    snapshot: snapshot("Three"),
+                },
+                width: 360.0,
+            },
+            ModalUnitCardData {
+                kind: ModalUnitCardKind::Stub {
+                    side: ModalUnitSide::Right,
+                    mode: ModalUnitStubMode::Visible('>'),
+                },
+                width: 96.0,
+            },
+        ]);
+        let incoming = rendered_unit(vec![
+            ModalUnitCardData {
+                kind: ModalUnitCardKind::Stub {
+                    side: ModalUnitSide::Left,
+                    mode: ModalUnitStubMode::Ghost,
+                },
+                width: 96.0,
+            },
+            ModalUnitCardData {
+                kind: ModalUnitCardKind::Active {
+                    snapshot: snapshot("Four"),
+                },
+                width: 360.0,
+            },
+        ]);
+
+        let distance =
+            modal_unit_slide_distance(&outgoing, &incoming, 12.0, ModalStreamDirection::Forward);
+
+        assert_eq!(distance, 684.0);
+    }
+
+    #[test]
+    fn modal_unit_slide_distance_keeps_backward_incoming_offscreen_past_shared_stub() {
+        let outgoing = rendered_unit(vec![
+            ModalUnitCardData {
+                kind: ModalUnitCardKind::Stub {
+                    side: ModalUnitSide::Left,
+                    mode: ModalUnitStubMode::Visible('<'),
+                },
+                width: 96.0,
+            },
+            ModalUnitCardData {
+                kind: ModalUnitCardKind::Active {
+                    snapshot: snapshot("Four"),
+                },
+                width: 360.0,
+            },
+        ]);
+        let incoming = rendered_unit(vec![
+            ModalUnitCardData {
+                kind: ModalUnitCardKind::Active {
+                    snapshot: snapshot("Three"),
+                },
+                width: 360.0,
+            },
+            ModalUnitCardData {
+                kind: ModalUnitCardKind::Preview {
+                    snapshot: snapshot("Two"),
+                },
+                width: 300.0,
+            },
+            ModalUnitCardData {
+                kind: ModalUnitCardKind::Stub {
+                    side: ModalUnitSide::Right,
+                    mode: ModalUnitStubMode::Ghost,
+                },
+                width: 96.0,
+            },
+        ]);
+
+        let distance =
+            modal_unit_slide_distance(&outgoing, &incoming, 12.0, ModalStreamDirection::Backward);
+
+        assert_eq!(distance, 684.0);
+    }
+
+    #[test]
+    fn modal_unit_runway_layout_keeps_forward_departure_moving_past_left_edge() {
+        let viewport_width = 1200.0;
+        let row_width = 780.0;
+        let shift = -684.0;
+
+        let (outer_width, left_pad, _) = modal_unit_runway_layout(viewport_width, row_width, shift);
+        let actual_left = (viewport_width - outer_width) * 0.5 + left_pad;
+
+        assert_eq!(actual_left, -474.0);
+    }
+
+    #[test]
+    fn modal_unit_runway_layout_keeps_backward_departure_moving_past_right_edge() {
+        let viewport_width = 1200.0;
+        let row_width = 468.0;
+        let shift = 684.0;
+
+        let (outer_width, left_pad, _) = modal_unit_runway_layout(viewport_width, row_width, shift);
+        let actual_left = (viewport_width - outer_width) * 0.5 + left_pad;
+        let actual_right = actual_left + row_width;
+
+        assert_eq!(actual_right, 1518.0);
     }
 }

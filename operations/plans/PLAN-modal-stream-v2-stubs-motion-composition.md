@@ -25,6 +25,20 @@ Implemented through `v0.3.8-alpha`:
 - Phase 4: field-level manual override editing with preview/composition styling
 - Phase 5: chunked/unit modal paging
 
+## Completion Checkpoints
+
+Known release checkpoints for this work:
+
+- Phase 2 checkpoint: `v0.3.5-alpha` (`fce216b`) - animated modal stream transitions
+- Phase 3 checkpoint: `v0.3.6-alpha` (`5361120`) - top entry composition panel
+- Phase 4 checkpoint: `v0.3.7-alpha` (`785ac34`) - composition-panel manual overrides
+- Phase 5 checkpoint: `v0.3.8-alpha` (`913210d`) - chunked modal stream paging
+
+Practical meaning:
+
+- `v0.3.8-alpha` is the first tag where the full planned V2 stack is present together
+- later tuning work should branch from the final V2 behavior, not from the older V1 brief alone
+
 ## Plain-English Summary
 
 V1 proved that adjacent modal context is useful, but it still wastes scarce window space on smaller screens and the stream feels static when focus moves.
@@ -376,3 +390,106 @@ That existing logic should become the first data source for the display-only com
 - Stubs are not fake mini-previews; they are continuation indicators.
 - The top entry panel is meant to become an editing surface later, but only after override ownership is designed.
 - Avoid whole-entry contamination rules when the user has explicitly asked for span/field-level contamination instead.
+
+## Post-Implementation Architecture Notes
+
+These notes capture what the implementation actually used so future instances do not have to rediscover it.
+
+### Source-of-truth split
+
+- `src/modal.rs` owns modal-state derivation and preview snapshots
+- `src/ui.rs` owns modal-stream packing, chunk/page layout, and render-time transition composition
+- `src/app.rs` owns transient transition state and composition-panel override state
+
+This separation is important. Future stream work should preserve it.
+
+### Phase 2 implementation seam
+
+Animated stream motion was added without replacing modal progression rules.
+
+Key details:
+
+- `App` stores `modal_stream_transition`
+- transition rendering reuses packed stream layouts from `src/ui.rs`
+- the app tick loop drives animation at the same fast interval already used for flash effects
+- easing is abstracted via `ModalStreamEasing`
+- current default motion curve is `ExpoInOut`
+- transition duration is now theme-controlled via `modal_stream_transition_duration_ms`
+
+Implication:
+
+- if motion tuning is needed, prefer changing easing/duration or packed-layout math before altering modal-state logic
+
+### Phase 3 implementation seam
+
+The top entry panel is driven from the same composition derivation used for modal preview state.
+
+Key details:
+
+- `compute_field_composition_spans()` in `src/app.rs` is the rich span source
+- literal, confirmed, and preview/default text are represented explicitly
+- the composition panel in `src/ui.rs` is a render-only consumer of that span model
+
+Implication:
+
+- future composition-panel changes should extend the span model first, then the panel rendering
+
+### Phase 4 implementation seam
+
+Phase 4 shipped a field-level override model, not a full arbitrary span editor.
+
+Key details:
+
+- `HeaderFieldValue::ManualOverride { text, source }` preserves both manual text and the underlying structured source
+- `SearchModal` carries `manual_override: Option<String>` while the modal is open
+- `sync_modal_preview_state()` in `src/app.rs` is the key bridge that keeps header preview state aligned with override state
+- composition editing is entered with `Ctrl+E`
+- override reset is `Ctrl+R`
+- preview/composition italic styling is UI-only; export text remains plain text
+
+Important nuance:
+
+- the user-facing product direction discussed true span/field-level contamination
+- the implemented foundation detaches at the field level
+- future instances should treat the current model as a safe stepping stone, not as proof that true span-level editing is solved
+
+### Phase 5 implementation seam
+
+Chunking was implemented as page-aware packing on top of the existing stream renderer.
+
+Key details:
+
+- `PackedSimpleModalStream` now carries alignment plus `page_start` / `page_end`
+- chunk pages use `PackedStreamAlignment::CenterStream`
+- fallback simple/stub layouts use `PackedStreamAlignment::CenterActive`
+- wide-screen chunking uses non-overlapping pages
+- moving within the same chunk does not animate a whole-stream slide
+- moving across chunk boundaries falls back to the existing stream-transition animation
+- if chunking does not fit, the UI falls back cleanly to the stub-packing behavior
+
+Implication:
+
+- future chunking work should modify the page-generation policy first
+- avoid rewriting the renderer unless the page model itself changes
+
+### Validation and test coverage added during V2
+
+V2 work added or expanded tests around:
+
+- simple-list snapshot progression
+- stub packing priority rules
+- composition span semantics
+- manual override persistence and reopening
+- chunked page packing behavior
+
+As of the final V2 pass, the full suite passed at `99` tests, and a later follow-up theme-knob pass brought that to `100`.
+
+### Known operational footgun
+
+Some app-level tests still write runtime config state during execution:
+
+- repo-root `config.yml` can appear as an untracked artifact
+- tracked `data/config.yml` can change only by key order after test runs
+
+This is not part of modal-stream behavior, but it is relevant for future instances because it can pollute the worktree while validating modal work.
+See roadmap item `20`.

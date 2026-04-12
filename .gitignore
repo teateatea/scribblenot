@@ -1,3 +1,4 @@
 espanso/
 .claude/
 /target/
+/config.yml

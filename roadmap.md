@@ -6,7 +6,7 @@ This file tracks improvement ideas, technical debt, reliability upgrades, securi
 It is not a commitment list. It is a place to keep useful ideas from getting lost.
 
 ## Tracker
-- Next suggestion number: 21
+- Next suggestion number: 22
 - Rule: never reuse or renumber old suggestion IDs, even if an item is completed or removed later.
 - Status values: `open`, `planned`, `in-progress`, `blocked`, `done`, `dropped`
 
@@ -69,6 +69,7 @@ Priority rule of thumb:
 18. [done] [Roadmap] {GPT-5 Codex}: Modal stream UI prototype: keep the current active modal interaction, but add read-only neighboring teaser cards so users can see adjacent modal states and collection previews simultaneously. Implemented in `src/modal.rs` and `src/ui.rs` per `operations/plans/IMPLEMENTATION-BRIEF-modal-stream-ui.md`, with automated coverage for simple-list teaser snapshots and collection preview neighbors.
 19. [done] [Roadmap] {GPT-5 Codex}: Modal stream V2 planning and tuning pass: preserve the agreed next-step product direction and then implement it in phases. Why it matters: the prototype works, but the next iteration now has important product rules that are easy to lose in chat alone, including stub-card priority, animated slide transitions with tunable easing, future chunked/unit paging, and a top entry-composition panel with span-level override semantics. Completion note: all five planned phases are now implemented through `v0.3.8-alpha`, including stub packing, motion, the composition panel, field-level manual overrides, and chunked/unit modal paging.
 20. [open] [Developer Experience] {GPT-5 Codex}: Stop tests from writing `config.yml` into the repo root. Why it matters: the current App tests can leave runtime artifacts in the worktree, which is noisy and increases the risk of accidentally staging local config. Suggested next step: route config persistence through a temp/test data dir in App tests or make config writes injectable/no-op under targeted test setups.
+21. [open] [Performance] {GPT-5 Codex}: Avoid redundant modal-unit recalculation on no-op data refreshes. Why it matters: the new unit layout is intentionally precomputed on open, refresh, and resize, but repeated YAML reloads with unchanged content still pay the full derivation cost. Suggested next step: cache a fast data checksum (for example CRC32) and skip modal-unit rebuild work when the loaded content hash is unchanged.
 
 ## Later
 10. [planned] [Roadmap] {GPT-5 Codex}: Product flexibility pass: make note headings and boilerplate data-driven so changing the clinical template does not require Rust edits.

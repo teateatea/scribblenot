@@ -4,6 +4,7 @@ use crate::document::build_initial_document;
 use crate::modal::{
     joined_repeating_value, modal_height_for_viewport, modal_window_size_for_height,
     resolved_item_labels_for_list, FieldAdvance, ModalFocus, SearchModal,
+    SimpleModalUnitLayout,
 };
 use crate::sections::{
     checklist::ChecklistState,
@@ -95,9 +96,13 @@ pub enum ModalStreamDirection {
     Backward,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModalStreamEasing {
+    Linear,
+    QuadInOut,
+    CubicInOut,
+    SineInOut,
+    ExpoIn,
     ExpoInOut,
     ExpoOut,
 }
@@ -105,6 +110,11 @@ pub enum ModalStreamEasing {
 impl ModalStreamEasing {
     pub fn apply(self, t: f32) -> f32 {
         match self {
+            Self::Linear => simple_easing::linear(t),
+            Self::QuadInOut => simple_easing::quad_in_out(t),
+            Self::CubicInOut => simple_easing::cubic_in_out(t),
+            Self::SineInOut => simple_easing::sine_in_out(t),
+            Self::ExpoIn => simple_easing::expo_in(t),
             Self::ExpoInOut => simple_easing::expo_in_out(t),
             Self::ExpoOut => simple_easing::expo_out(t),
         }
@@ -113,7 +123,7 @@ impl ModalStreamEasing {
 
 #[derive(Debug, Clone)]
 pub struct ModalStreamTransition {
-    pub previous_modal: SearchModal,
+    pub from_modal: SearchModal,
     pub direction: ModalStreamDirection,
     pub started_at: Instant,
     pub duration: Duration,
@@ -121,6 +131,38 @@ pub struct ModalStreamTransition {
 }
 
 impl ModalStreamTransition {
+    pub fn progress(&self) -> f32 {
+        let duration = self.duration.as_secs_f32().max(0.001);
+        (self.started_at.elapsed().as_secs_f32() / duration).clamp(0.0, 1.0)
+    }
+
+    pub fn eased_progress(&self) -> f32 {
+        self.easing.apply(self.progress())
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.progress() >= 1.0
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ModalStreamCarry {
+    pub from_modal: SearchModal,
+    pub direction: ModalStreamDirection,
+    pub progress: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ModalStreamDeparture {
+    pub modal: SearchModal,
+    pub direction: ModalStreamDirection,
+    pub started_at: Instant,
+    pub duration: Duration,
+    pub easing: ModalStreamEasing,
+    pub carry: Option<ModalStreamCarry>,
+}
+
+impl ModalStreamDeparture {
     pub fn progress(&self) -> f32 {
         let duration = self.duration.as_secs_f32().max(0.001);
         (self.started_at.elapsed().as_secs_f32() / duration).clamp(0.0, 1.0)
@@ -164,6 +206,7 @@ pub struct StatusMsg {
 pub enum FieldCompositionSpanKind {
     Literal,
     Confirmed,
+    Active,
     Preview,
 }
 
@@ -216,6 +259,7 @@ pub struct App {
     pub modal_mouse_mode: bool,
     modal_restore_snapshot: Option<ModalRestoreSnapshot>,
     pub modal_stream_transition: Option<ModalStreamTransition>,
+    pub modal_stream_departures: Vec<ModalStreamDeparture>,
     pub modal_composition_editing: bool,
     pub editable_note: String,
     pub note_headings_valid: bool,
@@ -306,6 +350,7 @@ impl App {
             modal_mouse_mode: false,
             modal_restore_snapshot: None,
             modal_stream_transition: None,
+            modal_stream_departures: Vec::new(),
             modal_composition_editing: false,
             editable_note,
             note_headings_valid,
@@ -329,6 +374,26 @@ impl App {
         modal_window_size_for_height(modal_height, self.data.keybindings.hints.len())
     }
 
+    pub fn modal_spacer_width(&self) -> f32 {
+        let viewport_based = self
+            .viewport_size
+            .map(|size| size.width * 0.02)
+            .unwrap_or(self.ui_theme.modal_spacer_width);
+        viewport_based.min(self.ui_theme.modal_spacer_width).max(0.0)
+    }
+
+    pub fn simple_modal_unit_layout_for(
+        &self,
+        modal: &SearchModal,
+    ) -> Option<SimpleModalUnitLayout> {
+        modal.simple_modal_unit_layout(
+            &self.config.sticky_values,
+            self.viewport_size.map(|size| size.width),
+            self.modal_spacer_width(),
+            self.ui_theme.modal_stub_width,
+        )
+    }
+
     pub fn set_editable_note(&mut self, new_text: String) {
         self.editable_note = new_text;
         self.refresh_note_structure();
@@ -340,11 +405,16 @@ impl App {
         }
     }
 
+    fn clear_modal_stream_animations(&mut self) {
+        self.modal_stream_transition = None;
+        self.modal_stream_departures.clear();
+    }
+
     pub fn close_modal(&mut self) {
         self.modal = None;
         self.modal_mouse_mode = false;
         self.modal_restore_snapshot = None;
-        self.modal_stream_transition = None;
+        self.clear_modal_stream_animations();
         self.modal_composition_editing = false;
         self.hint_buffer.clear();
     }
@@ -403,7 +473,7 @@ impl App {
         }
         self.modal = None;
         self.modal_mouse_mode = false;
-        self.modal_stream_transition = None;
+        self.clear_modal_stream_animations();
         self.modal_composition_editing = false;
         self.hint_buffer.clear();
     }
@@ -726,6 +796,8 @@ impl App {
         {
             self.modal_stream_transition = None;
         }
+        self.modal_stream_departures
+            .retain(|transition| !transition.is_finished());
         if self
             .copy_flash_until
             .is_some_and(|until| Instant::now() >= until)
@@ -744,28 +816,32 @@ impl App {
         self.modal_stream_transition
             .as_ref()
             .is_some_and(|transition| !transition.is_finished())
+            || !self.modal_stream_departures.is_empty()
+    }
+
+    fn same_modal_unit_window(
+        &self,
+        left: &SearchModal,
+        right: &SearchModal,
+    ) -> Option<bool> {
+        let left_layout = self.simple_modal_unit_layout_for(left)?;
+        let right_layout = self.simple_modal_unit_layout_for(right)?;
+        let left_unit = left_layout.units.get(left_layout.active_unit_index)?;
+        let right_unit = right_layout.units.get(right_layout.active_unit_index)?;
+        Some(
+            left_unit.start == right_unit.start
+                && left_unit.end == right_unit.end
+                && left_unit.shows_stubs == right_unit.shows_stubs,
+        )
     }
 
     fn start_modal_stream_transition(&mut self, previous_modal: Option<SearchModal>) {
         let Some(previous_modal) = previous_modal else {
-            self.modal_stream_transition = None;
             return;
         };
         let Some(current_modal) = self.modal.as_ref() else {
-            self.modal_stream_transition = None;
             return;
         };
-
-        if previous_modal
-            .list_view_snapshot(&self.config.sticky_values)
-            .is_none()
-            || current_modal
-                .list_view_snapshot(&self.config.sticky_values)
-                .is_none()
-        {
-            self.modal_stream_transition = None;
-            return;
-        }
 
         let direction = match current_modal
             .field_flow
@@ -776,13 +852,39 @@ impl App {
             std::cmp::Ordering::Less => Some(ModalStreamDirection::Backward),
             std::cmp::Ordering::Equal => None,
         };
+        let Some(direction) = direction else {
+            return;
+        };
+        if self.same_modal_unit_window(&previous_modal, current_modal) != Some(false) {
+            return;
+        }
 
-        self.modal_stream_transition = direction.map(|direction| ModalStreamTransition {
-            previous_modal,
+        let duration = Duration::from_millis(self.ui_theme.modal_stream_transition_duration_ms.max(1));
+        let easing = self.ui_theme.modal_stream_transition_easing;
+        let carry = self.modal_stream_transition.as_ref().and_then(|transition| {
+            if transition.is_finished() {
+                return None;
+            }
+            Some(ModalStreamCarry {
+                from_modal: transition.from_modal.clone(),
+                direction: transition.direction,
+                progress: transition.eased_progress(),
+            })
+        });
+        self.modal_stream_departures.push(ModalStreamDeparture {
+            modal: previous_modal.clone(),
             direction,
             started_at: Instant::now(),
-            duration: Duration::from_millis(220),
-            easing: ModalStreamEasing::ExpoInOut,
+            duration,
+            easing,
+            carry,
+        });
+        self.modal_stream_transition = Some(ModalStreamTransition {
+            from_modal: previous_modal,
+            direction,
+            started_at: Instant::now(),
+            duration,
+            easing,
         });
     }
 
@@ -1073,7 +1175,7 @@ impl App {
         self.map_hint_level = MapHintLevel::Sections(self.group_idx_for_section(self.current_idx));
         self.modal = None;
         self.modal_mouse_mode = false;
-        self.modal_stream_transition = None;
+        self.clear_modal_stream_animations();
         self.hint_buffer.clear();
         self.data = data;
         self.editable_note = build_initial_document(
@@ -1178,7 +1280,7 @@ impl App {
         if !self.text_entry_active() && self.is_copy_note(&key) {
             self.modal_mouse_mode = false;
             self.modal = None;
-            self.modal_stream_transition = None;
+            self.clear_modal_stream_animations();
             self.show_help = false;
             self.copy_requested = true;
             return;
@@ -2553,6 +2655,7 @@ pub fn compute_field_composition_spans(
         return Vec::new();
     };
     let mut spans: Vec<FieldCompositionSpan> = Vec::new();
+    let active_value = modal.selected_value().map(str::to_string);
     let mut literal = String::new();
     let mut chars = format.chars().peekable();
     while let Some(c) = chars.next() {
@@ -2583,6 +2686,24 @@ pub fn compute_field_composition_spans(
                             .unwrap_or_else(|| flow.repeat_values.join(", ")),
                         kind: FieldCompositionSpanKind::Confirmed,
                     });
+                } else if i == flow.list_idx {
+                    if let Some(value) = active_value.clone().filter(|value| !value.is_empty()) {
+                        spans.push(FieldCompositionSpan {
+                            text: value,
+                            kind: FieldCompositionSpanKind::Active,
+                        });
+                    } else if let Some(value) = fallback_list_value(&flow.lists[i], sticky_values) {
+                        spans.push(FieldCompositionSpan {
+                            text: value,
+                            kind: FieldCompositionSpanKind::Preview,
+                        });
+                    } else {
+                        let preview = flow.lists[i].preview.as_deref().unwrap_or("?");
+                        spans.push(FieldCompositionSpan {
+                            text: preview.to_string(),
+                            kind: FieldCompositionSpanKind::Preview,
+                        });
+                    }
                 } else if let Some(value) = fallback_list_value(&flow.lists[i], sticky_values) {
                     spans.push(FieldCompositionSpan {
                         text: value,
@@ -2630,6 +2751,7 @@ fn compute_field_preview(
         return modal.collection_preview();
     }
     let flow = &modal.field_flow;
+    let active_value = modal.selected_value().map(str::to_string);
     let Some(format) = &flow.format else {
         if !flow.values.is_empty() {
             return flow.values.join(", ");
@@ -2639,6 +2761,9 @@ fn compute_field_preview(
                 return joined_repeating_value(list, &flow.repeat_values)
                     .unwrap_or_else(|| flow.repeat_values.join(", "));
             }
+        }
+        if let Some(value) = active_value.filter(|value| !value.is_empty()) {
+            return value;
         }
         return String::new();
     };
@@ -2652,6 +2777,12 @@ fn compute_field_preview(
         let value = if i == flow.list_idx && !flow.repeat_values.is_empty() {
             joined_repeating_value(list, &flow.repeat_values)
                 .unwrap_or_else(|| flow.repeat_values.join(", "))
+        } else if i == flow.list_idx {
+            active_value
+                .clone()
+                .filter(|value| !value.is_empty())
+                .or_else(|| fallback_list_value(list, sticky_values))
+                .unwrap_or_else(|| list.preview.as_deref().unwrap_or("?").to_string())
         } else {
             fallback_list_value(list, sticky_values)
                 .unwrap_or_else(|| list.preview.as_deref().unwrap_or("?").to_string())
@@ -3410,7 +3541,92 @@ mod composition_span_tests {
                 (&"Treat ".to_string(), &FieldCompositionSpanKind::Literal),
                 (&"Left".to_string(), &FieldCompositionSpanKind::Confirmed),
                 (&" ".to_string(), &FieldCompositionSpanKind::Literal),
-                (&"Region".to_string(), &FieldCompositionSpanKind::Preview),
+                (&"Shoulder".to_string(), &FieldCompositionSpanKind::Active),
+            ]
+        );
+    }
+
+    #[test]
+    fn composition_spans_use_live_modal_cursor_as_active_segment() {
+        let field = HeaderFieldConfig {
+            id: "request".to_string(),
+            name: "Request".to_string(),
+            format: Some("Treat {place} {region}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![
+                HierarchyList {
+                    id: "place".to_string(),
+                    label: Some("Place".to_string()),
+                    preview: Some("?".to_string()),
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![HierarchyItem {
+                        id: "left".to_string(),
+                        label: Some("Left".to_string()),
+                        default_enabled: true,
+                        output: Some("Left".to_string()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                    }],
+                },
+                HierarchyList {
+                    id: "region".to_string(),
+                    label: Some("Region".to_string()),
+                    preview: Some("Region".to_string()),
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        HierarchyItem {
+                            id: "shoulder".to_string(),
+                            label: Some("Shoulder".to_string()),
+                            default_enabled: true,
+                            output: Some("Shoulder".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                        },
+                        HierarchyItem {
+                            id: "hip".to_string(),
+                            label: Some("Hip".to_string()),
+                            default_enabled: false,
+                            output: Some("Hip".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                        },
+                    ],
+                },
+            ],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+
+        let mut sticky_values = HashMap::new();
+        let mut modal = SearchModal::new_field(0, field, None, &sticky_values, 5);
+        let _ = modal.advance_field("Left".to_string(), &mut sticky_values, 5);
+        modal.list_cursor = 1;
+        modal.update_scroll();
+
+        let spans = compute_field_composition_spans(&modal, &sticky_values);
+
+        assert_eq!(
+            spans
+                .iter()
+                .map(|span| (&span.text, &span.kind))
+                .collect::<Vec<_>>(),
+            vec![
+                (&"Treat ".to_string(), &FieldCompositionSpanKind::Literal),
+                (&"Left".to_string(), &FieldCompositionSpanKind::Confirmed),
+                (&" ".to_string(), &FieldCompositionSpanKind::Literal),
+                (&"Hip".to_string(), &FieldCompositionSpanKind::Active),
             ]
         );
     }

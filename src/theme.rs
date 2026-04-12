@@ -196,6 +196,9 @@ pub struct AppTheme {
     pub pane_buffer_width: f32,
     pub modal_background: Color,
     pub modal_panel_background: Color,
+    pub modal_active_background: Color,
+    pub modal_inactive_background: Color,
+    pub modal_stub_background: Color,
     pub modal_item_background: Color,
     pub modal_item_hovered_background: Color,
     pub modal_text: Color,
@@ -222,6 +225,8 @@ pub struct AppTheme {
     pub scroll_border_width: f32,
     pub scroll_width: f32,
     pub scroll_spacing: f32,
+    pub modal_spacer_width: f32,
+    pub modal_stub_width: f32,
     pub font_pane: Font,
     pub font_heading: Font,
     pub font_preview: Font,
@@ -229,6 +234,8 @@ pub struct AppTheme {
     pub font_status: Font,
     pub preview_copy_flash_duration_ms: u64,
     pub text_color_flash_duration: u64,
+    pub modal_stream_transition_duration_ms: u64,
+    pub modal_stream_transition_easing: crate::app::ModalStreamEasing,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -274,6 +281,12 @@ struct ThemeFile {
     modal_background: ColorSetting,
     #[serde(default, deserialize_with = "deserialize_color_setting")]
     modal_panel_background: ColorSetting,
+    #[serde(default, deserialize_with = "deserialize_color_setting")]
+    modal_active_background: ColorSetting,
+    #[serde(default, deserialize_with = "deserialize_color_setting")]
+    modal_inactive_background: ColorSetting,
+    #[serde(default, deserialize_with = "deserialize_color_setting")]
+    modal_stub_background: ColorSetting,
     #[serde(default, deserialize_with = "deserialize_color_setting")]
     modal_item_background: ColorSetting,
     #[serde(default, deserialize_with = "deserialize_color_setting")]
@@ -323,6 +336,8 @@ struct ThemeFile {
     scroll_border_width: Option<f32>,
     scroll_width: Option<f32>,
     scroll_spacing: Option<f32>,
+    modal_spacer_width: Option<f32>,
+    modal_stub_width: Option<f32>,
     font_pane: Option<String>,
     font_heading: Option<String>,
     font_preview: Option<String>,
@@ -330,6 +345,8 @@ struct ThemeFile {
     font_status: Option<String>,
     preview_copy_flash_duration_ms: Option<u64>,
     text_color_flash_duration: Option<u64>,
+    modal_stream_transition_duration_ms: Option<u64>,
+    modal_stream_transition_easing: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -342,6 +359,8 @@ enum ColorSetting {
 
 impl Default for AppTheme {
     fn default() -> Self {
+        let modal_inactive_background = mix_color(MODAL_BACKGROUND, BACKGROUND, 0.45);
+        let modal_stub_background = mix_color(MODAL_BACKGROUND, BACKGROUND, 0.60);
         Self {
             active: ACTIVE,
             active_preview: ACTIVE_PREVIEW,
@@ -364,6 +383,9 @@ impl Default for AppTheme {
             pane_buffer_width: 8.0,
             modal_background: MODAL_BACKGROUND,
             modal_panel_background: MODAL_BACKGROUND,
+            modal_active_background: MODAL_BACKGROUND,
+            modal_inactive_background,
+            modal_stub_background,
             modal_item_background: TRANSPARENT,
             modal_item_hovered_background: SCROLL_RAIL,
             modal_text: TEXT,
@@ -390,6 +412,8 @@ impl Default for AppTheme {
             scroll_border_width: 1.0,
             scroll_width: 10.0,
             scroll_spacing: 6.0,
+            modal_spacer_width: 40.0,
+            modal_stub_width: 120.0,
             font_pane: Font::MONOSPACE,
             font_heading: Font {
                 weight: Weight::Bold,
@@ -400,6 +424,8 @@ impl Default for AppTheme {
             font_status: Font::MONOSPACE,
             preview_copy_flash_duration_ms: 650,
             text_color_flash_duration: 650,
+            modal_stream_transition_duration_ms: 220,
+            modal_stream_transition_easing: crate::app::ModalStreamEasing::ExpoInOut,
         }
     }
 }
@@ -486,6 +512,21 @@ impl AppTheme {
             modal_panel_background: optional_color(
                 file.modal_panel_background,
                 default.modal_panel_background,
+                &custom_colors,
+            )?,
+            modal_active_background: optional_color(
+                file.modal_active_background,
+                default.modal_active_background,
+                &custom_colors,
+            )?,
+            modal_inactive_background: optional_color(
+                file.modal_inactive_background,
+                default.modal_inactive_background,
+                &custom_colors,
+            )?,
+            modal_stub_background: optional_color(
+                file.modal_stub_background,
+                default.modal_stub_background,
                 &custom_colors,
             )?,
             modal_item_background: optional_color(
@@ -606,6 +647,16 @@ impl AppTheme {
                 default.scroll_spacing,
                 "scroll_spacing",
             )?,
+            modal_spacer_width: nonnegative_number(
+                file.modal_spacer_width,
+                default.modal_spacer_width,
+                "modal_spacer_width",
+            )?,
+            modal_stub_width: nonnegative_number(
+                file.modal_stub_width,
+                default.modal_stub_width,
+                "modal_stub_width",
+            )?,
             font_pane: optional_font(file.font_pane, default.font_pane),
             font_heading: optional_font(file.font_heading, default.font_heading),
             font_preview: optional_font(file.font_preview, default.font_preview),
@@ -617,7 +668,47 @@ impl AppTheme {
             text_color_flash_duration: file
                 .text_color_flash_duration
                 .unwrap_or(default.text_color_flash_duration),
+            modal_stream_transition_duration_ms: file
+                .modal_stream_transition_duration_ms
+                .unwrap_or(default.modal_stream_transition_duration_ms),
+            modal_stream_transition_easing: parse_modal_stream_transition_easing(
+                file.modal_stream_transition_easing,
+                default.modal_stream_transition_easing,
+            )?,
         })
+    }
+}
+
+fn mix_color(base: Color, target: Color, amount: f32) -> Color {
+    let amount = amount.clamp(0.0, 1.0);
+    Color {
+        r: base.r + (target.r - base.r) * amount,
+        g: base.g + (target.g - base.g) * amount,
+        b: base.b + (target.b - base.b) * amount,
+        a: base.a + (target.a - base.a) * amount,
+    }
+}
+
+fn parse_modal_stream_transition_easing(
+    value: Option<String>,
+    fallback: crate::app::ModalStreamEasing,
+) -> Result<crate::app::ModalStreamEasing> {
+    let Some(value) = value else {
+        return Ok(fallback);
+    };
+    let normalized = value.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "" => Ok(fallback),
+        "linear" => Ok(crate::app::ModalStreamEasing::Linear),
+        "quad_in_out" | "quad-in-out" => Ok(crate::app::ModalStreamEasing::QuadInOut),
+        "cubic_in_out" | "cubic-in-out" => Ok(crate::app::ModalStreamEasing::CubicInOut),
+        "sine_in_out" | "sine-in-out" => Ok(crate::app::ModalStreamEasing::SineInOut),
+        "expo_in" | "expo-in" => Ok(crate::app::ModalStreamEasing::ExpoIn),
+        "expo_in_out" | "expo-in-out" => Ok(crate::app::ModalStreamEasing::ExpoInOut),
+        "expo_out" | "expo-out" => Ok(crate::app::ModalStreamEasing::ExpoOut),
+        _ => Err(anyhow!(
+            "invalid modal_stream_transition_easing '{value}'"
+        )),
     }
 }
 
@@ -884,6 +975,8 @@ fn parse_hex_color(hex: &str) -> Result<Color> {
 
 #[cfg(test)]
 mod tests {
+    use iced::Color;
+
     #[test]
     fn bare_hex_colors_are_supported() {
         assert_eq!(
@@ -974,5 +1067,69 @@ scroll_rail:
             super::parse_color("", &Default::default()).unwrap(),
             super::TRANSPARENT
         );
+    }
+
+    #[test]
+    fn modal_stream_transition_duration_defaults_and_overrides() {
+        let default = super::AppTheme::default();
+        assert_eq!(default.modal_stream_transition_duration_ms, 220);
+        assert_eq!(
+            default.modal_stream_transition_easing,
+            crate::app::ModalStreamEasing::ExpoInOut
+        );
+
+        let file: super::ThemeFile = serde_yaml::from_str(
+            r#"
+modal_stream_transition_duration_ms: 340
+modal_stream_transition_easing: expo_in
+"#,
+        )
+        .unwrap();
+        let theme = super::AppTheme::from_file(file).unwrap();
+
+        assert_eq!(theme.modal_stream_transition_duration_ms, 340);
+        assert_eq!(
+            theme.modal_stream_transition_easing,
+            crate::app::ModalStreamEasing::ExpoIn
+        );
+    }
+
+    #[test]
+    fn modal_background_knobs_override_independently() {
+        let file: super::ThemeFile = serde_yaml::from_str(
+            r##"
+modal_active_background: "#010203"
+modal_inactive_background: "#040506"
+modal_stub_background: "#070809"
+"##,
+        )
+        .unwrap();
+        let theme = super::AppTheme::from_file(file).unwrap();
+
+        assert_eq!(theme.modal_active_background, Color::from_rgb8(0x01, 0x02, 0x03));
+        assert_eq!(
+            theme.modal_inactive_background,
+            Color::from_rgb8(0x04, 0x05, 0x06)
+        );
+        assert_eq!(theme.modal_stub_background, Color::from_rgb8(0x07, 0x08, 0x09));
+    }
+
+    #[test]
+    fn modal_unit_spacing_knobs_default_and_override() {
+        let default = super::AppTheme::default();
+        assert_eq!(default.modal_spacer_width, 40.0);
+        assert_eq!(default.modal_stub_width, 120.0);
+
+        let file: super::ThemeFile = serde_yaml::from_str(
+            r#"
+modal_spacer_width: 28
+modal_stub_width: 144
+"#,
+        )
+        .unwrap();
+        let theme = super::AppTheme::from_file(file).unwrap();
+
+        assert_eq!(theme.modal_spacer_width, 28.0);
+        assert_eq!(theme.modal_stub_width, 144.0);
     }
 }

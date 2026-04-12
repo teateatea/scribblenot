@@ -1,7 +1,7 @@
 # Implementation Brief: Modal Stream UI
 
 **Date:** 2026-04-10
-**Status:** Implemented V1 prototype; follow-up tuning recommended
+**Status:** Implemented V1 prototype; V2 follow-up now fully implemented through `v0.3.8-alpha`
 
 ## Purpose
 
@@ -458,3 +458,16 @@ Mitigation:
 - Prefer omitting a teaser in unsupported cases over showing an inaccurate teaser.
 - The current V1 prototype already exists. Next work should start with visual tuning and scope decisions, not by redoing the snapshot architecture.
 - The agreed V2 follow-up direction now lives in `operations/plans/PLAN-modal-stream-v2-stubs-motion-composition.md`. Read that before making further modal-stream changes so the stub-priority rules, motion-vs-chunking distinction, and composition-panel direction are not lost.
+
+## V2 Completion Note
+
+The follow-up work described in `PLAN-modal-stream-v2-stubs-motion-composition.md` is now implemented through `v0.3.8-alpha`.
+
+Useful checkpoints:
+
+- `v0.3.5-alpha` - animated stream transitions
+- `v0.3.6-alpha` - top entry composition panel
+- `v0.3.7-alpha` - field-level composition overrides
+- `v0.3.8-alpha` - chunked/unit modal paging
+
+If a future instance is trying to understand the current modal-stream system, the V2 plan is now the more important source of truth than this original V1 brief.

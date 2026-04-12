@@ -97,6 +97,43 @@ pub struct CollectionPreviewNeighbors {
     pub next: Option<CollectionPreviewSnapshot>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct SimpleModalSequence {
+    pub snapshots: Vec<ModalListViewSnapshot>,
+    pub active_sequence_index: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModalUnitRange {
+    pub start: usize,
+    pub end: usize,
+    pub shows_stubs: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SimpleModalUnitLayout {
+    pub sequence: SimpleModalSequence,
+    pub units: Vec<ModalUnitRange>,
+    pub active_unit_index: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModalSize {
+    Small,
+    Medium,
+    Large,
+}
+
+impl ModalSize {
+    fn dimensions(self) -> (f32, f32) {
+        match self {
+            Self::Small => (320.0, 220.0),
+            Self::Medium => (520.0, 360.0),
+            Self::Large => (760.0, 520.0),
+        }
+    }
+}
+
 impl SearchModal {
     fn current_collection_preview_index(&self) -> Option<usize> {
         let state = self.collection_state.as_ref()?;
@@ -703,6 +740,40 @@ impl SearchModal {
             }
         }
         snapshots
+    }
+
+    pub fn simple_modal_sequence(
+        &self,
+        sticky_values: &HashMap<String, String>,
+    ) -> Option<SimpleModalSequence> {
+        let current_snapshot = self.list_view_snapshot(sticky_values)?;
+        let prev_limit = self.field_flow.list_idx;
+        let prev_snapshots = self.peek_prev_list_views(sticky_values, prev_limit);
+        let next_limit = self
+            .field_flow
+            .lists
+            .len()
+            .saturating_sub(self.field_flow.list_idx + 1);
+        let next_snapshots = self.peek_next_list_views(sticky_values, next_limit);
+        let active_sequence_index = prev_snapshots.len();
+        let mut snapshots = prev_snapshots.into_iter().rev().collect::<Vec<_>>();
+        snapshots.push(current_snapshot);
+        snapshots.extend(next_snapshots);
+        Some(SimpleModalSequence {
+            snapshots,
+            active_sequence_index,
+        })
+    }
+
+    pub fn simple_modal_unit_layout(
+        &self,
+        sticky_values: &HashMap<String, String>,
+        viewport_width: Option<f32>,
+        spacer_width: f32,
+        stub_width: f32,
+    ) -> Option<SimpleModalUnitLayout> {
+        let sequence = self.simple_modal_sequence(sticky_values)?;
+        build_simple_modal_unit_layout(sequence, viewport_width, spacer_width, stub_width)
     }
 
     #[allow(dead_code)]
@@ -1927,6 +1998,95 @@ fn term_matches_label(term: &str, normalized_label: &str, words: &[String]) -> b
     words.iter().any(|word| word.starts_with(term)) || normalized_label.contains(term)
 }
 
+fn modal_size_for_snapshot(snapshot: &ModalListViewSnapshot) -> ModalSize {
+    let max_chars = std::iter::once(snapshot.title.chars().count())
+        .chain(std::iter::once(snapshot.query.chars().count()))
+        .chain(snapshot.rows.iter().map(|row| row.chars().count()))
+        .max()
+        .unwrap_or(0);
+    if max_chars <= 34 {
+        ModalSize::Small
+    } else if max_chars <= 90 {
+        ModalSize::Medium
+    } else {
+        ModalSize::Large
+    }
+}
+
+pub fn modal_list_view_dimensions(snapshot: &ModalListViewSnapshot) -> (f32, f32) {
+    modal_size_for_snapshot(snapshot).dimensions()
+}
+
+pub fn build_simple_modal_unit_layout(
+    sequence: SimpleModalSequence,
+    viewport_width: Option<f32>,
+    spacer_width: f32,
+    stub_width: f32,
+) -> Option<SimpleModalUnitLayout> {
+    if sequence.snapshots.is_empty() {
+        return None;
+    }
+
+    let viewport_width = viewport_width
+        .filter(|width| width.is_finite() && *width > 0.0)
+        .unwrap_or(f32::INFINITY);
+    let spacer_width = spacer_width.max(0.0);
+    let stub_width = stub_width.max(0.0);
+    let bounding_box = (viewport_width - 2.0 * (stub_width + spacer_width)).max(0.0);
+    let widths = sequence
+        .snapshots
+        .iter()
+        .map(|snapshot| modal_list_view_dimensions(snapshot).0)
+        .collect::<Vec<_>>();
+
+    let mut units = Vec::new();
+    let mut active_unit_index = 0usize;
+    let mut start = 0usize;
+    while start < widths.len() {
+        let first_width = widths[start];
+        let first_exceeds_bounding_box = first_width > bounding_box;
+        let shows_stubs = !first_exceeds_bounding_box;
+        let content_limit = if first_exceeds_bounding_box {
+            viewport_width
+        } else {
+            bounding_box
+        };
+        let mut used_width = if content_limit.is_finite() {
+            first_width.min(content_limit)
+        } else {
+            first_width
+        };
+        let mut end = start;
+
+        while end + 1 < widths.len() {
+            let next_width = widths[end + 1];
+            let next_used_width = used_width + spacer_width + next_width;
+            if next_used_width <= content_limit {
+                end += 1;
+                used_width = next_used_width;
+            } else {
+                break;
+            }
+        }
+
+        if (start..=end).contains(&sequence.active_sequence_index) {
+            active_unit_index = units.len();
+        }
+        units.push(ModalUnitRange {
+            start,
+            end,
+            shows_stubs,
+        });
+        start = end + 1;
+    }
+
+    Some(SimpleModalUnitLayout {
+        sequence,
+        units,
+        active_unit_index,
+    })
+}
+
 pub fn modal_height_for_viewport(viewport_height: Option<f32>, fallback_height: f32) -> f32 {
     viewport_height
         .map(|height| (height * MODAL_HEIGHT_RATIO).max(160.0))
@@ -1963,6 +2123,96 @@ mod modal_sizing_tests {
     #[test]
     fn modal_window_size_shrinks_for_short_viewports() {
         assert_eq!(modal_window_size_for_height(192.0, 12), 4);
+    }
+
+    #[test]
+    fn simple_modal_unit_layout_groups_snapshots_within_bounding_box() {
+        let layout = build_simple_modal_unit_layout(
+            SimpleModalSequence {
+                snapshots: vec![
+                    ModalListViewSnapshot {
+                        title: "One".to_string(),
+                        query: String::new(),
+                        rows: vec!["A".to_string()],
+                        filtered: vec![0],
+                        list_cursor: 0,
+                        list_scroll: 0,
+                        focus: ModalFocus::List,
+                    },
+                    ModalListViewSnapshot {
+                        title: "Two".to_string(),
+                        query: String::new(),
+                        rows: vec!["B".to_string()],
+                        filtered: vec![0],
+                        list_cursor: 0,
+                        list_scroll: 0,
+                        focus: ModalFocus::List,
+                    },
+                    ModalListViewSnapshot {
+                        title: "Three".to_string(),
+                        query: String::new(),
+                        rows: vec!["C".to_string()],
+                        filtered: vec![0],
+                        list_cursor: 0,
+                        list_scroll: 0,
+                        focus: ModalFocus::List,
+                    },
+                ],
+                active_sequence_index: 2,
+            },
+            Some(940.0),
+            18.0,
+            120.0,
+        )
+        .expect("layout should build");
+
+        assert_eq!(
+            layout.units,
+            vec![
+                ModalUnitRange {
+                    start: 0,
+                    end: 1,
+                    shows_stubs: true,
+                },
+                ModalUnitRange {
+                    start: 2,
+                    end: 2,
+                    shows_stubs: true,
+                },
+            ]
+        );
+        assert_eq!(layout.active_unit_index, 1);
+    }
+
+    #[test]
+    fn simple_modal_unit_layout_omits_stubs_for_oversized_first_modal() {
+        let layout = build_simple_modal_unit_layout(
+            SimpleModalSequence {
+                snapshots: vec![ModalListViewSnapshot {
+                    title: "Oversized".to_string(),
+                    query: String::new(),
+                    rows: vec!["X".repeat(120)],
+                    filtered: vec![0],
+                    list_cursor: 0,
+                    list_scroll: 0,
+                    focus: ModalFocus::List,
+                }],
+                active_sequence_index: 0,
+            },
+            Some(700.0),
+            20.0,
+            120.0,
+        )
+        .expect("layout should build");
+
+        assert_eq!(
+            layout.units,
+            vec![ModalUnitRange {
+                start: 0,
+                end: 0,
+                shows_stubs: false,
+            }]
+        );
     }
 }
 

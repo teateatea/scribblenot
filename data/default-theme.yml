@@ -39,6 +39,9 @@ pane_border_width: 2.0
 pane_buffer_width: 8.0
 modal_background: #modal-blue
 modal_panel_background: modal-blue
+modal_active_background: modal-blue
+modal_inactive_background: night-blue
+modal_stub_background: pane-blue
 modal_item_background:
 modal_item_hovered_background: rail-blue
 modal_text: "#E6E6E6"
@@ -55,6 +58,9 @@ preview_copy_flash_background: "#1A592E"
 preview_copy_flash_duration_ms: 650
 text_color_flash: "#FFFFFF"
 text_color_flash_duration: 650
+modal_spacer_width: 40.0
+modal_stub_width: 120.0
+modal_stream_transition_duration_ms: 4000
 status_background: "#0A0D12"
 
 # Font roles. Use installed font family names such as "Fira Code",
@@ -76,3 +82,17 @@ scroll_gap: night-blue
 scroll_border_width: 1.0
 scroll_width: 10.0
 scroll_spacing: 6.0
+
+# modal transitions
+modal_stream_transition_easing: expo_out
+#modal_active_background:
+#modal_inactive_background:
+#modal_stub_background:
+
+# linear
+# quad_in_out
+# cubic_in_out
+# sine_in_out
+# expo_in
+# expo_in_out
+# expo_out
