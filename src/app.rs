@@ -1076,16 +1076,15 @@ impl App {
     }
 
     pub fn group_idx_for_section(&self, flat_idx: usize) -> usize {
-        let mut fi = 0usize;
-        for (g_idx, group) in self.data.groups.iter().enumerate() {
-            for _ in 0..group.sections.len() {
-                if fi == flat_idx {
-                    return g_idx;
-                }
-                fi += 1;
-            }
-        }
-        0
+        self.sections
+            .get(flat_idx)
+            .and_then(|section| {
+                self.data
+                    .groups
+                    .iter()
+                    .position(|group| group.id == section.group_id)
+            })
+            .unwrap_or(0)
     }
 
     fn fixed_hint_labels(&self, count: usize) -> Vec<String> {
@@ -1116,25 +1115,19 @@ impl App {
 
     pub fn map_hint_labels(&self, group_idx: Option<usize>) -> MapHintLabels {
         let labels = self.section_hint_labels();
-        let group_start: usize = group_idx
-            .map(|idx| {
-                self.data
-                    .groups
-                    .iter()
-                    .take(idx)
-                    .map(|group| group.sections.len())
-                    .sum()
-            })
-            .unwrap_or(0);
-        let group_len = group_idx
-            .and_then(|idx| self.data.groups.get(idx))
-            .map(|group| group.sections.len())
-            .unwrap_or(0);
+        let Some(group_idx) = group_idx else {
+            return MapHintLabels { sections: Vec::new() };
+        };
+        let Some(group) = self.data.groups.get(group_idx) else {
+            return MapHintLabels { sections: Vec::new() };
+        };
         MapHintLabels {
             sections: labels
                 .into_iter()
-                .skip(group_start)
-                .take(group_len)
+                .zip(self.sections.iter())
+                .filter_map(|(label, section)| {
+                    (section.group_id == group.id).then_some(label)
+                })
                 .collect(),
         }
     }
@@ -1221,7 +1214,7 @@ impl App {
             .data
             .groups
             .iter()
-            .find(|group| group.sections.iter().any(|cfg| cfg.id == section.id))
+            .find(|group| group.id == section.group_id)
         else {
             return 0;
         };
@@ -1236,14 +1229,7 @@ impl App {
 
     pub fn current_map_scroll_line(&self) -> u16 {
         let group_idx = self.group_idx_for_section(self.map_cursor);
-        let prior_sections: usize = self
-            .data
-            .groups
-            .iter()
-            .take(group_idx)
-            .map(|group| group.sections.len())
-            .sum();
-        let line = group_idx + self.map_cursor.saturating_sub(prior_sections) + prior_sections;
+        let line = group_idx + self.map_cursor;
         line.saturating_sub(4) as u16
     }
 
@@ -3668,6 +3654,7 @@ mod composition_span_tests {
             name: "Request".to_string(),
             map_label: "Request".to_string(),
             section_type: "multi_field".to_string(),
+            show_field_labels: true,
             data_file: None,
             fields: Some(vec![field]),
             lists: Vec::new(),

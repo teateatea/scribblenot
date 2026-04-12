@@ -287,6 +287,7 @@ sections:
   - id: appointment_section
     label: Appointment
     nav_label: APPOINTMENT
+    show_field_labels: false
     contains:
       - { field: date_field }
     note:
@@ -298,6 +299,7 @@ sections:
 | `id` | yes | Unique section ID |
 | `label` | no | Wizard title |
 | `nav_label` | no | Map label |
+| `show_field_labels` | no | Defaults to `true`; set `false` to render multi-field values without `{label}: ` prefixes |
 | `contains` | no | Child refs |
 | `note.note_label` | no | Section heading in the note |
 
@@ -606,7 +608,7 @@ Rendered body by section type:
 Multi-field output rules:
 
 - If a field resolves to a value and has `format`, that rendered string is used.
-- In `appointment_section`, field labels are suppressed.
+- If the section sets `show_field_labels: false`, field labels are suppressed for that section.
 - If a field has collections only, with no lists and no `format`, field labels are also suppressed.
 - Otherwise output is `{label}: {value}`.
 

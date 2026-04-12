@@ -1,6 +1,7 @@
 use crate::app::SectionState;
 use crate::data::{SectionConfig, SectionGroup};
-use crate::sections::multi_field::resolve_multifield_value;
+use crate::sections::header::HeaderFieldValue;
+use crate::sections::multi_field::render_note_line;
 use std::collections::HashMap;
 
 #[allow(dead_code)]
@@ -219,52 +220,19 @@ fn render_multifield(
             .unwrap_or(&[]);
 
         for value in values {
-            let resolved = resolve_multifield_value(value, field_cfg, sticky_values);
-            if let Some(rendered) = resolved.export_value() {
-                if multifield_renders_without_field_label(cfg, field_cfg) {
-                    lines.push(rendered.to_string());
-                } else {
-                    let label = crate::sections::multi_field::resolve_field_label(
-                        value,
-                        field_cfg,
-                        sticky_values,
-                    );
-                    lines.push(format!("{}: {}", label, rendered));
-                }
+            if let Some(rendered) = render_note_line(cfg, field_cfg, value, sticky_values) {
+                lines.push(rendered);
             }
         }
 
         if values.is_empty() {
-            let resolved = resolve_multifield_value(
-                &crate::sections::header::HeaderFieldValue::Text(String::new()),
-                field_cfg,
-                sticky_values,
-            );
-            if let Some(rendered) = resolved.export_value() {
-                if multifield_renders_without_field_label(cfg, field_cfg) {
-                    lines.push(rendered.to_string());
-                } else {
-                    let label = crate::sections::multi_field::resolve_field_label(
-                        &crate::sections::header::HeaderFieldValue::Text(String::new()),
-                        field_cfg,
-                        sticky_values,
-                    );
-                    lines.push(format!("{}: {}", label, rendered));
-                }
+            let empty_value = HeaderFieldValue::Text(String::new());
+            if let Some(rendered) = render_note_line(cfg, field_cfg, &empty_value, sticky_values) {
+                lines.push(rendered);
             }
         }
     }
     lines.join("\n")
-}
-
-fn multifield_renders_without_field_label(
-    cfg: &SectionConfig,
-    field_cfg: &crate::data::HeaderFieldConfig,
-) -> bool {
-    cfg.id == "appointment_section"
-        || (!field_cfg.collections.is_empty()
-            && field_cfg.lists.is_empty()
-            && field_cfg.format.is_none())
 }
 
 fn render_collection(state: &crate::sections::collection::CollectionState) -> String {
@@ -441,6 +409,7 @@ mod tests {
             name: "Treatment - Prone".to_string(),
             map_label: "PRONE".to_string(),
             section_type: "multi_field".to_string(),
+            show_field_labels: true,
             data_file: None,
             fields: Some(vec![HeaderFieldConfig {
                 id: "back".to_string(),
@@ -490,5 +459,42 @@ mod tests {
 
         assert!(rendered.starts_with("#### ALL - UPPER MIDDLE & LOW BACK"));
         assert!(!rendered.starts_with("BACK:"));
+    }
+
+    #[test]
+    fn multifield_section_can_hide_labels_without_section_id_special_case() {
+        let cfg = SectionConfig {
+            id: "custom_header".to_string(),
+            name: "Custom Header".to_string(),
+            map_label: "CUSTOM".to_string(),
+            section_type: "multi_field".to_string(),
+            show_field_labels: false,
+            data_file: None,
+            fields: Some(vec![HeaderFieldConfig {
+                id: "summary".to_string(),
+                name: "Summary".to_string(),
+                format: None,
+                preview: None,
+                fields: Vec::new(),
+                lists: Vec::new(),
+                collections: Vec::new(),
+                format_lists: Vec::new(),
+                joiner_style: None,
+                max_entries: None,
+                max_actives: None,
+            }]),
+            lists: Vec::new(),
+            note_label: None,
+            group_id: "intake".to_string(),
+            node_kind: RuntimeNodeKind::Section,
+        };
+        let mut state = HeaderState::new(cfg.fields.clone().unwrap_or_default());
+        state.repeated_values[0] = vec![crate::sections::header::HeaderFieldValue::Text(
+            "Standalone summary".to_string(),
+        )];
+
+        let rendered = render_multifield(&cfg, &state, &HashMap::new());
+
+        assert_eq!(rendered, "Standalone summary");
     }
 }

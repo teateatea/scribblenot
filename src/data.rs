@@ -53,6 +53,8 @@ pub struct SectionConfig {
     pub map_label: String,
     #[serde(rename = "type")]
     pub section_type: String,
+    #[serde(default = "default_show_field_labels")]
+    pub show_field_labels: bool,
     #[serde(default)]
     pub data_file: Option<String>,
     #[serde(default)]
@@ -276,6 +278,10 @@ fn default_item_enabled() -> bool {
     true
 }
 
+fn default_show_field_labels() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct HierarchyItemRaw {
     #[serde(default)]
@@ -385,6 +391,8 @@ pub struct HierarchySection {
     pub label: Option<String>,
     #[serde(default)]
     pub nav_label: Option<String>,
+    #[serde(default = "default_show_field_labels")]
+    pub show_field_labels: bool,
     #[serde(default)]
     pub contains: Vec<HierarchyChildRef>,
     #[serde(default)]
@@ -753,6 +761,7 @@ fn section_to_config(
         name,
         map_label,
         section_type: infer_body_mode(&field_configs, &attached_lists),
+        show_field_labels: section.show_field_labels,
         data_file: None,
         fields: (!field_configs.is_empty()).then_some(field_configs),
         lists: attached_lists,
@@ -779,6 +788,7 @@ fn collection_to_config(
         name: resolved.label.clone(),
         map_label,
         section_type: "collection".to_string(),
+        show_field_labels: true,
         data_file: None,
         fields: None,
         lists: resolved.lists.clone(),
