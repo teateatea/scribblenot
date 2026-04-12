@@ -989,14 +989,6 @@ struct HeaderPreviewLineMatch {
     manual_override: bool,
 }
 
-fn multifield_renders_without_field_label(
-    section: &crate::data::SectionConfig,
-    field: &crate::data::HeaderFieldConfig,
-) -> bool {
-    section.id == "appointment_section"
-        || (!field.collections.is_empty() && field.lists.is_empty() && field.format.is_none())
-}
-
 fn match_header_preview_line(app: &App, line: &str) -> Option<HeaderPreviewLineMatch> {
     for (section_idx, section) in app.sections.iter().enumerate() {
         let Some(SectionState::Header(state)) = app.section_states.get(section_idx) else {
@@ -1020,16 +1012,13 @@ fn match_header_preview_line(app: &App, line: &str) -> Option<HeaderPreviewLineM
                 let Some(rendered) = resolved.export_value() else {
                     continue;
                 };
-                let label = crate::sections::multi_field::resolve_field_label(
-                    &empty_value,
+                let candidate = crate::sections::multi_field::render_note_line(
+                    section,
                     field,
+                    &empty_value,
                     &app.config.sticky_values,
-                );
-                let candidate = if multifield_renders_without_field_label(section, field) {
-                    rendered.to_string()
-                } else {
-                    format!("{label}: {rendered}")
-                };
+                )
+                .unwrap_or_else(|| rendered.to_string());
                 if line == candidate {
                     return Some(HeaderPreviewLineMatch {
                         section_idx,
@@ -1049,16 +1038,13 @@ fn match_header_preview_line(app: &App, line: &str) -> Option<HeaderPreviewLineM
                 let Some(rendered) = resolved.export_value() else {
                     continue;
                 };
-                let label = crate::sections::multi_field::resolve_field_label(
-                    value,
+                let candidate = crate::sections::multi_field::render_note_line(
+                    section,
                     field,
+                    value,
                     &app.config.sticky_values,
-                );
-                let candidate = if multifield_renders_without_field_label(section, field) {
-                    rendered.to_string()
-                } else {
-                    format!("{label}: {rendered}")
-                };
+                )
+                .unwrap_or_else(|| rendered.to_string());
                 if line == candidate {
                     return Some(HeaderPreviewLineMatch {
                         section_idx,
@@ -1090,14 +1076,6 @@ fn preview_lines(app: &App) -> Vec<Element<'_, Message>> {
 fn preview_line(app: &App, line: String, group_idx: Option<usize>) -> Element<'_, Message> {
     let manual_override =
         match_header_preview_line(app, &line).is_some_and(|line_match| line_match.manual_override);
-    if let Some(spans) = appointment_header_line_spans(app, &line, group_idx) {
-        return rich_text::<Message, iced::Theme, iced::Renderer>(spans)
-            .font(preview_font(app, manual_override))
-            .size(14)
-            .width(Length::Fill)
-            .into();
-    }
-
     let color = preview_line_color(app, &line, group_idx);
     text(line)
         .font(preview_font(app, manual_override))
@@ -1162,140 +1140,6 @@ fn preview_group_for_line(app: &App, line: &str) -> Option<usize> {
     }
 
     None
-}
-
-fn appointment_header_line_spans<'a>(
-    app: &'a App,
-    line: &'a str,
-    group_idx: Option<usize>,
-) -> Option<Vec<iced::widget::text::Span<'static, Message, iced::Font>>> {
-    let header_idx = app
-        .sections
-        .iter()
-        .position(|section| section.id == "appointment_section")?;
-    let SectionState::Header(state) = app.section_states.get(header_idx)? else {
-        return None;
-    };
-
-    let date = rendered_header_field_value(app, state, "date").map(format_header_date_for_preview);
-    let start =
-        rendered_header_field_value(app, state, "start_time").map(format_header_time_for_preview);
-    let duration = rendered_header_field_value(app, state, "appointment_duration");
-    let appointment_type = rendered_header_field_value(app, state, "appointment_type");
-    let in_current_group = group_idx
-        .map(|group_idx| group_idx == app.group_idx_for_section(app.current_idx))
-        .unwrap_or(true);
-
-    if appointment_type.as_deref() == Some(line) {
-        let color =
-            header_field_color_by_id(app, header_idx, state, "appointment_type", in_current_group);
-        return Some(vec![
-            span::<Message, iced::Font>(line.to_string()).color(color)
-        ]);
-    }
-
-    let (Some(date), Some(start), Some(duration)) = (date, start, duration) else {
-        return None;
-    };
-    let expected = format!("{date} at {start} ({duration} min)");
-    if line != expected {
-        return None;
-    }
-
-    Some(vec![
-        span::<Message, iced::Font>(date).color(header_field_color_by_id(
-            app,
-            header_idx,
-            state,
-            "date",
-            in_current_group,
-        )),
-        span::<Message, iced::Font>(" at ").color(if in_current_group {
-            app.ui_theme.text
-        } else {
-            app.ui_theme.muted
-        }),
-        span::<Message, iced::Font>(start).color(header_field_color_by_id(
-            app,
-            header_idx,
-            state,
-            "start_time",
-            in_current_group,
-        )),
-        span::<Message, iced::Font>(" (").color(if in_current_group {
-            app.ui_theme.text
-        } else {
-            app.ui_theme.muted
-        }),
-        span::<Message, iced::Font>(duration).color(header_field_color_by_id(
-            app,
-            header_idx,
-            state,
-            "appointment_duration",
-            in_current_group,
-        )),
-        span::<Message, iced::Font>(" min)").color(if in_current_group {
-            app.ui_theme.text
-        } else {
-            app.ui_theme.muted
-        }),
-    ])
-}
-
-fn rendered_header_field_value(
-    app: &App,
-    state: &crate::sections::header::HeaderState,
-    field_id: &str,
-) -> Option<String> {
-    let (field_idx, field) = state
-        .field_configs
-        .iter()
-        .enumerate()
-        .find(|(_, field)| field.id == field_id)?;
-    let confirmed = state
-        .repeated_values
-        .get(field_idx)
-        .and_then(|values| values.first())
-        .cloned()
-        .unwrap_or(crate::sections::header::HeaderFieldValue::Text(
-            String::new(),
-        ));
-    let value = crate::sections::multi_field::resolve_multifield_value(
-        &confirmed,
-        field,
-        &app.config.sticky_values,
-    );
-    value.export_value().map(str::to_string)
-}
-
-fn format_header_date_for_preview(date: String) -> String {
-    chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d")
-        .map(|d| d.format("%a %b %-d, %Y").to_string())
-        .unwrap_or(date)
-}
-
-fn format_header_time_for_preview(time: String) -> String {
-    chrono::NaiveTime::parse_from_str(&time, "%H:%M")
-        .or_else(|_| chrono::NaiveTime::parse_from_str(&time, "%I:%M%P"))
-        .map(|t| t.format("%-I:%M%P").to_string())
-        .unwrap_or(time)
-}
-
-fn header_field_color_by_id(
-    app: &App,
-    section_idx: usize,
-    state: &crate::sections::header::HeaderState,
-    field_id: &str,
-    in_current_group: bool,
-) -> Color {
-    state
-        .field_configs
-        .iter()
-        .position(|field| field.id == field_id)
-        .map(|field_idx| {
-            header_field_preview_color(app, section_idx, state, field_idx, in_current_group)
-        })
-        .unwrap_or(app.ui_theme.text)
 }
 
 fn header_field_preview_color(

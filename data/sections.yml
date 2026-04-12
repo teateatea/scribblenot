@@ -33,6 +33,7 @@
 #    id
 #    label?
 #    nav_label?
+#    show_field_labels?     # default true; false renders multi_field values without "Label: "
 #    contains[]
 #    note?:
 #      note_label?          # rendered managed subsection heading (e.g. "#### SUBJECTIVE")
@@ -124,6 +125,7 @@ sections:
   - id: appointment_section
     label: Appointment
     nav_label: APPOINTMENT
+    show_field_labels: false
     contains:
       - field: date_field
       - field: appointment_date_field

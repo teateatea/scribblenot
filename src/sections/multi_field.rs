@@ -1,4 +1,4 @@
-use crate::data::{HeaderFieldConfig, HierarchyList, JoinerStyle};
+use crate::data::{HeaderFieldConfig, HierarchyList, JoinerStyle, SectionConfig};
 use crate::modal::{
     active_collection_ids, decode_collection_display_value, format_collection_field_value,
 };
@@ -90,6 +90,30 @@ pub fn render_field_display(
     match resolve_field_values(confirmed_values, cfg, sticky_values) {
         ResolvedMultiFieldValue::Empty => "[empty]".to_string(),
         ResolvedMultiFieldValue::Partial(value) | ResolvedMultiFieldValue::Complete(value) => value,
+    }
+}
+
+pub fn renders_without_field_label(
+    section: &SectionConfig,
+    field: &HeaderFieldConfig,
+) -> bool {
+    !section.show_field_labels
+        || (!field.collections.is_empty() && field.lists.is_empty() && field.format.is_none())
+}
+
+pub fn render_note_line(
+    section: &SectionConfig,
+    field: &HeaderFieldConfig,
+    value: &HeaderFieldValue,
+    sticky_values: &HashMap<String, String>,
+) -> Option<String> {
+    let resolved = resolve_multifield_value(value, field, sticky_values);
+    let rendered = resolved.export_value()?;
+    if renders_without_field_label(section, field) {
+        Some(rendered.to_string())
+    } else {
+        let label = resolve_field_label(value, field, sticky_values);
+        Some(format!("{label}: {rendered}"))
     }
 }
 

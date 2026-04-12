@@ -68,6 +68,7 @@ espanso/match/RMT.yml - Espanso top-level RMT match file: note headings, appoint
 example-note.md - Sample completed clinical note showing the full rendered output format for all sections
 
 operations/plans/PLAN-74-full-cutover-typed-contains.md - Full-cutover plan for replacing section-centric hierarchy assumptions with typed contains refs, first-class collections, structural note traversal, and explicit runtime ownership
+operations/plans/DISCUSSION-git-branching-parallel-features.md - Project-specific explanation of how to use Git branches for simultaneous feature work, when merge conflicts are a signal for refactoring, and where Scribblenot would benefit most from targeted modularization
 
 pathfinder/MISSION-LOG-1-super-confirm-cleanup.md - Mission log for mission 1 (super-confirm-cleanup): task status, permission events, casualties
 
