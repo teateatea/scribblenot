@@ -300,7 +300,8 @@ mod tests {
         field_index: usize,
         text: &str,
     ) {
-        let Some(section_index) = sections.iter().position(|section| section.id == section_id) else {
+        let Some(section_index) = sections.iter().position(|section| section.id == section_id)
+        else {
             panic!("missing section '{section_id}'");
         };
         let SectionState::Header(state) = &mut states[section_index] else {
@@ -317,13 +318,15 @@ mod tests {
         section_id: &str,
         field_index: usize,
     ) {
-        let Some(section_index) = sections.iter().position(|section| section.id == section_id) else {
+        let Some(section_index) = sections.iter().position(|section| section.id == section_id)
+        else {
             panic!("missing section '{section_id}'");
         };
         let SectionState::Header(state) = &mut states[section_index] else {
             panic!("section '{section_id}' should create header state");
         };
-        state.repeated_values[field_index] = vec![crate::sections::header::HeaderFieldValue::ExplicitEmpty];
+        state.repeated_values[field_index] =
+            vec![crate::sections::header::HeaderFieldValue::ExplicitEmpty];
     }
 
     #[test]
@@ -424,11 +427,11 @@ mod tests {
         let mut expected_outputs = Vec::new();
 
         for (index, section) in data.sections.iter().enumerate() {
-            if section.section_type != "header" {
+            if section.section_type != "multi_field" {
                 continue;
             }
             let SectionState::Header(header_state) = &mut states[index] else {
-                panic!("header section should create header state");
+                panic!("multi_field section should create header state");
             };
             for field_index in 0..header_state.repeated_values.len() {
                 let value = format!("TEST-VALUE-{}-{}", section.id, field_index);
@@ -439,6 +442,11 @@ mod tests {
                 expected_outputs.push(value);
             }
         }
+
+        assert!(
+            !expected_outputs.is_empty(),
+            "real data should seed at least one multi_field output assertion"
+        );
 
         let note = render_note(
             &data.groups,
@@ -463,12 +471,7 @@ mod tests {
         let data = AppData::load(dir).expect("real data loads");
         let mut states = states_for_real_data(&data);
 
-        set_header_field_explicit_empty(
-            &mut states,
-            &data.sections,
-            "appointment_section",
-            0,
-        );
+        set_header_field_explicit_empty(&mut states, &data.sections, "appointment_section", 0);
         set_header_field_text(
             &mut states,
             &data.sections,
@@ -497,12 +500,7 @@ mod tests {
             0,
             "#### ALL - UPPER MIDDLE & LOW BACK\n- General Swedish Techniques\n- Specific Compressions:\n- - Trapezius (Upper Fiber)\n- - Levator Scapula\n- - Teres Major & Minor\n- - Quadratus Lumborum\n- Stretch (Serratus Anterior)\n- Broad Compressions (Triceps Brachii)",
         );
-        set_header_field_explicit_empty(
-            &mut states,
-            &data.sections,
-            "treatment_section",
-            1,
-        );
+        set_header_field_explicit_empty(&mut states, &data.sections, "treatment_section", 1);
         set_header_field_text(
             &mut states,
             &data.sections,
@@ -526,16 +524,22 @@ mod tests {
             &data.boilerplate_texts,
             NoteRenderMode::Preview,
         );
-        let expected = fs::read_to_string(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("golden_note.md"),
-        )
-        .expect("golden note fixture should load");
+        let expected =
+            fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("golden_note.md"))
+                .expect("golden note fixture should load");
 
-        assert_eq!(rendered.trim(), expected.trim());
+        assert_eq!(
+            normalize_newlines(&rendered).trim(),
+            normalize_newlines(&expected).trim()
+        );
         assert!(rendered.contains("#### ALL - UPPER MIDDLE & LOW BACK"));
         assert!(rendered.contains("- Broad Compressions (Triceps Brachii)"));
         assert!(!rendered.contains("- Muscle Stripping (Erector Spinae)"));
         assert!(!rendered.lines().any(|line| line.trim() == "INTAKE"));
+    }
+
+    fn normalize_newlines(text: &str) -> String {
+        text.replace("\r\n", "\n")
     }
 
     #[test]

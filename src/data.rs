@@ -158,6 +158,18 @@ pub struct AppData {
     pub keybindings: KeyBindings,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataValidationSummary {
+    pub hierarchy_file_count: usize,
+    pub keybindings_present: bool,
+    pub group_count: usize,
+    pub section_count: usize,
+    pub collection_count: usize,
+    pub field_count: usize,
+    pub list_count: usize,
+    pub boilerplate_count: usize,
+}
+
 impl AppData {
     pub fn load(data_dir: PathBuf) -> Result<Self> {
         let hierarchy = load_hierarchy_dir(&data_dir).map_err(anyhow::Error::msg)?;
@@ -1097,9 +1109,10 @@ fn checklist_items_from_lists(lists: &[HierarchyList]) -> Vec<String> {
         .collect()
 }
 
-pub fn load_hierarchy_dir(dir: &Path) -> Result<HierarchyFile, String> {
+fn read_hierarchy_dir(dir: &Path) -> Result<(HierarchyFile, usize), String> {
     let mut merged = HierarchyFile::default();
     let mut template_count = 0usize;
+    let mut hierarchy_file_count = 0usize;
 
     let mut entries = fs::read_dir(dir)
         .map_err(|err| format!("failed to read data dir '{}': {err}", dir.display()))?
@@ -1115,6 +1128,7 @@ pub fn load_hierarchy_dir(dir: &Path) -> Result<HierarchyFile, String> {
         if path.file_name().and_then(|name| name.to_str()) == Some("keybindings.yml") {
             continue;
         }
+        hierarchy_file_count += 1;
 
         let content = fs::read_to_string(&path)
             .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
@@ -1146,8 +1160,31 @@ pub fn load_hierarchy_dir(dir: &Path) -> Result<HierarchyFile, String> {
         ));
     }
 
+    Ok((merged, hierarchy_file_count))
+}
+
+pub fn load_hierarchy_dir(dir: &Path) -> Result<HierarchyFile, String> {
+    let (merged, _) = read_hierarchy_dir(dir)?;
     validate_merged_hierarchy(&merged)?;
     Ok(merged)
+}
+
+pub fn validate_data_dir(dir: &Path) -> Result<DataValidationSummary, String> {
+    let (merged, hierarchy_file_count) = read_hierarchy_dir(dir)?;
+    validate_merged_hierarchy(&merged)?;
+    let summary = DataValidationSummary {
+        hierarchy_file_count,
+        keybindings_present: validate_keybindings_file(&dir.join("keybindings.yml"))?,
+        group_count: merged.groups.len(),
+        section_count: merged.sections.len(),
+        collection_count: merged.collections.len(),
+        field_count: merged.fields.len(),
+        list_count: merged.lists.len(),
+        boilerplate_count: merged.boilerplate.len(),
+    };
+    hierarchy_to_runtime(merged)
+        .map_err(|err| format!("validated data could not build runtime hierarchy: {err}"))?;
+    Ok(summary)
 }
 
 fn parse_hierarchy_file_documents(content: &str, path: &Path) -> Result<HierarchyFile, String> {
@@ -1214,6 +1251,24 @@ fn contains_legacy_repeating_key(value: &serde_yaml::Value) -> bool {
     }
 }
 
+fn validate_keybindings_file(path: &Path) -> Result<bool, String> {
+    if !path.exists() {
+        return Ok(false);
+    }
+
+    let content = fs::read_to_string(path)
+        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
+    let mut keybindings: KeyBindings = serde_yaml::from_str(&content)
+        .map_err(|err| {
+            format!(
+                "failed to parse '{}': {err}. Fix: restore valid YAML keybinding lists such as `confirm: [enter]`.",
+                path.display()
+            )
+        })?;
+    ensure_hint_permutations(&mut keybindings);
+    Ok(true)
+}
+
 fn normalize_items(file: &mut HierarchyFile) {
     for list in &mut file.lists {
         for item in &mut list.items {
@@ -1251,7 +1306,10 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
     let mut boilerplate_ids = HashSet::new();
     for entry in &file.boilerplate {
         if !boilerplate_ids.insert(entry.id.clone()) {
-            return Err(format!("duplicate boilerplate id '{}'", entry.id));
+            return Err(format!(
+                "duplicate boilerplate id '{}'. Fix: rename one boilerplate entry so each boilerplate id is unique.",
+                entry.id
+            ));
         }
     }
 
@@ -1300,14 +1358,24 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
                     Some(TypeTag::List) => {}
                     Some(other) => {
                         return Err(format!(
-                            "field '{}' expected list '{}', found {:?}",
-                            field.id, list_id, other
+                            "field '{}' expected list '{}', found {}. {}",
+                            field.id,
+                            list_id,
+                            kind_label(*other),
+                            expected_reference_kind_fix_hint(
+                                &field.id,
+                                TypeTag::List,
+                                *other,
+                                list_id
+                            )
                         ))
                     }
                     None => {
                         return Err(format!(
-                            "field '{}' references unknown list '{}'",
-                            field.id, list_id
+                            "field '{}' references unknown list '{}'. {}",
+                            field.id,
+                            list_id,
+                            missing_reference_kind_fix_hint(&field.id, TypeTag::List, list_id)
                         ))
                     }
                 }
@@ -1317,14 +1385,28 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
                     Some(TypeTag::Collection) => {}
                     Some(other) => {
                         return Err(format!(
-                            "field '{}' expected collection '{}', found {:?}",
-                            field.id, collection_id, other
+                            "field '{}' expected collection '{}', found {}. {}",
+                            field.id,
+                            collection_id,
+                            kind_label(*other),
+                            expected_reference_kind_fix_hint(
+                                &field.id,
+                                TypeTag::Collection,
+                                *other,
+                                collection_id
+                            )
                         ))
                     }
                     None => {
                         return Err(format!(
-                            "field '{}' references unknown collection '{}'",
-                            field.id, collection_id
+                            "field '{}' references unknown collection '{}'. {}",
+                            field.id,
+                            collection_id,
+                            missing_reference_kind_fix_hint(
+                                &field.id,
+                                TypeTag::Collection,
+                                collection_id
+                            )
                         ))
                     }
                 }
@@ -1349,14 +1431,24 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
                 Some(TypeTag::List) => {}
                 Some(other) => {
                     return Err(format!(
-                        "field '{}' expected format list '{}', found {:?}",
-                        field.id, list_id, other
+                        "field '{}' expected format list '{}', found {}. {}",
+                        field.id,
+                        list_id,
+                        kind_label(*other),
+                        expected_reference_kind_fix_hint(
+                            &field.id,
+                            TypeTag::List,
+                            *other,
+                            &list_id
+                        )
                     ))
                 }
                 None => {
                     return Err(format!(
-                        "field '{}' references unknown format list '{}'",
-                        field.id, list_id
+                        "field '{}' references unknown format list '{}'. {}",
+                        field.id,
+                        list_id,
+                        missing_reference_kind_fix_hint(&field.id, TypeTag::List, &list_id)
                     ))
                 }
             }
@@ -1364,6 +1456,107 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn kind_label(tag: TypeTag) -> &'static str {
+    match tag {
+        TypeTag::Group => "group",
+        TypeTag::Section => "section",
+        TypeTag::Collection => "collection",
+        TypeTag::Field => "field",
+        TypeTag::List => "list",
+    }
+}
+
+fn expected_kind_labels(expected: &[TypeTag]) -> String {
+    expected
+        .iter()
+        .map(|tag| kind_label(*tag))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn missing_child_fix_hint(owner: &str, child_kind: TypeTag, child_id: &str) -> String {
+    match owner {
+        "template" => format!(
+            "Fix: add a {} with id '{}' or update template.contains to use an existing {} id.",
+            kind_label(child_kind),
+            child_id,
+            kind_label(child_kind)
+        ),
+        _ => format!(
+            "Fix: add a {} with id '{}' or update {} to reference an existing {} id.",
+            kind_label(child_kind),
+            child_id,
+            owner,
+            kind_label(child_kind)
+        ),
+    }
+}
+
+fn wrong_kind_fix_hint(
+    owner: &str,
+    expected_kind: TypeTag,
+    actual_kind: TypeTag,
+    child_id: &str,
+) -> String {
+    format!(
+        "Fix: update {} so '{}' is referenced as a {} or point it at an existing {} id instead of a {} id.",
+        owner,
+        child_id,
+        kind_label(expected_kind),
+        kind_label(expected_kind),
+        kind_label(actual_kind)
+    )
+}
+
+fn invalid_child_fix_hint(
+    owner: &str,
+    expected: &[TypeTag],
+    child_kind: TypeTag,
+    child_id: &str,
+) -> String {
+    format!(
+        "Fix: remove {} '{}' from {} or move it under a parent that accepts {} refs. Allowed here: {}.",
+        kind_label(child_kind),
+        child_id,
+        owner,
+        kind_label(child_kind),
+        expected_kind_labels(expected)
+    )
+}
+
+fn duplicate_id_fix_hint() -> &'static str {
+    "Fix: rename one of the conflicting ids so every group, section, collection, field, and list id is globally unique."
+}
+
+fn expected_reference_kind_fix_hint(
+    field_id: &str,
+    reference_kind: TypeTag,
+    actual_kind: TypeTag,
+    ref_id: &str,
+) -> String {
+    format!(
+        "Fix: update field '{}' so '{}' points to a {} id, not a {} id.",
+        field_id,
+        ref_id,
+        kind_label(reference_kind),
+        kind_label(actual_kind)
+    )
+}
+
+fn missing_reference_kind_fix_hint(
+    field_id: &str,
+    reference_kind: TypeTag,
+    ref_id: &str,
+) -> String {
+    format!(
+        "Fix: add a {} with id '{}' or update field '{}' to reference an existing {} id.",
+        kind_label(reference_kind),
+        ref_id,
+        field_id,
+        kind_label(reference_kind)
+    )
 }
 
 fn register_global_ids<T, F>(
@@ -1379,8 +1572,11 @@ where
         let id = get_id(item);
         if let Some(existing) = registry.insert(id.to_string(), tag) {
             return Err(format!(
-                "duplicate id '{}' across {:?} and {:?}",
-                id, existing, tag
+                "duplicate id '{}' across {} and {}; ids must be globally unique across hierarchy kinds. {}",
+                id,
+                kind_label(existing),
+                kind_label(tag),
+                duplicate_id_fix_hint()
             ));
         }
     }
@@ -1397,10 +1593,12 @@ fn validate_children(
         validate_child_exists(child, global_ids, owner)?;
         if !expected.contains(&child.kind()) {
             return Err(format!(
-                "{} may not contain {:?} '{}'",
+                "{} may not contain {} '{}'; allowed child kinds: {}. {}",
                 owner,
-                child.kind(),
-                child.id()
+                kind_label(child.kind()),
+                child.id(),
+                expected_kind_labels(expected),
+                invalid_child_fix_hint(owner, expected, child.kind(), child.id())
             ));
         }
     }
@@ -1415,17 +1613,19 @@ fn validate_child_exists(
     match global_ids.get(child.id()) {
         Some(tag) if *tag == child.kind() => Ok(()),
         Some(tag) => Err(format!(
-            "{} references '{}' as {:?}, but that id is registered as {:?}",
+            "{} references '{}' as {}, but that id is registered as {}. {}",
             owner,
             child.id(),
-            child.kind(),
-            tag
+            kind_label(child.kind()),
+            kind_label(*tag),
+            wrong_kind_fix_hint(owner, child.kind(), *tag, child.id())
         )),
         None => Err(format!(
-            "{} references missing {:?} '{}'",
+            "{} references missing {} '{}'. {}",
             owner,
-            child.kind(),
-            child.id()
+            kind_label(child.kind()),
+            child.id(),
+            missing_child_fix_hint(owner, child.kind(), child.id())
         )),
     }
 }
@@ -1555,6 +1755,32 @@ pub fn find_data_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TempTestDir {
+        path: PathBuf,
+    }
+
+    impl TempTestDir {
+        fn new(prefix: &str) -> Self {
+            let unique = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock should be after unix epoch")
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "scribblenot-{prefix}-{}-{unique}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&path).expect("temp test dir should be created");
+            Self { path }
+        }
+    }
+
+    impl Drop for TempTestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
 
     fn parse(yaml: &str) -> HierarchyFile {
         let mut file: HierarchyFile = serde_yaml::from_str(yaml).expect("yaml parses");
@@ -1749,6 +1975,8 @@ mod tests {
         ));
         let err = validate_merged_hierarchy(&file).expect_err("duplicate id must fail");
         assert!(err.contains("duplicate id 'shared'"));
+        assert!(err.contains("globally unique"));
+        assert!(err.contains("Fix: rename one of the conflicting ids"));
     }
 
     #[test]
@@ -1760,6 +1988,33 @@ mod tests {
         ));
         let err = validate_merged_hierarchy(&file).expect_err("bad child kind must fail");
         assert!(err.contains("may not contain"));
+        assert!(err.contains("allowed child kinds"));
+        assert!(err.contains("Fix: remove list 'bad'"));
+    }
+
+    #[test]
+    fn loader_missing_child_error_includes_fix_hint() {
+        let file = parse(concat!(
+            "template:\n  contains:\n    - group: fake_group\n",
+            "groups: []\n",
+        ));
+        let err = validate_merged_hierarchy(&file).expect_err("missing child must fail");
+        assert!(err.contains("template references missing group 'fake_group'"));
+        assert!(err.contains("Fix: add a group with id 'fake_group'"));
+    }
+
+    #[test]
+    fn field_wrong_kind_error_includes_fix_hint() {
+        let file = parse(concat!(
+            "template:\n  contains:\n    - group: g\n",
+            "groups:\n  - id: g\n    contains:\n      - section: s\n",
+            "sections:\n  - id: s\n    contains:\n      - field: f\n",
+            "fields:\n  - id: f\n    label: Demo\n    lists: [demo]\n",
+            "collections:\n  - id: demo\n    contains: []\n",
+        ));
+        let err = validate_merged_hierarchy(&file).expect_err("wrong kind must fail");
+        assert!(err.contains("field 'f' expected list 'demo', found collection"));
+        assert!(err.contains("Fix: update field 'f' so 'demo' points to a list id"));
     }
 
     #[test]
@@ -1877,5 +2132,54 @@ mod tests {
                 authored_group.boilerplate_refs
             );
         }
+    }
+
+    #[test]
+    fn validate_data_dir_reports_real_data_summary() {
+        let summary = validate_data_dir(&find_data_dir()).expect("real data should validate");
+
+        assert!(summary.hierarchy_file_count > 0);
+        assert!(summary.keybindings_present);
+        assert!(summary.group_count > 0);
+        assert!(summary.section_count > 0);
+        assert!(summary.list_count > 0);
+    }
+
+    #[test]
+    fn validate_data_dir_rejects_invalid_keybindings_file() {
+        let dir = TempTestDir::new("validate-data");
+        fs::write(
+            dir.path.join("sections.yml"),
+            concat!(
+                "template:\n",
+                "  id: template\n",
+                "  contains:\n",
+                "    - group: intake\n",
+                "groups:\n",
+                "  - id: intake\n",
+                "    contains:\n",
+                "      - section: appointment\n",
+                "sections:\n",
+                "  - id: appointment\n",
+                "    contains:\n",
+                "      - list: appointment_type\n",
+                "lists:\n",
+                "  - id: appointment_type\n",
+                "    items:\n",
+                "      - Treatment massage\n",
+            ),
+        )
+        .expect("hierarchy fixture should be written");
+        fs::write(
+            dir.path.join("keybindings.yml"),
+            "navigate_down: down\nconfirm: [enter]\n",
+        )
+        .expect("keybindings fixture should be written");
+
+        let err =
+            validate_data_dir(&dir.path).expect_err("invalid keybindings should fail validation");
+
+        assert!(err.contains("keybindings.yml"));
+        assert!(err.contains("failed to parse"));
     }
 }

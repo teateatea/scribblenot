@@ -19,6 +19,19 @@ What loads at startup:
 
 If you edit a YAML file, restart the app to reload it.
 
+Fast validation for authored data:
+
+```bash
+cargo validate
+cargo run -- --validate-data
+cargo run -- --validate
+```
+
+That checks the merged hierarchy files in `data/` plus `keybindings.yml` and exits without opening the UI.
+`cargo run --validate` will not work because Cargo interprets that flag itself before passing args to the app.
+Successful validation prints a bold green `Validation OK:` heading followed by the rest of the line in green. Validation failures print a bold yellow `scribblenot:` prefix, keep the problem text in yellow, and print any bold green `Fix:` guidance in green. Cargo still reports the nonzero exit when you invoke it through `cargo run` or `cargo validate`.
+
+
 ## First Run Mental Model
 
 The UI has three panes:

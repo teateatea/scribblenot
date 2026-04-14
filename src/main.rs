@@ -14,6 +14,8 @@ use iced::keyboard;
 use iced::time;
 use iced::widget::scrollable;
 use iced::{Element, Size, Subscription, Task};
+use std::io::{stderr, stdout, IsTerminal};
+use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
@@ -179,7 +181,55 @@ fn subscription(state: &ScribbleApp) -> Subscription<Message> {
     Subscription::batch(vec![keys, resize, tick])
 }
 
-fn main() -> iced::Result {
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!(
+                "{}",
+                format_error_message(&err.to_string(), stderr().is_terminal())
+            );
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> anyhow::Result<()> {
+    if let Some(arg) = std::env::args().nth(1) {
+        if arg == "--validate-data" || arg == "--validate" {
+            let summary =
+                data::validate_data_dir(&data::find_data_dir()).map_err(anyhow::Error::msg)?;
+            let keybindings = if summary.keybindings_present {
+                "keybindings checked"
+            } else {
+                "no keybindings.yml present"
+            };
+            let color_enabled = stdout().is_terminal();
+            let heading = colorize("Validation OK:", ANSI_GREEN, true, color_enabled);
+            let rest = colorize(
+                &format!(
+                    " {} hierarchy files, {} groups, {} sections, {} collections, {} fields, {} lists, {} boilerplate entries, {}.",
+                    summary.hierarchy_file_count,
+                    summary.group_count,
+                    summary.section_count,
+                    summary.collection_count,
+                    summary.field_count,
+                    summary.list_count,
+                    summary.boilerplate_count,
+                    keybindings
+                ),
+                ANSI_GREEN,
+                false,
+                color_enabled,
+            );
+            println!("{heading}{rest}");
+            return Ok(());
+        }
+        return Err(anyhow::anyhow!(
+            "unknown argument '{arg}'; supported options: --validate, --validate-data"
+        ));
+    }
+
     if std::env::var("SCRIBBLENOT_HEADLESS").as_deref() == Ok("1") {
         let data_dir = data::find_data_dir();
         let app_data = data::AppData::load(data_dir.clone()).expect("failed to load");
@@ -187,7 +237,40 @@ fn main() -> iced::Result {
         let _ = app::App::new(app_data, config, data_dir);
         return Ok(());
     }
+
     iced::application("Scribblenot", update, view)
         .subscription(subscription)
-        .run_with(ScribbleApp::new_from_env)
+        .run_with(ScribbleApp::new_from_env)?;
+    Ok(())
+}
+
+const ANSI_GREEN: &str = "\x1b[32m";
+const ANSI_YELLOW: &str = "\x1b[33m";
+const ANSI_BOLD: &str = "\x1b[1m";
+const ANSI_RESET: &str = "\x1b[0m";
+
+fn colorize(text: &str, color: &str, bold: bool, enabled: bool) -> String {
+    if enabled {
+        let weight = if bold { ANSI_BOLD } else { "" };
+        format!("{weight}{color}{text}{ANSI_RESET}")
+    } else {
+        text.to_string()
+    }
+}
+
+fn format_error_message(message: &str, color_enabled: bool) -> String {
+    let prefix = colorize("scribblenot:", ANSI_YELLOW, true, color_enabled);
+    match message.split_once(" Fix:") {
+        Some((issue, fix)) => {
+            let issue = colorize(issue, ANSI_YELLOW, false, color_enabled);
+            let fix_heading = colorize("Fix:", ANSI_GREEN, true, color_enabled);
+            let fix_body = colorize(fix, ANSI_GREEN, false, color_enabled);
+            let fix = format!("{fix_heading}{fix_body}");
+            format!("{prefix} {issue} {fix}")
+        }
+        None => {
+            let issue = colorize(message, ANSI_YELLOW, false, color_enabled);
+            format!("{prefix} {issue}")
+        }
+    }
 }
