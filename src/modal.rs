@@ -2017,6 +2017,40 @@ pub fn modal_list_view_dimensions(snapshot: &ModalListViewSnapshot) -> (f32, f32
     modal_size_for_snapshot(snapshot).dimensions()
 }
 
+/// The semantic kind of a stub card shown at the edge of a modal unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModalStubKind {
+    NavLeft,  // "<" - navigate to the previous unit
+    NavRight, // ">" - navigate to the next unit
+    Exit,     // "-" - leave the field without adding to the note
+    Confirm,  // "+" - add to note / complete the field
+}
+
+impl ModalStubKind {
+    /// The single character displayed centered inside the stub card.
+    pub fn symbol(self) -> char {
+        match self {
+            Self::NavLeft => '<',
+            Self::NavRight => '>',
+            Self::Exit => '-',
+            Self::Confirm => '+',
+        }
+    }
+}
+
+/// Returns the effective spacer width for a given viewport axis dimension.
+/// Caps at 2% of the viewport to prevent oversized gaps on wide displays.
+pub fn effective_spacer_width(viewport_width: f32, modal_spacer_width: f32) -> f32 {
+    (viewport_width * 0.02).min(modal_spacer_width)
+}
+
+/// Returns the bounding box available for full-width modals within a unit.
+/// Reserves space for one stub and one spacer on each side.
+/// Clamped to zero so extremely narrow viewports never produce a negative content limit.
+pub fn unit_bounding_box(viewport_width: f32, stub_width: f32, spacer_width: f32) -> f32 {
+    (viewport_width - 2.0 * (stub_width + spacer_width)).max(0.0)
+}
+
 pub fn build_simple_modal_unit_layout(
     sequence: SimpleModalSequence,
     viewport_width: Option<f32>,
@@ -2030,9 +2064,10 @@ pub fn build_simple_modal_unit_layout(
     let viewport_width = viewport_width
         .filter(|width| width.is_finite() && *width > 0.0)
         .unwrap_or(f32::INFINITY);
-    let spacer_width = spacer_width.max(0.0);
+    let raw_spacer = spacer_width.max(0.0);
     let stub_width = stub_width.max(0.0);
-    let bounding_box = (viewport_width - 2.0 * (stub_width + spacer_width)).max(0.0);
+    let spacer_width = effective_spacer_width(viewport_width, raw_spacer);
+    let bounding_box = unit_bounding_box(viewport_width, stub_width, spacer_width);
     let widths = sequence
         .snapshots
         .iter()
@@ -2213,6 +2248,29 @@ mod modal_sizing_tests {
                 shows_stubs: false,
             }]
         );
+    }
+
+    #[test]
+    fn effective_spacer_width_caps_at_two_percent_of_viewport() {
+        assert_eq!(super::effective_spacer_width(1000.0, 40.0), 20.0);
+        assert_eq!(super::effective_spacer_width(500.0, 40.0), 10.0);
+        assert_eq!(super::effective_spacer_width(100.0, 40.0), 2.0);
+    }
+
+    #[test]
+    fn effective_spacer_width_does_not_exceed_theme_value() {
+        // 2% of 3000 = 60, but theme cap is 40
+        assert_eq!(super::effective_spacer_width(3000.0, 40.0), 40.0);
+    }
+
+    #[test]
+    fn unit_bounding_box_subtracts_both_stubs_and_spacers() {
+        assert_eq!(super::unit_bounding_box(1200.0, 120.0, 20.0), 920.0);
+    }
+
+    #[test]
+    fn unit_bounding_box_clamps_to_zero_on_narrow_viewport() {
+        assert_eq!(super::unit_bounding_box(50.0, 120.0, 20.0), 0.0);
     }
 }
 

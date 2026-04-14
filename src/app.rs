@@ -97,7 +97,7 @@ pub enum ModalStreamDirection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModalStreamEasing {
+pub enum ModalTransitionEasing {
     Linear,
     QuadInOut,
     CubicInOut,
@@ -107,7 +107,7 @@ pub enum ModalStreamEasing {
     ExpoOut,
 }
 
-impl ModalStreamEasing {
+impl ModalTransitionEasing {
     pub fn apply(self, t: f32) -> f32 {
         match self {
             Self::Linear => simple_easing::linear(t),
@@ -127,7 +127,7 @@ pub struct ModalStreamTransition {
     pub direction: ModalStreamDirection,
     pub started_at: Instant,
     pub duration: Duration,
-    pub easing: ModalStreamEasing,
+    pub easing: ModalTransitionEasing,
 }
 
 impl ModalStreamTransition {
@@ -158,7 +158,7 @@ pub struct ModalStreamDeparture {
     pub direction: ModalStreamDirection,
     pub started_at: Instant,
     pub duration: Duration,
-    pub easing: ModalStreamEasing,
+    pub easing: ModalTransitionEasing,
     pub carry: Option<ModalStreamCarry>,
 }
 
@@ -375,11 +375,12 @@ impl App {
     }
 
     pub fn modal_spacer_width(&self) -> f32 {
-        let viewport_based = self
+        let viewport_width = self
             .viewport_size
-            .map(|size| size.width * 0.02)
-            .unwrap_or(self.ui_theme.modal_spacer_width);
-        viewport_based.min(self.ui_theme.modal_spacer_width).max(0.0)
+            .map(|size| size.width)
+            .unwrap_or(f32::INFINITY);
+        crate::modal::effective_spacer_width(viewport_width, self.ui_theme.modal_spacer_width)
+            .max(0.0)
     }
 
     pub fn simple_modal_unit_layout_for(
@@ -389,7 +390,7 @@ impl App {
         modal.simple_modal_unit_layout(
             &self.config.sticky_values,
             self.viewport_size.map(|size| size.width),
-            self.modal_spacer_width(),
+            self.ui_theme.modal_spacer_width,
             self.ui_theme.modal_stub_width,
         )
     }
@@ -859,8 +860,8 @@ impl App {
             return;
         }
 
-        let duration = Duration::from_millis(self.ui_theme.modal_stream_transition_duration_ms.max(1));
-        let easing = self.ui_theme.modal_stream_transition_easing;
+        let duration = Duration::from_millis(self.ui_theme.modal_transition_duration.max(1));
+        let easing = self.ui_theme.modal_transition_easing;
         let carry = self.modal_stream_transition.as_ref().and_then(|transition| {
             if transition.is_finished() {
                 return None;

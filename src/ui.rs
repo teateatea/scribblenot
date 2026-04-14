@@ -1395,7 +1395,7 @@ impl ModalRenderMode {
 enum ModalCardRole {
     Active,
     Inactive,
-    Stub,
+    Stub(crate::modal::ModalStubKind),
 }
 
 #[allow(dead_code)]
@@ -1418,7 +1418,13 @@ fn modal_card_style(
     let preview_background = match role {
         ModalCardRole::Active => app.ui_theme.modal_inactive_background,
         ModalCardRole::Inactive => app.ui_theme.modal_inactive_background,
-        ModalCardRole::Stub => app.ui_theme.modal_stub_background,
+        ModalCardRole::Stub(kind) => match kind {
+            crate::modal::ModalStubKind::NavLeft | crate::modal::ModalStubKind::NavRight => {
+                app.ui_theme.modal_nav_stub_background
+            }
+            crate::modal::ModalStubKind::Exit => app.ui_theme.modal_exit_stub_background,
+            crate::modal::ModalStubKind::Confirm => app.ui_theme.modal_confirm_stub_background,
+        },
     };
     let (mut background, mut text_color, mut border_color) = if mode.is_preview() {
         (
@@ -2250,13 +2256,24 @@ fn render_packed_simple_modal_stream<'a>(
     let mut cards: Vec<Element<'a, Message>> = Vec::new();
     for card in &packed.cards {
         match card {
-            PackedSimpleModalCard::LeftStub { title }
-            | PackedSimpleModalCard::RightStub { title } => {
+            PackedSimpleModalCard::LeftStub { title } => {
                 cards.push(modal_card(
                     app,
                     preview_modal_stub_content(app, title.clone(), preview_alpha),
                     ModalRenderMode::Preview,
-                    ModalCardRole::Stub,
+                    ModalCardRole::Stub(crate::modal::ModalStubKind::NavLeft),
+                    false,
+                    preview_modal_stub_width(title),
+                    modal_height,
+                    preview_alpha,
+                ));
+            }
+            PackedSimpleModalCard::RightStub { title } => {
+                cards.push(modal_card(
+                    app,
+                    preview_modal_stub_content(app, title.clone(), preview_alpha),
+                    ModalRenderMode::Preview,
+                    ModalCardRole::Stub(crate::modal::ModalStubKind::NavRight),
                     false,
                     preview_modal_stub_width(title),
                     modal_height,
@@ -2635,7 +2652,7 @@ fn entry_composition_panel<'a>(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ModalUnitStubMode {
     Ghost,
-    Visible(char),
+    Visible,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2649,6 +2666,7 @@ enum ModalUnitCardKind {
     Stub {
         side: ModalUnitSide,
         mode: ModalUnitStubMode,
+        stub_kind: crate::modal::ModalStubKind,
     },
     Preview {
         snapshot: ModalListViewSnapshot,
@@ -2739,11 +2757,8 @@ impl RenderedModalUnit {
     }
 }
 
-fn default_stub_mode(side: ModalUnitSide) -> ModalUnitStubMode {
-    match side {
-        ModalUnitSide::Left => ModalUnitStubMode::Visible('<'),
-        ModalUnitSide::Right => ModalUnitStubMode::Visible('>'),
-    }
+fn default_stub_mode(_side: ModalUnitSide) -> ModalUnitStubMode {
+    ModalUnitStubMode::Visible
 }
 
 fn build_rendered_modal_unit(
@@ -2753,12 +2768,25 @@ fn build_rendered_modal_unit(
     left_stub_mode: ModalUnitStubMode,
     right_stub_mode: ModalUnitStubMode,
 ) -> RenderedModalUnit {
+    let total_snapshots = layout.sequence.snapshots.len();
+    let left_kind = if unit.start == 0 {
+        crate::modal::ModalStubKind::Exit
+    } else {
+        crate::modal::ModalStubKind::NavLeft
+    };
+    let right_kind = if unit.end + 1 >= total_snapshots {
+        crate::modal::ModalStubKind::Confirm
+    } else {
+        crate::modal::ModalStubKind::NavRight
+    };
+
     let mut cards = Vec::new();
-    if unit.shows_stubs && unit.start > 0 {
+    if unit.shows_stubs {
         cards.push(ModalUnitCardData {
             kind: ModalUnitCardKind::Stub {
                 side: ModalUnitSide::Left,
                 mode: left_stub_mode,
+                stub_kind: left_kind,
             },
             width: app.ui_theme.modal_stub_width,
         });
@@ -2775,11 +2803,12 @@ fn build_rendered_modal_unit(
         };
         cards.push(ModalUnitCardData { kind, width });
     }
-    if unit.shows_stubs && unit.end + 1 < layout.sequence.snapshots.len() {
+    if unit.shows_stubs {
         cards.push(ModalUnitCardData {
             kind: ModalUnitCardKind::Stub {
                 side: ModalUnitSide::Right,
                 mode: right_stub_mode,
+                stub_kind: right_kind,
             },
             width: app.ui_theme.modal_stub_width,
         });
@@ -2836,26 +2865,41 @@ fn render_modal_unit<'a>(
     let mut cards: Vec<Element<'a, Message>> = Vec::new();
     for card in &rendered.cards {
         match &card.kind {
-            ModalUnitCardKind::Stub { mode, .. } => match mode {
+            ModalUnitCardKind::Stub { mode, stub_kind, .. } => match mode {
                 ModalUnitStubMode::Ghost => cards.push(
                     Space::new(Length::Fixed(card.width), Length::Fixed(modal_height)).into(),
                 ),
-                ModalUnitStubMode::Visible(arrow) => cards.push(modal_card(
-                    app,
-                    container(text(arrow.to_string()).font(app.ui_theme.font_modal).size(24).color(
-                        apply_alpha(app.ui_theme.modal_hint_text, alpha),
-                    ))
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .center_x(Length::Fill)
-                    .center_y(Length::Fill),
-                    ModalRenderMode::Preview,
-                    ModalCardRole::Stub,
-                    false,
-                    card.width,
-                    modal_height,
-                    alpha,
-                )),
+                ModalUnitStubMode::Visible => {
+                    let text_color = match stub_kind {
+                        crate::modal::ModalStubKind::NavLeft
+                        | crate::modal::ModalStubKind::NavRight => {
+                            app.ui_theme.modal_nav_stub_text
+                        }
+                        crate::modal::ModalStubKind::Exit => app.ui_theme.modal_exit_stub_text,
+                        crate::modal::ModalStubKind::Confirm => {
+                            app.ui_theme.modal_confirm_stub_text
+                        }
+                    };
+                    cards.push(modal_card(
+                        app,
+                        container(
+                            text(stub_kind.symbol().to_string())
+                                .font(app.ui_theme.font_modal)
+                                .size(24)
+                                .color(apply_alpha(text_color, alpha)),
+                        )
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .center_x(Length::Fill)
+                        .center_y(Length::Fill),
+                        ModalRenderMode::Preview,
+                        ModalCardRole::Stub(*stub_kind),
+                        false,
+                        card.width,
+                        modal_height,
+                        alpha,
+                    ));
+                }
             },
             ModalUnitCardKind::Preview { snapshot } => cards.push(modal_card(
                 app,
@@ -2935,15 +2979,15 @@ fn transition_shared_stub_modes(
 ) -> (ModalUnitStubMode, ModalUnitStubMode, ModalUnitStubMode, ModalUnitStubMode) {
     match direction {
         crate::app::ModalStreamDirection::Forward => (
-            default_stub_mode(ModalUnitSide::Left),
-            ModalUnitStubMode::Visible('>'),
+            ModalUnitStubMode::Visible,
+            ModalUnitStubMode::Visible,
             ModalUnitStubMode::Ghost,
-            default_stub_mode(ModalUnitSide::Right),
+            ModalUnitStubMode::Visible,
         ),
         crate::app::ModalStreamDirection::Backward => (
-            ModalUnitStubMode::Visible('<'),
-            default_stub_mode(ModalUnitSide::Right),
-            default_stub_mode(ModalUnitSide::Left),
+            ModalUnitStubMode::Visible,
+            ModalUnitStubMode::Visible,
+            ModalUnitStubMode::Visible,
             ModalUnitStubMode::Ghost,
         ),
     }
@@ -4173,7 +4217,8 @@ mod tests {
             ModalUnitCardData {
                 kind: ModalUnitCardKind::Stub {
                     side: ModalUnitSide::Right,
-                    mode: ModalUnitStubMode::Visible('>'),
+                    mode: ModalUnitStubMode::Visible,
+                    stub_kind: crate::modal::ModalStubKind::NavRight,
                 },
                 width: 96.0,
             },
@@ -4183,6 +4228,7 @@ mod tests {
                 kind: ModalUnitCardKind::Stub {
                     side: ModalUnitSide::Left,
                     mode: ModalUnitStubMode::Ghost,
+                    stub_kind: crate::modal::ModalStubKind::NavLeft,
                 },
                 width: 96.0,
             },
@@ -4206,7 +4252,8 @@ mod tests {
             ModalUnitCardData {
                 kind: ModalUnitCardKind::Stub {
                     side: ModalUnitSide::Left,
-                    mode: ModalUnitStubMode::Visible('<'),
+                    mode: ModalUnitStubMode::Visible,
+                    stub_kind: crate::modal::ModalStubKind::NavLeft,
                 },
                 width: 96.0,
             },
@@ -4234,6 +4281,7 @@ mod tests {
                 kind: ModalUnitCardKind::Stub {
                     side: ModalUnitSide::Right,
                     mode: ModalUnitStubMode::Ghost,
+                    stub_kind: crate::modal::ModalStubKind::NavRight,
                 },
                 width: 96.0,
             },

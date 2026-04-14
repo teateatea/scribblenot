@@ -234,8 +234,14 @@ pub struct AppTheme {
     pub font_status: Font,
     pub preview_copy_flash_duration_ms: u64,
     pub text_color_flash_duration: u64,
-    pub modal_stream_transition_duration_ms: u64,
-    pub modal_stream_transition_easing: crate::app::ModalStreamEasing,
+    pub modal_transition_duration: u64,
+    pub modal_transition_easing: crate::app::ModalTransitionEasing,
+    pub modal_nav_stub_background: Color,
+    pub modal_nav_stub_text: Color,
+    pub modal_exit_stub_background: Color,
+    pub modal_exit_stub_text: Color,
+    pub modal_confirm_stub_background: Color,
+    pub modal_confirm_stub_text: Color,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -345,8 +351,20 @@ struct ThemeFile {
     font_status: Option<String>,
     preview_copy_flash_duration_ms: Option<u64>,
     text_color_flash_duration: Option<u64>,
-    modal_stream_transition_duration_ms: Option<u64>,
-    modal_stream_transition_easing: Option<String>,
+    modal_transition_duration: Option<u64>,
+    modal_transition_easing: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_color_setting")]
+    modal_nav_stub_background: ColorSetting,
+    #[serde(default, deserialize_with = "deserialize_color_setting")]
+    modal_nav_stub_text: ColorSetting,
+    #[serde(default, deserialize_with = "deserialize_color_setting")]
+    modal_exit_stub_background: ColorSetting,
+    #[serde(default, deserialize_with = "deserialize_color_setting")]
+    modal_exit_stub_text: ColorSetting,
+    #[serde(default, deserialize_with = "deserialize_color_setting")]
+    modal_confirm_stub_background: ColorSetting,
+    #[serde(default, deserialize_with = "deserialize_color_setting")]
+    modal_confirm_stub_text: ColorSetting,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -424,8 +442,14 @@ impl Default for AppTheme {
             font_status: Font::MONOSPACE,
             preview_copy_flash_duration_ms: 650,
             text_color_flash_duration: 650,
-            modal_stream_transition_duration_ms: 220,
-            modal_stream_transition_easing: crate::app::ModalStreamEasing::ExpoInOut,
+            modal_transition_duration: 220,
+            modal_transition_easing: crate::app::ModalTransitionEasing::ExpoInOut,
+            modal_nav_stub_background: modal_stub_background,
+            modal_nav_stub_text: TEXT,
+            modal_exit_stub_background: modal_stub_background,
+            modal_exit_stub_text: TEXT,
+            modal_confirm_stub_background: modal_stub_background,
+            modal_confirm_stub_text: TEXT,
         }
     }
 }
@@ -668,12 +692,42 @@ impl AppTheme {
             text_color_flash_duration: file
                 .text_color_flash_duration
                 .unwrap_or(default.text_color_flash_duration),
-            modal_stream_transition_duration_ms: file
-                .modal_stream_transition_duration_ms
-                .unwrap_or(default.modal_stream_transition_duration_ms),
-            modal_stream_transition_easing: parse_modal_stream_transition_easing(
-                file.modal_stream_transition_easing,
-                default.modal_stream_transition_easing,
+            modal_transition_duration: file
+                .modal_transition_duration
+                .unwrap_or(default.modal_transition_duration),
+            modal_transition_easing: parse_modal_transition_easing(
+                file.modal_transition_easing,
+                default.modal_transition_easing,
+            )?,
+            modal_nav_stub_background: optional_color(
+                file.modal_nav_stub_background,
+                default.modal_nav_stub_background,
+                &custom_colors,
+            )?,
+            modal_nav_stub_text: optional_color(
+                file.modal_nav_stub_text,
+                default.modal_nav_stub_text,
+                &custom_colors,
+            )?,
+            modal_exit_stub_background: optional_color(
+                file.modal_exit_stub_background,
+                default.modal_exit_stub_background,
+                &custom_colors,
+            )?,
+            modal_exit_stub_text: optional_color(
+                file.modal_exit_stub_text,
+                default.modal_exit_stub_text,
+                &custom_colors,
+            )?,
+            modal_confirm_stub_background: optional_color(
+                file.modal_confirm_stub_background,
+                default.modal_confirm_stub_background,
+                &custom_colors,
+            )?,
+            modal_confirm_stub_text: optional_color(
+                file.modal_confirm_stub_text,
+                default.modal_confirm_stub_text,
+                &custom_colors,
             )?,
         })
     }
@@ -689,26 +743,24 @@ fn mix_color(base: Color, target: Color, amount: f32) -> Color {
     }
 }
 
-fn parse_modal_stream_transition_easing(
+fn parse_modal_transition_easing(
     value: Option<String>,
-    fallback: crate::app::ModalStreamEasing,
-) -> Result<crate::app::ModalStreamEasing> {
+    fallback: crate::app::ModalTransitionEasing,
+) -> Result<crate::app::ModalTransitionEasing> {
     let Some(value) = value else {
         return Ok(fallback);
     };
     let normalized = value.trim().to_ascii_lowercase();
     match normalized.as_str() {
         "" => Ok(fallback),
-        "linear" => Ok(crate::app::ModalStreamEasing::Linear),
-        "quad_in_out" | "quad-in-out" => Ok(crate::app::ModalStreamEasing::QuadInOut),
-        "cubic_in_out" | "cubic-in-out" => Ok(crate::app::ModalStreamEasing::CubicInOut),
-        "sine_in_out" | "sine-in-out" => Ok(crate::app::ModalStreamEasing::SineInOut),
-        "expo_in" | "expo-in" => Ok(crate::app::ModalStreamEasing::ExpoIn),
-        "expo_in_out" | "expo-in-out" => Ok(crate::app::ModalStreamEasing::ExpoInOut),
-        "expo_out" | "expo-out" => Ok(crate::app::ModalStreamEasing::ExpoOut),
-        _ => Err(anyhow!(
-            "invalid modal_stream_transition_easing '{value}'"
-        )),
+        "linear" => Ok(crate::app::ModalTransitionEasing::Linear),
+        "quad_in_out" | "quad-in-out" => Ok(crate::app::ModalTransitionEasing::QuadInOut),
+        "cubic_in_out" | "cubic-in-out" => Ok(crate::app::ModalTransitionEasing::CubicInOut),
+        "sine_in_out" | "sine-in-out" => Ok(crate::app::ModalTransitionEasing::SineInOut),
+        "expo_in" | "expo-in" => Ok(crate::app::ModalTransitionEasing::ExpoIn),
+        "expo_in_out" | "expo-in-out" => Ok(crate::app::ModalTransitionEasing::ExpoInOut),
+        "expo_out" | "expo-out" => Ok(crate::app::ModalTransitionEasing::ExpoOut),
+        _ => Err(anyhow!("invalid modal_transition_easing '{value}'")),
     }
 }
 
@@ -1070,27 +1122,27 @@ scroll_rail:
     }
 
     #[test]
-    fn modal_stream_transition_duration_defaults_and_overrides() {
+    fn modal_transition_duration_defaults_and_overrides() {
         let default = super::AppTheme::default();
-        assert_eq!(default.modal_stream_transition_duration_ms, 220);
+        assert_eq!(default.modal_transition_duration, 220);
         assert_eq!(
-            default.modal_stream_transition_easing,
-            crate::app::ModalStreamEasing::ExpoInOut
+            default.modal_transition_easing,
+            crate::app::ModalTransitionEasing::ExpoInOut
         );
 
         let file: super::ThemeFile = serde_yaml::from_str(
             r#"
-modal_stream_transition_duration_ms: 340
-modal_stream_transition_easing: expo_in
+modal_transition_duration: 340
+modal_transition_easing: expo_in
 "#,
         )
         .unwrap();
         let theme = super::AppTheme::from_file(file).unwrap();
 
-        assert_eq!(theme.modal_stream_transition_duration_ms, 340);
+        assert_eq!(theme.modal_transition_duration, 340);
         assert_eq!(
-            theme.modal_stream_transition_easing,
-            crate::app::ModalStreamEasing::ExpoIn
+            theme.modal_transition_easing,
+            crate::app::ModalTransitionEasing::ExpoIn
         );
     }
 
@@ -1106,12 +1158,18 @@ modal_stub_background: "#070809"
         .unwrap();
         let theme = super::AppTheme::from_file(file).unwrap();
 
-        assert_eq!(theme.modal_active_background, Color::from_rgb8(0x01, 0x02, 0x03));
+        assert_eq!(
+            theme.modal_active_background,
+            Color::from_rgb8(0x01, 0x02, 0x03)
+        );
         assert_eq!(
             theme.modal_inactive_background,
             Color::from_rgb8(0x04, 0x05, 0x06)
         );
-        assert_eq!(theme.modal_stub_background, Color::from_rgb8(0x07, 0x08, 0x09));
+        assert_eq!(
+            theme.modal_stub_background,
+            Color::from_rgb8(0x07, 0x08, 0x09)
+        );
     }
 
     #[test]
