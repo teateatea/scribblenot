@@ -302,7 +302,7 @@ Use the same gated pattern as `/` (refresh theme) and `\` (refresh data): check 
 
 5. **`+` reset keybinding:** `+` is the label on the confirm stub but is not a bound key. The `+` key is available for reset.
 
-6. **Queued focus model (Option A):** when a transition is queued, focus and `active_unit_index` move immediately to the arriving unit. The arriving unit is interactive from frame 1. The visual animation for the in-flight transition completes before the queued one fires; the user may be interacting with a unit that is not yet visible in the animation.
+6. **Queued focus model (Option A - intentional):** when a transition is queued, focus and `active_unit_index` move immediately to the arriving unit. The arriving unit is interactive from frame 1. The visual animation for the in-flight transition completes before the queued one fires; the user may be interacting with a unit that is not yet visible in the animation. This is by design - advanced users can navigate rapidly and work ahead of the visuals unimpeded. Most users will naturally slow down when the relevant content is not yet on screen.
 
 7. **Queue invalidation:** `transition_queue` is cleared on any full layout reset - this includes open (`open_header_modal`), data refresh, and any query/filter change that invalidates the layout. Resize does not clear the queue (it only updates geometry, not unit identity).
 

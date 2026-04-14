@@ -59,8 +59,8 @@ preview_copy_flash_duration_ms: 650
 text_color_flash: "#FFFFFF"
 text_color_flash_duration: 650
 modal_spacer_width: 40.0
-modal_stub_width: 120.0
-modal_transition_duration: 200
+modal_stub_width: 60.0
+modal_transition_duration: 4000
 status_background: "#0A0D12"
 
 # Font roles. Use installed font family names such as "Fira Code",
