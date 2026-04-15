@@ -2,9 +2,9 @@ use crate::config::Config;
 use crate::data::{AppData, SectionConfig};
 use crate::document::build_initial_document;
 use crate::modal::{
-    joined_repeating_value, modal_height_for_viewport, modal_window_size_for_height,
-    resolved_item_labels_for_list, FieldAdvance, ModalFocus, SearchModal,
-    SimpleModalUnitLayout,
+    joined_repeating_value, modal_height_for_viewport, modal_list_view_dimensions,
+    modal_window_size_for_height, resolved_item_labels_for_list, FieldAdvance, ModalFocus,
+    ModalListViewSnapshot, ModalStubKind, SearchModal, SimpleModalUnitLayout,
 };
 use crate::sections::{
     checklist::ChecklistState,
@@ -16,7 +16,6 @@ use crate::sections::{
 use iced::keyboard::{key::Named, Key, Modifiers};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AppKey {
@@ -90,10 +89,12 @@ pub enum ModalPaneTarget {
     Right,
 }
 
+/// Direction focus moved to trigger a transition.
+/// Strip slides in the opposite direction: Forward = strip moves left.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModalStreamDirection {
-    Forward,
-    Backward,
+pub enum FocusDirection {
+    Forward,   // focus moved to a higher-index unit (rightward)
+    Backward,  // focus moved to a lower-index unit (leftward)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,19 +122,143 @@ impl ModalTransitionEasing {
     }
 }
 
+/// Frozen geometry for one unit, captured at transition start.
+/// Insulates in-flight layers from layout rebuilds (e.g. window resize).
 #[derive(Debug, Clone)]
-pub struct ModalStreamTransition {
-    pub from_modal: SearchModal,
-    pub direction: ModalStreamDirection,
+#[allow(dead_code)] // Part 3 fields: unit_index, modal_index_range, modal_x_offsets, first/last_list_id
+pub struct UnitGeometry {
+    pub unit_index: usize,
+    pub modal_index_range: std::ops::Range<usize>,
+    pub shows_stubs: bool,
+    pub leading_stub_kind: Option<ModalStubKind>,
+    pub trailing_stub_kind: Option<ModalStubKind>,
+    pub effective_spacer_width: f32,
+    pub modal_widths: Vec<f32>,
+    pub modal_x_offsets: Vec<f32>,
+    /// HierarchyList.id of the leftmost list in this unit. Required by Part 3.
+    pub first_list_id: String,
+    /// HierarchyList.id of the rightmost list in this unit. Required by Part 3.
+    pub last_list_id: String,
+}
+
+impl UnitGeometry {
+    /// Build frozen geometry for a unit from the given layout, or return None if the
+    /// unit index is out of range.
+    pub fn from_layout(
+        layout: &SimpleModalUnitLayout,
+        unit_index: usize,
+        modal: &SearchModal,
+        effective_spacer_width: f32,
+    ) -> Option<Self> {
+        let unit = layout.units.get(unit_index)?;
+        let n = layout.sequence.snapshots.len();
+
+        let leading_stub_kind = if unit.shows_stubs {
+            Some(if unit.start == 0 {
+                ModalStubKind::Exit
+            } else {
+                ModalStubKind::NavLeft
+            })
+        } else {
+            None
+        };
+        let trailing_stub_kind = if unit.shows_stubs {
+            Some(if unit.end + 1 >= n {
+                ModalStubKind::Confirm
+            } else {
+                ModalStubKind::NavRight
+            })
+        } else {
+            None
+        };
+
+        let modal_widths: Vec<f32> = (unit.start..=unit.end)
+            .map(|i| {
+                layout
+                    .sequence
+                    .snapshots
+                    .get(i)
+                    .map(|s| modal_list_view_dimensions(s).0)
+                    .unwrap_or(0.0)
+            })
+            .collect();
+
+        let mut modal_x_offsets = Vec::with_capacity(modal_widths.len());
+        let mut x = 0.0f32;
+        for (i, &w) in modal_widths.iter().enumerate() {
+            modal_x_offsets.push(x);
+            if i + 1 < modal_widths.len() {
+                x += w + effective_spacer_width;
+            }
+        }
+
+        let first_list_id = modal
+            .field_flow
+            .lists
+            .get(unit.start)
+            .map(|l| l.id.clone())
+            .unwrap_or_default();
+        let last_list_id = modal
+            .field_flow
+            .lists
+            .get(unit.end)
+            .map(|l| l.id.clone())
+            .unwrap_or_default();
+
+        Some(Self {
+            unit_index,
+            modal_index_range: unit.start..unit.end + 1,
+            shows_stubs: unit.shows_stubs,
+            leading_stub_kind,
+            trailing_stub_kind,
+            effective_spacer_width,
+            modal_widths,
+            modal_x_offsets,
+            first_list_id,
+            last_list_id,
+        })
+    }
+}
+
+/// Frozen render inputs for one unit's modals, captured at transition start.
+/// Prevents the departing unit's visuals from mutating if the user types during a
+/// transition. Focus has left this unit, so its render state should not change.
+#[derive(Debug, Clone)]
+pub struct UnitContentSnapshot {
+    pub modals: Vec<ModalListViewSnapshot>,
+}
+
+impl UnitContentSnapshot {
+    pub fn from_layout(layout: &SimpleModalUnitLayout, unit_index: usize) -> Option<Self> {
+        let unit = layout.units.get(unit_index)?;
+        let modals: Vec<ModalListViewSnapshot> = layout
+            .sequence
+            .snapshots
+            .get(unit.start..=unit.end)
+            .map(|s| s.to_vec())
+            .unwrap_or_default();
+        Some(Self { modals })
+    }
+}
+
+/// One unit currently sliding and fading in.
+/// Uses live modal content (focus is here; user input is correct).
+/// Geometry is frozen so resize does not invalidate this layer.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // Part 3 fields: unit_index, geometry
+pub struct ModalArrivalLayer {
+    pub unit_index: usize,
+    pub geometry: UnitGeometry,
+    pub focus_direction: FocusDirection,
     pub started_at: Instant,
-    pub duration: Duration,
+    pub duration_ms: u64,
     pub easing: ModalTransitionEasing,
 }
 
-impl ModalStreamTransition {
+impl ModalArrivalLayer {
     pub fn progress(&self) -> f32 {
-        let duration = self.duration.as_secs_f32().max(0.001);
-        (self.started_at.elapsed().as_secs_f32() / duration).clamp(0.0, 1.0)
+        let duration_secs = (self.duration_ms.max(1) as f32) / 1000.0;
+        (self.started_at.elapsed().as_secs_f32() / duration_secs).clamp(0.0, 1.0)
     }
 
     pub fn eased_progress(&self) -> f32 {
@@ -145,36 +270,43 @@ impl ModalStreamTransition {
     }
 }
 
+/// One unit currently sliding and fading out.
+/// Content and geometry are both frozen at transition start.
 #[derive(Debug, Clone)]
-pub struct ModalStreamCarry {
-    pub from_modal: SearchModal,
-    pub direction: ModalStreamDirection,
-    pub progress: f32,
-}
-
-#[derive(Debug, Clone)]
-pub struct ModalStreamDeparture {
-    pub modal: SearchModal,
-    pub direction: ModalStreamDirection,
+#[allow(dead_code)] // Part 3 fields: geometry, started_at, duration_ms, easing
+pub struct ModalDepartureLayer {
+    pub content: UnitContentSnapshot,
+    pub geometry: UnitGeometry,
+    pub focus_direction: FocusDirection,
     pub started_at: Instant,
-    pub duration: Duration,
+    pub duration_ms: u64,
     pub easing: ModalTransitionEasing,
-    pub carry: Option<ModalStreamCarry>,
 }
 
-impl ModalStreamDeparture {
+#[allow(dead_code)] // Part 3: progress/eased_progress used when departure has its own timing
+impl ModalDepartureLayer {
     pub fn progress(&self) -> f32 {
-        let duration = self.duration.as_secs_f32().max(0.001);
-        (self.started_at.elapsed().as_secs_f32() / duration).clamp(0.0, 1.0)
+        let duration_secs = (self.duration_ms.max(1) as f32) / 1000.0;
+        (self.started_at.elapsed().as_secs_f32() / duration_secs).clamp(0.0, 1.0)
     }
 
     pub fn eased_progress(&self) -> f32 {
         self.easing.apply(self.progress())
     }
+}
 
-    pub fn is_finished(&self) -> bool {
-        self.progress() >= 1.0
-    }
+/// A single animation entry.
+pub enum ModalTransitionLayer {
+    /// Normal transition: dep and arr form one rigid strip with a shared transition stub.
+    /// Both layers share the same x_offset, driven by the arrival's progress.
+    /// slide_distance is precomputed at creation from the viewport dimensions that exist
+    /// at transition start and stored here so render is independent of live viewport values.
+    ConnectedTransition {
+        arrival: ModalArrivalLayer,
+        departure: ModalDepartureLayer,
+        slide_distance: f32,
+    },
+    // Part 3 queue drain hook: fire next queued transition from here when arrival completes.
 }
 
 #[derive(Debug, Clone)]
@@ -258,8 +390,20 @@ pub struct App {
     pub hint_buffer: String,
     pub modal_mouse_mode: bool,
     modal_restore_snapshot: Option<ModalRestoreSnapshot>,
-    pub modal_stream_transition: Option<ModalStreamTransition>,
-    pub modal_stream_departures: Vec<ModalStreamDeparture>,
+    /// Precomputed layout for the current modal sequence and viewport.
+    /// None before the first layout build or whenever the current modal state does not
+    /// support simple-unit layout (e.g. query active, collection mode, etc.).
+    pub modal_unit_layout: Option<SimpleModalUnitLayout>,
+    /// Index into modal_unit_layout.units identifying the currently active unit.
+    /// AppState.active_unit_index is the single canonical source of truth; the layout
+    /// struct must not carry an independent copy.
+    pub active_unit_index: usize,
+    /// Prepared neighbors of the active unit (unit indices). None when no unit exists
+    /// in that direction or when modal_unit_layout is None.
+    pub prev_prepared_unit: Option<usize>,
+    pub next_prepared_unit: Option<usize>,
+    /// In-flight animation entries, ordered oldest-to-newest (newest = last / topmost).
+    pub modal_transitions: Vec<ModalTransitionLayer>,
     pub modal_composition_editing: bool,
     pub editable_note: String,
     pub note_headings_valid: bool,
@@ -349,8 +493,11 @@ impl App {
             hint_buffer: String::new(),
             modal_mouse_mode: false,
             modal_restore_snapshot: None,
-            modal_stream_transition: None,
-            modal_stream_departures: Vec::new(),
+            modal_unit_layout: None,
+            active_unit_index: 0,
+            prev_prepared_unit: None,
+            next_prepared_unit: None,
+            modal_transitions: Vec::new(),
             modal_composition_editing: false,
             editable_note,
             note_headings_valid,
@@ -365,6 +512,10 @@ impl App {
         if let Some(modal) = self.modal.as_mut() {
             modal.window_size = window_size;
             modal.update_scroll();
+        }
+        // Geometry-only rebuild: update layout for new viewport, preserve in-flight layers.
+        if self.modal.is_some() {
+            self.rebuild_modal_unit_layout(false);
         }
     }
 
@@ -383,18 +534,6 @@ impl App {
             .max(0.0)
     }
 
-    pub fn simple_modal_unit_layout_for(
-        &self,
-        modal: &SearchModal,
-    ) -> Option<SimpleModalUnitLayout> {
-        modal.simple_modal_unit_layout(
-            &self.config.sticky_values,
-            self.viewport_size.map(|size| size.width),
-            self.ui_theme.modal_spacer_width,
-            self.ui_theme.modal_stub_width,
-        )
-    }
-
     pub fn set_editable_note(&mut self, new_text: String) {
         self.editable_note = new_text;
         self.refresh_note_structure();
@@ -406,16 +545,87 @@ impl App {
         }
     }
 
-    fn clear_modal_stream_animations(&mut self) {
-        self.modal_stream_transition = None;
-        self.modal_stream_departures.clear();
+    /// Reset all modal transition state. Called when the modal closes or transitions
+    /// must be invalidated (e.g. data reload, non-simple-mode entry during animation).
+    fn settle_modal_transitions(&mut self) {
+        self.modal_transitions.clear();
+        self.modal_unit_layout = None;
+        self.active_unit_index = 0;
+        self.prev_prepared_unit = None;
+        self.next_prepared_unit = None;
+    }
+
+    /// Rebuild the precomputed modal unit layout from the current modal and viewport state.
+    ///
+    /// `full_reset = false`: steps 1-4 only (geometry update). In-flight layers are preserved;
+    /// their frozen geometry is unaffected by the viewport change.
+    ///
+    /// `full_reset = true`: steps 1-4 + clear modal_transitions (open, data refresh).
+    fn rebuild_modal_unit_layout(&mut self, full_reset: bool) {
+        // Step 1: build layout from the current modal state.
+        let layout = self.modal.as_ref().and_then(|modal| {
+            modal.simple_modal_unit_layout(
+                &self.config.sticky_values,
+                self.viewport_size.map(|s| s.width),
+                self.ui_theme.modal_spacer_width,
+                self.ui_theme.modal_stub_width,
+            )
+        });
+
+        match &layout {
+            Some(layout_ref) => {
+                // Step 2: locate the unit whose range contains the active list index.
+                let list_idx = self
+                    .modal
+                    .as_ref()
+                    .map(|m| m.field_flow.list_idx)
+                    .unwrap_or(0);
+                let n = layout_ref.units.len();
+                let active_unit = layout_ref
+                    .units
+                    .iter()
+                    .position(|unit| (unit.start..=unit.end).contains(&list_idx))
+                    .unwrap_or(0);
+
+                // Steps 3-4: prepared neighbors.
+                self.active_unit_index = active_unit;
+                self.prev_prepared_unit = if active_unit > 0 {
+                    Some(active_unit - 1)
+                } else {
+                    None
+                };
+                self.next_prepared_unit = if active_unit + 1 < n {
+                    Some(active_unit + 1)
+                } else {
+                    None
+                };
+            }
+            None => {
+                // Non-simple-mode path: focus remains at the active modal at rest.
+                self.active_unit_index = 0;
+                self.prev_prepared_unit = None;
+                self.next_prepared_unit = None;
+                // If we lose simple mode during a transition, settle immediately so the
+                // next frame renders the active unit at rest without stale layer data.
+                if !self.modal_transitions.is_empty() {
+                    self.modal_transitions.clear();
+                }
+            }
+        }
+
+        self.modal_unit_layout = layout;
+
+        // Step 5 (full reset only): clear in-flight transitions.
+        if full_reset {
+            self.modal_transitions.clear();
+        }
     }
 
     pub fn close_modal(&mut self) {
         self.modal = None;
         self.modal_mouse_mode = false;
         self.modal_restore_snapshot = None;
-        self.clear_modal_stream_animations();
+        self.settle_modal_transitions();
         self.modal_composition_editing = false;
         self.hint_buffer.clear();
     }
@@ -474,7 +684,7 @@ impl App {
         }
         self.modal = None;
         self.modal_mouse_mode = false;
-        self.clear_modal_stream_animations();
+        self.settle_modal_transitions();
         self.modal_composition_editing = false;
         self.hint_buffer.clear();
     }
@@ -486,6 +696,14 @@ impl App {
             }
             modal.query = new_text;
             modal.update_filter();
+        }
+        // Any query edit settles in-flight transitions then rebuilds layout.
+        // A non-empty query will make the modal non-simple, setting modal_unit_layout = None.
+        if !self.modal_transitions.is_empty() {
+            self.modal_transitions.clear();
+        }
+        if self.modal.is_some() {
+            self.rebuild_modal_unit_layout(false);
         }
     }
 
@@ -790,15 +1008,12 @@ impl App {
                 self.status = None;
             }
         }
-        if self
-            .modal_stream_transition
-            .as_ref()
-            .is_some_and(ModalStreamTransition::is_finished)
-        {
-            self.modal_stream_transition = None;
-        }
-        self.modal_stream_departures
-            .retain(|transition| !transition.is_finished());
+        // Per-frame pruning: remove completed transition entries.
+        // Part 3 queue drain hook: fire the next queued adaptive transition when an
+        // arrival completes (insert here).
+        self.modal_transitions.retain(|entry| match entry {
+            ModalTransitionLayer::ConnectedTransition { arrival, .. } => !arrival.is_finished(),
+        });
         if self
             .copy_flash_until
             .is_some_and(|until| Instant::now() >= until)
@@ -813,80 +1028,9 @@ impl App {
         !self.evicted_collection_flash_until.is_empty()
     }
 
-    pub fn has_active_modal_stream_transition(&self) -> bool {
-        self.modal_stream_transition
-            .as_ref()
-            .is_some_and(|transition| !transition.is_finished())
-            || !self.modal_stream_departures.is_empty()
-    }
-
-    fn same_modal_unit_window(
-        &self,
-        left: &SearchModal,
-        right: &SearchModal,
-    ) -> Option<bool> {
-        let left_layout = self.simple_modal_unit_layout_for(left)?;
-        let right_layout = self.simple_modal_unit_layout_for(right)?;
-        let left_unit = left_layout.units.get(left_layout.active_unit_index)?;
-        let right_unit = right_layout.units.get(right_layout.active_unit_index)?;
-        Some(
-            left_unit.start == right_unit.start
-                && left_unit.end == right_unit.end
-                && left_unit.shows_stubs == right_unit.shows_stubs,
-        )
-    }
-
-    fn start_modal_stream_transition(&mut self, previous_modal: Option<SearchModal>) {
-        let Some(previous_modal) = previous_modal else {
-            return;
-        };
-        let Some(current_modal) = self.modal.as_ref() else {
-            return;
-        };
-
-        let direction = match current_modal
-            .field_flow
-            .list_idx
-            .cmp(&previous_modal.field_flow.list_idx)
-        {
-            std::cmp::Ordering::Greater => Some(ModalStreamDirection::Forward),
-            std::cmp::Ordering::Less => Some(ModalStreamDirection::Backward),
-            std::cmp::Ordering::Equal => None,
-        };
-        let Some(direction) = direction else {
-            return;
-        };
-        if self.same_modal_unit_window(&previous_modal, current_modal) != Some(false) {
-            return;
-        }
-
-        let duration = Duration::from_millis(self.ui_theme.modal_transition_duration.max(1));
-        let easing = self.ui_theme.modal_transition_easing;
-        let carry = self.modal_stream_transition.as_ref().and_then(|transition| {
-            if transition.is_finished() {
-                return None;
-            }
-            Some(ModalStreamCarry {
-                from_modal: transition.from_modal.clone(),
-                direction: transition.direction,
-                progress: transition.eased_progress(),
-            })
-        });
-        self.modal_stream_departures.push(ModalStreamDeparture {
-            modal: previous_modal.clone(),
-            direction,
-            started_at: Instant::now(),
-            duration,
-            easing,
-            carry,
-        });
-        self.modal_stream_transition = Some(ModalStreamTransition {
-            from_modal: previous_modal,
-            direction,
-            started_at: Instant::now(),
-            duration,
-            easing,
-        });
+    /// Returns true when any transition layer is currently animating.
+    pub fn has_active_modal_transition(&self) -> bool {
+        !self.modal_transitions.is_empty()
     }
 
     pub fn collection_text_flash_amount(&self, collection_id: &str) -> Option<f32> {
@@ -1169,7 +1313,7 @@ impl App {
         self.map_hint_level = MapHintLevel::Sections(self.group_idx_for_section(self.current_idx));
         self.modal = None;
         self.modal_mouse_mode = false;
-        self.clear_modal_stream_animations();
+        self.settle_modal_transitions();
         self.hint_buffer.clear();
         self.data = data;
         self.editable_note = build_initial_document(
@@ -1267,7 +1411,7 @@ impl App {
         if !self.text_entry_active() && self.is_copy_note(&key) {
             self.modal_mouse_mode = false;
             self.modal = None;
-            self.clear_modal_stream_animations();
+            self.settle_modal_transitions();
             self.show_help = false;
             self.copy_requested = true;
             return;
@@ -1632,6 +1776,8 @@ impl App {
                 original_value: current_value,
                 original_spans,
             });
+            // Full reset: build layout for the newly opened modal and clear any stale transitions.
+            self.rebuild_modal_unit_layout(true);
         }
     }
 
@@ -2068,7 +2214,9 @@ impl App {
     fn confirm_modal_value(&mut self, value: String) {
         let idx = self.current_idx;
         if self.modal.is_some() {
-            let previous_modal = self.modal.clone();
+            // Dual-layout capture: snapshot pre-mutation state for departure geometry.
+            let previous_layout = self.modal_unit_layout.clone();
+            let previous_modal = self.modal.as_ref().unwrap().clone();
             let window_size = self.modal_window_size();
             let advance = self.modal.as_mut().unwrap().advance_field(
                 value,
@@ -2079,7 +2227,8 @@ impl App {
                 FieldAdvance::NextList => {
                     self.sync_modal_preview_state(idx);
                     let _ = self.config.save(&self.data_dir);
-                    self.start_modal_stream_transition(previous_modal);
+                    self.rebuild_modal_unit_layout(false);
+                    self.fire_modal_transition_if_needed(previous_layout, previous_modal);
                 }
                 FieldAdvance::StayOnList => {
                     self.sync_modal_preview_state(idx);
@@ -2117,7 +2266,9 @@ impl App {
             return;
         }
 
-        let previous_modal = self.modal.clone();
+        // Dual-layout capture: snapshot pre-mutation state for departure geometry.
+        let previous_layout = self.modal_unit_layout.clone();
+        let previous_modal = self.modal.as_ref().unwrap().clone();
         let window_size = self.modal_window_size();
         let advance = self
             .modal
@@ -2129,7 +2280,8 @@ impl App {
             FieldAdvance::NextList | FieldAdvance::StayOnList => {
                 self.sync_modal_preview_state(idx);
                 let _ = self.config.save(&self.data_dir);
-                self.start_modal_stream_transition(previous_modal);
+                self.rebuild_modal_unit_layout(false);
+                self.fire_modal_transition_if_needed(previous_layout, previous_modal);
             }
             FieldAdvance::Complete(mut final_value) => {
                 if let Some(override_text) = self
@@ -2500,7 +2652,13 @@ impl App {
 
     fn composite_go_back(&mut self) {
         let idx = self.current_idx;
-        let previous_modal = self.modal.clone();
+
+        // Dual-layout capture: snapshot pre-mutation state for departure geometry.
+        let previous_layout = self.modal_unit_layout.clone();
+        let previous_modal = match self.modal.as_ref() {
+            Some(m) => m.clone(),
+            None => return,
+        };
 
         let window_size = self.modal_window_size();
         if self
@@ -2509,7 +2667,8 @@ impl App {
             .is_some_and(|modal| modal.go_back_one_step(&self.config.sticky_values, window_size))
         {
             self.sync_modal_preview_state(idx);
-            self.start_modal_stream_transition(previous_modal);
+            self.rebuild_modal_unit_layout(false);
+            self.fire_modal_transition_if_needed(previous_layout, previous_modal);
             return;
         }
         let (new_list_idx, popped_output, new_labels, new_outputs) = {
@@ -2563,7 +2722,131 @@ impl App {
         } else {
             self.sync_modal_preview_state(idx);
         }
-        self.start_modal_stream_transition(previous_modal);
+        self.rebuild_modal_unit_layout(false);
+        self.fire_modal_transition_if_needed(previous_layout, previous_modal);
+    }
+
+    /// Evaluate whether focus crossed a unit boundary after a modal mutation and, if so,
+    /// create a `ConnectedTransition` entry in `modal_transitions`.
+    ///
+    /// Call sites must capture `previous_layout` and `previous_modal` BEFORE the mutation,
+    /// then call `rebuild_modal_unit_layout(false)` BEFORE calling this function so that
+    /// `self.modal_unit_layout` and `self.active_unit_index` reflect post-mutation state.
+    fn fire_modal_transition_if_needed(
+        &mut self,
+        previous_layout: Option<SimpleModalUnitLayout>,
+        previous_modal: SearchModal,
+    ) {
+        // Both current and previous states must be in simple mode.
+        if self.modal_unit_layout.is_none() || self.modal.is_none() {
+            return;
+        }
+        let Some(ref _prev_layout_check) = previous_layout else {
+            return;
+        };
+
+        let old_list_idx = previous_modal.field_flow.list_idx;
+        let new_list_idx = self.modal.as_ref().unwrap().field_flow.list_idx;
+
+        let focus_direction = match new_list_idx.cmp(&old_list_idx) {
+            std::cmp::Ordering::Greater => FocusDirection::Forward,
+            std::cmp::Ordering::Less => FocusDirection::Backward,
+            std::cmp::Ordering::Equal => return,
+        };
+
+        let arriving_unit_index = self.active_unit_index;
+
+        // Collect values that require only shared borrows before we borrow self mutably.
+        let effective_spacer_width = self.modal_spacer_width();
+        let viewport_width = self.viewport_size.map(|s| s.width).unwrap_or(0.0);
+        let stub_width = self.ui_theme.modal_stub_width;
+        let duration_ms = self.ui_theme.modal_transition_duration.max(1) as u64;
+        let easing = self.ui_theme.modal_transition_easing;
+
+        let prev_layout = previous_layout.as_ref().unwrap();
+        let departing_unit_index = prev_layout
+            .units
+            .iter()
+            .position(|unit| (unit.start..=unit.end).contains(&old_list_idx))
+            .unwrap_or(0);
+
+        // No cross-unit movement: skip.
+        if departing_unit_index == arriving_unit_index {
+            return;
+        }
+
+        // Build frozen geometry inside a block so the borrows of self end before the push.
+        let n;
+        let dep_geometry;
+        let arr_geometry;
+        let dep_content;
+        {
+            let curr_layout = self.modal_unit_layout.as_ref().unwrap();
+            n = curr_layout.units.len();
+            dep_geometry = UnitGeometry::from_layout(
+                prev_layout,
+                departing_unit_index,
+                &previous_modal,
+                effective_spacer_width,
+            );
+            arr_geometry = UnitGeometry::from_layout(
+                curr_layout,
+                arriving_unit_index,
+                self.modal.as_ref().unwrap(),
+                effective_spacer_width,
+            );
+            dep_content = UnitContentSnapshot::from_layout(prev_layout, departing_unit_index);
+        }
+
+        let (Some(dep_geometry), Some(arr_geometry), Some(dep_content)) =
+            (dep_geometry, arr_geometry, dep_content)
+        else {
+            return;
+        };
+
+        // Precompute slide_distance. Both show stubs: use viewport - stub formula.
+        // Mixed or neither: use the spacer formula (see plan section "Transition Trigger step 7").
+        let slide_distance = if dep_geometry.shows_stubs && arr_geometry.shows_stubs {
+            viewport_width - stub_width
+        } else {
+            viewport_width + arr_geometry.effective_spacer_width
+        };
+
+        let now = Instant::now();
+        let departure = ModalDepartureLayer {
+            content: dep_content,
+            geometry: dep_geometry,
+            focus_direction,
+            started_at: now,
+            duration_ms,
+            easing,
+        };
+        let arrival = ModalArrivalLayer {
+            unit_index: arriving_unit_index,
+            geometry: arr_geometry,
+            focus_direction,
+            started_at: now,
+            duration_ms,
+            easing,
+        };
+
+        self.modal_transitions.push(ModalTransitionLayer::ConnectedTransition {
+            arrival,
+            departure,
+            slide_distance,
+        });
+
+        // Update prepared neighbors for the new active unit.
+        self.prev_prepared_unit = if arriving_unit_index > 0 {
+            Some(arriving_unit_index - 1)
+        } else {
+            None
+        };
+        self.next_prepared_unit = if arriving_unit_index + 1 < n {
+            Some(arriving_unit_index + 1)
+        } else {
+            None
+        };
     }
 }
 

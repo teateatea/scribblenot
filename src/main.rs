@@ -171,7 +171,7 @@ fn subscription(state: &ScribbleApp) -> Subscription<Message> {
     let resize = iced::window::resize_events().map(|(_id, size)| Message::WindowResized(size));
     let tick_interval = if state.inner.copy_flash_until.is_some()
         || state.inner.has_active_text_flash()
-        || state.inner.has_active_modal_stream_transition()
+        || state.inner.has_active_modal_transition()
     {
         Duration::from_millis(33)
     } else {

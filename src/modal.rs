@@ -114,7 +114,8 @@ pub struct ModalUnitRange {
 pub struct SimpleModalUnitLayout {
     pub sequence: SimpleModalSequence,
     pub units: Vec<ModalUnitRange>,
-    pub active_unit_index: usize,
+    // active_unit_index is NOT stored here; AppState.active_unit_index is the single
+    // canonical source of truth. This struct is geometry-only.
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2075,7 +2076,6 @@ pub fn build_simple_modal_unit_layout(
         .collect::<Vec<_>>();
 
     let mut units = Vec::new();
-    let mut active_unit_index = 0usize;
     let mut start = 0usize;
     while start < widths.len() {
         let first_width = widths[start];
@@ -2104,9 +2104,6 @@ pub fn build_simple_modal_unit_layout(
             }
         }
 
-        if (start..=end).contains(&sequence.active_sequence_index) {
-            active_unit_index = units.len();
-        }
         units.push(ModalUnitRange {
             start,
             end,
@@ -2118,7 +2115,6 @@ pub fn build_simple_modal_unit_layout(
     Some(SimpleModalUnitLayout {
         sequence,
         units,
-        active_unit_index,
     })
 }
 
@@ -2216,7 +2212,9 @@ mod modal_sizing_tests {
                 },
             ]
         );
-        assert_eq!(layout.active_unit_index, 1);
+        // active_unit_index is now owned by AppState, not the layout.
+        // The sequence.active_sequence_index (2) belongs to units[1] (start=2, end=2).
+        assert!(layout.units[1].start == 2);
     }
 
     #[test]
