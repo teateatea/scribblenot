@@ -58,7 +58,7 @@ preview_copy_flash_background: "#1A592E"
 preview_copy_flash_duration_ms: 650
 text_color_flash: "#FFFFFF"
 text_color_flash_duration: 650
-modal_spacer_width: 40.0
+modal_spacer_width: 3.0
 modal_stub_width: 60.0
 modal_transition_duration: 4000
 status_background: "#0A0D12"

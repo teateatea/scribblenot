@@ -430,7 +430,7 @@ impl Default for AppTheme {
             scroll_border_width: 1.0,
             scroll_width: 10.0,
             scroll_spacing: 6.0,
-            modal_spacer_width: 40.0,
+            modal_spacer_width: 3.0,
             modal_stub_width: 120.0,
             font_pane: Font::MONOSPACE,
             font_heading: Font {
@@ -1175,7 +1175,7 @@ modal_stub_background: "#070809"
     #[test]
     fn modal_unit_spacing_knobs_default_and_override() {
         let default = super::AppTheme::default();
-        assert_eq!(default.modal_spacer_width, 40.0);
+        assert_eq!(default.modal_spacer_width, 3.0);
         assert_eq!(default.modal_stub_width, 120.0);
 
         let file: super::ThemeFile = serde_yaml::from_str(
