@@ -2758,7 +2758,6 @@ impl App {
 
         // Collect values that require only shared borrows before we borrow self mutably.
         let effective_spacer_width = self.modal_spacer_width();
-        let viewport_width = self.viewport_size.map(|s| s.width).unwrap_or(0.0);
         let stub_width = self.ui_theme.modal_stub_width;
         let duration_ms = self.ui_theme.modal_transition_duration.max(1) as u64;
         let easing = self.ui_theme.modal_transition_easing;
@@ -2804,12 +2803,15 @@ impl App {
             return;
         };
 
-        // Precompute slide_distance. Both show stubs: use viewport - stub formula.
-        // Mixed or neither: use the spacer formula (see plan section "Transition Trigger step 7").
+        // Precompute slide_distance from the actual unit widths.
+        // Both show stubs: the units share a transition stub, so the gap between their
+        // centres shrinks by one stub_width. Otherwise a plain spacer separates them.
+        let dep_unit_width = unit_display_width(&dep_geometry, stub_width);
+        let arr_unit_width = unit_display_width(&arr_geometry, stub_width);
         let slide_distance = if dep_geometry.shows_stubs && arr_geometry.shows_stubs {
-            viewport_width - stub_width
+            ((dep_unit_width + arr_unit_width) / 2.0 - stub_width).max(0.0)
         } else {
-            viewport_width + arr_geometry.effective_spacer_width
+            (dep_unit_width + arr_unit_width) / 2.0 + effective_spacer_width
         };
 
         let now = Instant::now();
@@ -2847,6 +2849,18 @@ impl App {
         } else {
             None
         };
+    }
+}
+
+/// Returns the total rendered width (in pixels) of a modal unit from its frozen geometry.
+/// This is the sum of stub widths (if any), modal card widths, and inter-element spacers.
+fn unit_display_width(geometry: &UnitGeometry, stub_width: f32) -> f32 {
+    let n = geometry.modal_widths.len();
+    let modals: f32 = geometry.modal_widths.iter().sum();
+    if geometry.shows_stubs {
+        2.0 * stub_width + modals + (n as f32 + 1.0) * geometry.effective_spacer_width
+    } else {
+        modals + (n.saturating_sub(1) as f32) * geometry.effective_spacer_width
     }
 }
 

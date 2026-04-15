@@ -1881,7 +1881,6 @@ fn entry_composition_panel<'a>(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ModalUnitStubMode {
-    Ghost,
     Visible,
 }
 
@@ -1910,6 +1909,7 @@ enum ModalUnitCardKind {
 struct ModalUnitCardData {
     kind: ModalUnitCardKind,
     width: f32,
+    alpha: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1958,6 +1958,7 @@ fn build_rendered_modal_unit(
                 stub_kind: left_kind,
             },
             width: app.ui_theme.modal_stub_width,
+            alpha: 1.0,
         });
     }
     for sequence_idx in unit.start..=unit.end {
@@ -1970,7 +1971,11 @@ fn build_rendered_modal_unit(
         } else {
             ModalUnitCardKind::Preview { snapshot }
         };
-        cards.push(ModalUnitCardData { kind, width });
+        cards.push(ModalUnitCardData {
+            kind,
+            width,
+            alpha: 1.0,
+        });
     }
     if unit.shows_stubs {
         cards.push(ModalUnitCardData {
@@ -1980,53 +1985,110 @@ fn build_rendered_modal_unit(
                 stub_kind: right_kind,
             },
             width: app.ui_theme.modal_stub_width,
+            alpha: 1.0,
         });
     }
     RenderedModalUnit { cards }
 }
 
-fn build_departure_rendered_unit(
-    dep: &crate::app::ModalDepartureLayer,
+fn push_strip_stub(
+    cards: &mut Vec<ModalUnitCardData>,
+    side: ModalUnitSide,
+    kind: crate::modal::ModalStubKind,
+    width: f32,
+    alpha: f32,
+) {
+    cards.push(ModalUnitCardData {
+        kind: ModalUnitCardKind::Stub {
+            side,
+            mode: ModalUnitStubMode::Visible,
+            stub_kind: kind,
+        },
+        width,
+        alpha,
+    });
+}
+
+fn build_connected_transition_rendered_unit(
     stub_width: f32,
+    layout: &SimpleModalUnitLayout,
+    arrival: &crate::app::ModalArrivalLayer,
+    departure: &crate::app::ModalDepartureLayer,
+    progress: f32,
 ) -> RenderedModalUnit {
-    let geo = &dep.geometry;
-    let content = &dep.content;
+    let dep_alpha = 1.0 - progress;
+    let arr_alpha = progress;
+    let dep_geo = &departure.geometry;
+    let arr_geo = &arrival.geometry;
+    let dep_content = &departure.content;
     let mut cards = Vec::new();
-    if geo.shows_stubs {
-        if let Some(kind) = geo.leading_stub_kind {
-            cards.push(ModalUnitCardData {
-                kind: ModalUnitCardKind::Stub {
-                    side: ModalUnitSide::Left,
-                    mode: ModalUnitStubMode::Visible,
-                    stub_kind: kind,
-                },
-                width: stub_width,
-            });
+
+    let (dep_far_stub, transition_stub, arr_far_stub) = match arrival.focus_direction {
+        crate::app::FocusDirection::Forward => (
+            dep_geo.leading_stub_kind.map(|kind| (ModalUnitSide::Left, kind)),
+            dep_geo.trailing_stub_kind.map(|kind| (ModalUnitSide::Right, kind)),
+            arr_geo.trailing_stub_kind.map(|kind| (ModalUnitSide::Right, kind)),
+        ),
+        crate::app::FocusDirection::Backward => (
+            dep_geo.trailing_stub_kind.map(|kind| (ModalUnitSide::Right, kind)),
+            dep_geo.leading_stub_kind.map(|kind| (ModalUnitSide::Left, kind)),
+            arr_geo.leading_stub_kind.map(|kind| (ModalUnitSide::Left, kind)),
+        ),
+    };
+
+    if dep_geo.shows_stubs {
+        if let Some((side, kind)) = dep_far_stub {
+            push_strip_stub(&mut cards, side, kind, stub_width, dep_alpha);
         }
     }
-    for (i, snapshot) in content.modals.iter().enumerate() {
-        let width = geo
+
+    for (i, snapshot) in dep_content.modals.iter().enumerate() {
+        let width = dep_geo
             .modal_widths
             .get(i)
             .copied()
             .unwrap_or_else(|| modal_list_view_dimensions(snapshot).0);
         cards.push(ModalUnitCardData {
-            kind: ModalUnitCardKind::Preview { snapshot: snapshot.clone() },
+            kind: ModalUnitCardKind::Preview {
+                snapshot: snapshot.clone(),
+            },
             width,
+            alpha: dep_alpha,
         });
     }
-    if geo.shows_stubs {
-        if let Some(kind) = geo.trailing_stub_kind {
-            cards.push(ModalUnitCardData {
-                kind: ModalUnitCardKind::Stub {
-                    side: ModalUnitSide::Right,
-                    mode: ModalUnitStubMode::Visible,
-                    stub_kind: kind,
-                },
-                width: stub_width,
-            });
+
+    if dep_geo.shows_stubs {
+        if let Some((side, kind)) = transition_stub {
+            push_strip_stub(&mut cards, side, kind, stub_width, 1.0);
         }
     }
+
+    for (sequence_idx, width) in arr_geo
+        .modal_index_range
+        .clone()
+        .zip(arr_geo.modal_widths.iter().copied())
+    {
+        let Some(snapshot) = layout.sequence.snapshots.get(sequence_idx).cloned() else {
+            continue;
+        };
+        let kind = if sequence_idx == layout.sequence.active_sequence_index {
+            ModalUnitCardKind::Active { snapshot }
+        } else {
+            ModalUnitCardKind::Preview { snapshot }
+        };
+        cards.push(ModalUnitCardData {
+            kind,
+            width,
+            alpha: arr_alpha,
+        });
+    }
+
+    if arr_geo.shows_stubs {
+        if let Some((side, kind)) = arr_far_stub {
+            push_strip_stub(&mut cards, side, kind, stub_width, arr_alpha);
+        }
+    }
+
     RenderedModalUnit { cards }
 }
 
@@ -2045,17 +2107,14 @@ fn render_modal_unit<'a>(
     current_modal: Option<&'a crate::modal::SearchModal>,
     modal_height: f32,
     shift: f32,
-    alpha: f32,
     interactive_active: bool,
 ) -> Element<'a, Message> {
     let spacer_width = app.modal_spacer_width();
     let mut cards: Vec<Element<'a, Message>> = Vec::new();
     for card in &rendered.cards {
+        let alpha = card.alpha;
         match &card.kind {
             ModalUnitCardKind::Stub { mode, stub_kind, .. } => match mode {
-                ModalUnitStubMode::Ghost => cards.push(
-                    Space::new(Length::Fixed(card.width), Length::Fixed(modal_height)).into(),
-                ),
                 ModalUnitStubMode::Visible => {
                     let text_color = match stub_kind {
                         crate::modal::ModalStubKind::NavLeft
@@ -2160,6 +2219,159 @@ fn render_modal_unit<'a>(
     .into()
 }
 
+/// Returns the total rendered width of a unit from its frozen geometry.
+/// Mirrors the computation in app::unit_display_width; kept local so ui.rs does not
+/// depend on a pub function in app.rs just for geometry math.
+fn transition_unit_display_width(geometry: &crate::app::UnitGeometry, stub_width: f32) -> f32 {
+    let n = geometry.modal_widths.len();
+    let modals: f32 = geometry.modal_widths.iter().sum();
+    if geometry.shows_stubs {
+        2.0 * stub_width + modals + (n as f32 + 1.0) * geometry.effective_spacer_width
+    } else {
+        modals + (n.saturating_sub(1) as f32) * geometry.effective_spacer_width
+    }
+}
+
+/// Render a connected transition strip with a true clipped-viewport envelope.
+///
+/// The dep unit is centred in the viewport at p = 0.  The combined strip then
+/// slides left by `slide * p` pixels, bringing the arr unit to centre at p = 1.
+/// This replaces the old `render_modal_unit` transition path that used a
+/// dynamically sized outer container and centred it -- which broke down when the
+/// container exceeded the window width.
+fn render_connected_transition<'a>(
+    app: &'a App,
+    rendered: &RenderedModalUnit,
+    departure: &crate::app::ModalDepartureLayer,
+    current_modal: Option<&'a crate::modal::SearchModal>,
+    modal_height: f32,
+    p: f32,
+    slide: f32,
+    interactive_active: bool,
+) -> Element<'a, Message> {
+    let spacer_width = app.modal_spacer_width();
+    let mut cards: Vec<Element<'a, Message>> = Vec::new();
+    for card in &rendered.cards {
+        let alpha = card.alpha;
+        match &card.kind {
+            ModalUnitCardKind::Stub { mode, stub_kind, .. } => match mode {
+                ModalUnitStubMode::Visible => {
+                    let text_color = match stub_kind {
+                        crate::modal::ModalStubKind::NavLeft
+                        | crate::modal::ModalStubKind::NavRight => {
+                            app.ui_theme.modal_nav_stub_text
+                        }
+                        crate::modal::ModalStubKind::Exit => app.ui_theme.modal_exit_stub_text,
+                        crate::modal::ModalStubKind::Confirm => {
+                            app.ui_theme.modal_confirm_stub_text
+                        }
+                    };
+                    cards.push(modal_card(
+                        app,
+                        container(
+                            text(stub_kind.symbol().to_string())
+                                .font(app.ui_theme.font_modal)
+                                .size(24)
+                                .color(apply_alpha(text_color, alpha)),
+                        )
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .center_x(Length::Fill)
+                        .center_y(Length::Fill),
+                        ModalRenderMode::Preview,
+                        ModalCardRole::Stub(*stub_kind),
+                        false,
+                        card.width,
+                        modal_height,
+                        alpha,
+                    ));
+                }
+            },
+            ModalUnitCardKind::Preview { snapshot } => cards.push(modal_card(
+                app,
+                preview_simple_modal_content(app, snapshot.clone(), alpha),
+                ModalRenderMode::Preview,
+                ModalCardRole::Inactive,
+                false,
+                card.width,
+                modal_height,
+                alpha,
+            )),
+            ModalUnitCardKind::Active { snapshot } => {
+                if interactive_active {
+                    if let Some(modal) = current_modal {
+                        cards.push(modal_card(
+                            app,
+                            active_simple_modal_content(app, modal, alpha),
+                            ModalRenderMode::Interactive,
+                            ModalCardRole::Active,
+                            true,
+                            card.width,
+                            modal_height,
+                            alpha,
+                        ));
+                    } else {
+                        cards.push(modal_card(
+                            app,
+                            preview_simple_modal_content(app, snapshot.clone(), alpha),
+                            ModalRenderMode::Preview,
+                            ModalCardRole::Active,
+                            false,
+                            card.width,
+                            modal_height,
+                            alpha,
+                        ));
+                    }
+                } else {
+                    cards.push(modal_card(
+                        app,
+                        preview_simple_modal_content(app, snapshot.clone(), alpha),
+                        ModalRenderMode::Preview,
+                        ModalCardRole::Active,
+                        false,
+                        card.width,
+                        modal_height,
+                        alpha,
+                    ));
+                }
+            }
+        }
+    }
+
+    let row_width = rendered.total_width(spacer_width);
+    let viewport_width = app.viewport_size.map(|size| size.width).unwrap_or(row_width);
+
+    // Compute the dep unit's display width so we can anchor its centre to the
+    // viewport centre at p = 0.  Both forward and backward transitions slide the
+    // combined strip left by slide * p; the visual difference between directions
+    // comes from the strip content (stub order), not the slide direction.
+    let dep_unit_width =
+        transition_unit_display_width(&departure.geometry, app.ui_theme.modal_stub_width);
+    let shift = (row_width - dep_unit_width) / 2.0 - slide * p;
+
+    // Use the runway helper for the oversized-container positioning, now with a
+    // clip(true) viewport envelope so the clipping is explicit and independent of
+    // the physical window boundary.
+    let (outer_width, left_pad, right_pad) =
+        modal_unit_runway_layout(viewport_width, row_width, shift);
+
+    container(
+        container(
+            row![
+                Space::with_width(Length::Fixed(left_pad)),
+                row(cards).spacing(spacer_width).align_y(iced::alignment::Vertical::Center),
+                Space::with_width(Length::Fixed(right_pad))
+            ]
+            .align_y(iced::alignment::Vertical::Center),
+        )
+        .width(Length::Fixed(outer_width)),
+    )
+    .width(Length::Fill)
+    .center_x(Length::Fill)
+    .clip(true)
+    .into()
+}
+
 fn simple_modal_unit_root_width(layout: &SimpleModalUnitLayout) -> Option<f32> {
     layout
         .sequence
@@ -2259,52 +2471,21 @@ fn modal_overlay<'a>(app: &'a App, modal: &'a crate::modal::SearchModal) -> Elem
                 {
                     let p = arrival.eased_progress();
                     let slide = *slide_distance;
-
-                    // Pass 1 (bottom): departing unit slides away and fades out.
-                    let dep_shift = match departure.focus_direction {
-                        crate::app::FocusDirection::Forward => -(slide * p),
-                        crate::app::FocusDirection::Backward => slide * p,
-                    };
-                    let dep_rendered =
-                        build_departure_rendered_unit(departure, app.ui_theme.modal_stub_width);
-                    layers = layers.push(render_modal_unit(
-                        app,
-                        &dep_rendered,
-                        None,
-                        modal_height,
-                        dep_shift,
-                        1.0 - p,
-                        false,
-                    ));
-
-                    // Pass 2 (top): arriving unit slides in and fades in.
-                    // Transition-facing stub is Ghost.
-                    let arr_shift = match arrival.focus_direction {
-                        crate::app::FocusDirection::Forward => slide * (1.0 - p),
-                        crate::app::FocusDirection::Backward => -(slide * (1.0 - p)),
-                    };
-                    let (arr_left_mode, arr_right_mode) = match arrival.focus_direction {
-                        crate::app::FocusDirection::Forward => {
-                            (ModalUnitStubMode::Ghost, ModalUnitStubMode::Visible)
-                        }
-                        crate::app::FocusDirection::Backward => {
-                            (ModalUnitStubMode::Visible, ModalUnitStubMode::Ghost)
-                        }
-                    };
-                    let arr_rendered = build_rendered_modal_unit(
-                        app,
+                    let connected_rendered = build_connected_transition_rendered_unit(
+                        app.ui_theme.modal_stub_width,
                         current_layout,
-                        current_unit,
-                        arr_left_mode,
-                        arr_right_mode,
+                        arrival,
+                        departure,
+                        p,
                     );
-                    layers = layers.push(render_modal_unit(
+                    layers = layers.push(render_connected_transition(
                         app,
-                        &arr_rendered,
+                        &connected_rendered,
+                        departure,
                         Some(modal),
                         modal_height,
-                        arr_shift,
                         p,
+                        slide,
                         true,
                     ));
                 } else {
@@ -2322,7 +2503,6 @@ fn modal_overlay<'a>(app: &'a App, modal: &'a crate::modal::SearchModal) -> Elem
                         Some(modal),
                         modal_height,
                         0.0,
-                        1.0,
                         true,
                     ));
                 }
@@ -2861,9 +3041,18 @@ pub fn view(app: &App) -> Element<'_, Message> {
 
 #[cfg(test)]
 mod tests {
-    use super::{collection_preview_metrics, modal_unit_runway_layout};
+    use super::{
+        build_connected_transition_rendered_unit, collection_preview_metrics,
+        modal_unit_runway_layout, transition_unit_display_width, ModalUnitCardKind, ModalUnitSide,
+    };
+    use crate::app::{
+        FocusDirection, ModalArrivalLayer, ModalDepartureLayer, ModalTransitionEasing,
+        UnitContentSnapshot, UnitGeometry,
+    };
     use crate::data::{HierarchyItem, HierarchyList, ModalStart, ResolvedCollectionConfig};
+    use crate::modal::{ModalFocus, ModalListViewSnapshot, SimpleModalSequence, SimpleModalUnitLayout};
     use crate::sections::collection::CollectionEntry;
+    use std::time::Instant;
 
     fn item(id: &str, label: &str) -> HierarchyItem {
         HierarchyItem {
@@ -2895,6 +3084,92 @@ mod tests {
                 items,
             }],
         })
+    }
+
+    fn snapshot(title: &str) -> ModalListViewSnapshot {
+        ModalListViewSnapshot {
+            title: title.to_string(),
+            query: String::new(),
+            rows: vec![format!("{title} row")],
+            filtered: vec![0],
+            list_cursor: 0,
+            list_scroll: 0,
+            focus: ModalFocus::List,
+        }
+    }
+
+    fn connected_transition_fixture(
+        direction: FocusDirection,
+    ) -> (SimpleModalUnitLayout, ModalArrivalLayer, ModalDepartureLayer) {
+        let (dep_leading_stub, dep_trailing_stub, arr_leading_stub, arr_trailing_stub) =
+            match direction {
+                FocusDirection::Forward => (
+                    crate::modal::ModalStubKind::Exit,
+                    crate::modal::ModalStubKind::NavRight,
+                    crate::modal::ModalStubKind::NavLeft,
+                    crate::modal::ModalStubKind::Confirm,
+                ),
+                FocusDirection::Backward => (
+                    crate::modal::ModalStubKind::NavLeft,
+                    crate::modal::ModalStubKind::Confirm,
+                    crate::modal::ModalStubKind::Exit,
+                    crate::modal::ModalStubKind::NavRight,
+                ),
+            };
+        let sequence = SimpleModalSequence {
+            snapshots: vec![
+                snapshot("dep-a"),
+                snapshot("dep-b"),
+                snapshot("arr-a"),
+                snapshot("arr-b"),
+            ],
+            active_sequence_index: 2,
+        };
+        let layout = SimpleModalUnitLayout {
+            sequence,
+            units: vec![],
+        };
+        let departure = ModalDepartureLayer {
+            content: UnitContentSnapshot {
+                modals: vec![snapshot("dep-a"), snapshot("dep-b")],
+            },
+            geometry: UnitGeometry {
+                unit_index: 0,
+                modal_index_range: 0..2,
+                shows_stubs: true,
+                leading_stub_kind: Some(dep_leading_stub),
+                trailing_stub_kind: Some(dep_trailing_stub),
+                effective_spacer_width: 24.0,
+                modal_widths: vec![300.0, 340.0],
+                modal_x_offsets: vec![0.0, 324.0],
+                first_list_id: "dep-a".to_string(),
+                last_list_id: "dep-b".to_string(),
+            },
+            focus_direction: direction,
+            started_at: Instant::now(),
+            duration_ms: 220,
+            easing: ModalTransitionEasing::Linear,
+        };
+        let arrival = ModalArrivalLayer {
+            unit_index: 1,
+            geometry: UnitGeometry {
+                unit_index: 1,
+                modal_index_range: 2..4,
+                shows_stubs: true,
+                leading_stub_kind: Some(arr_leading_stub),
+                trailing_stub_kind: Some(arr_trailing_stub),
+                effective_spacer_width: 24.0,
+                modal_widths: vec![320.0, 360.0],
+                modal_x_offsets: vec![0.0, 344.0],
+                first_list_id: "arr-a".to_string(),
+                last_list_id: "arr-b".to_string(),
+            },
+            focus_direction: direction,
+            started_at: Instant::now(),
+            duration_ms: 220,
+            easing: ModalTransitionEasing::Linear,
+        };
+        (layout, arrival, departure)
     }
 
     #[test]
@@ -2949,5 +3224,159 @@ mod tests {
         let actual_right = actual_left + row_width;
 
         assert_eq!(actual_right, 1518.0);
+    }
+
+    #[test]
+    fn connected_transition_strip_has_single_forward_transition_stub() {
+        let (layout, arrival, departure) = connected_transition_fixture(FocusDirection::Forward);
+        let rendered =
+            build_connected_transition_rendered_unit(120.0, &layout, &arrival, &departure, 0.25);
+
+        let mut nav_right_count = 0;
+        let mut exit_count = 0;
+        let mut confirm_count = 0;
+        let mut active_count = 0;
+
+        for card in rendered.cards {
+            match card.kind {
+                ModalUnitCardKind::Stub {
+                    side, stub_kind, ..
+                } => match stub_kind {
+                    crate::modal::ModalStubKind::NavRight => {
+                        nav_right_count += 1;
+                        assert_eq!(side, ModalUnitSide::Right);
+                        assert_eq!(card.alpha, 1.0);
+                    }
+                    crate::modal::ModalStubKind::Exit => {
+                        exit_count += 1;
+                        assert_eq!(card.alpha, 0.75);
+                    }
+                    crate::modal::ModalStubKind::Confirm => {
+                        confirm_count += 1;
+                        assert_eq!(card.alpha, 0.25);
+                    }
+                    _ => {}
+                },
+                ModalUnitCardKind::Active { .. } => {
+                    active_count += 1;
+                    assert_eq!(card.width, 320.0);
+                    assert_eq!(card.alpha, 0.25);
+                }
+                ModalUnitCardKind::Preview { .. } => {}
+            }
+        }
+
+        assert_eq!(nav_right_count, 1);
+        assert_eq!(exit_count, 1);
+        assert_eq!(confirm_count, 1);
+        assert_eq!(active_count, 1);
+    }
+
+    #[test]
+    fn connected_transition_strip_has_single_backward_transition_stub() {
+        let (layout, arrival, departure) = connected_transition_fixture(FocusDirection::Backward);
+        let rendered =
+            build_connected_transition_rendered_unit(120.0, &layout, &arrival, &departure, 0.6);
+
+        let nav_left_cards = rendered
+            .cards
+            .iter()
+            .filter(|card| {
+                matches!(
+                    card.kind,
+                    ModalUnitCardKind::Stub {
+                        stub_kind: crate::modal::ModalStubKind::NavLeft,
+                        ..
+                    }
+                )
+            })
+            .collect::<Vec<_>>();
+        let active_cards = rendered
+            .cards
+            .iter()
+            .filter(|card| matches!(card.kind, ModalUnitCardKind::Active { .. }))
+            .collect::<Vec<_>>();
+
+        assert_eq!(nav_left_cards.len(), 1);
+        assert_eq!(nav_left_cards[0].alpha, 1.0);
+        assert_eq!(active_cards.len(), 1);
+        assert_eq!(active_cards[0].width, 320.0);
+        assert_eq!(active_cards[0].alpha, 0.6);
+    }
+
+    // Helpers shared by the geometry tests below.
+    fn strip_inner_left(viewport: f32, row_width: f32, shift: f32) -> f32 {
+        let (outer_width, left_pad, _) = modal_unit_runway_layout(viewport, row_width, shift);
+        (viewport - outer_width) * 0.5 + left_pad
+    }
+
+    #[test]
+    fn transition_dep_unit_is_centred_in_viewport_at_p0() {
+        // With p = 0 the dep unit's centre must sit at viewport_centre.
+        let viewport = 1200.0;
+        let stub = 120.0;
+        let (_, arrival, departure) = connected_transition_fixture(FocusDirection::Forward);
+        let spacer = departure.geometry.effective_spacer_width;
+
+        let dep_w = transition_unit_display_width(&departure.geometry, stub);
+        let arr_w = transition_unit_display_width(&arrival.geometry, stub);
+
+        // Combined forward strip width: dep + arr - shared stub.
+        let row_w = dep_w + arr_w - stub;
+
+        let shift_p0 = (row_w - dep_w) / 2.0;
+        let _ = spacer; // used for slide_distance derivation only
+        let inner_left = strip_inner_left(viewport, row_w, shift_p0);
+        let dep_centre = inner_left + dep_w / 2.0;
+
+        assert!(
+            (dep_centre - viewport / 2.0).abs() < 0.5,
+            "dep centre {dep_centre} should be at viewport centre {}",
+            viewport / 2.0
+        );
+    }
+
+    #[test]
+    fn transition_arr_unit_is_centred_in_viewport_at_p1() {
+        // With p = 1 the arr unit's centre must sit at viewport_centre.
+        let viewport = 1200.0;
+        let stub = 120.0;
+        let (_, arrival, departure) = connected_transition_fixture(FocusDirection::Forward);
+
+        let dep_w = transition_unit_display_width(&departure.geometry, stub);
+        let arr_w = transition_unit_display_width(&arrival.geometry, stub);
+        let row_w = dep_w + arr_w - stub;
+
+        let slide = (dep_w + arr_w) / 2.0 - stub;
+        let shift_p1 = (row_w - dep_w) / 2.0 - slide;
+
+        let inner_left = strip_inner_left(viewport, row_w, shift_p1);
+        // arr section starts at (dep_w - stub) within the strip.
+        let arr_centre = inner_left + (dep_w - stub) + arr_w / 2.0;
+
+        assert!(
+            (arr_centre - viewport / 2.0).abs() < 0.5,
+            "arr centre {arr_centre} should be at viewport centre {}",
+            viewport / 2.0
+        );
+    }
+
+    #[test]
+    fn transition_slide_distance_is_symmetric_for_forward_and_backward() {
+        // Forward and backward use the same geometry fixture with the stubs
+        // swapped.  The slide_distance should be identical in both cases.
+        let stub = 120.0;
+        let (_, arr_fwd, dep_fwd) = connected_transition_fixture(FocusDirection::Forward);
+        let (_, arr_bwd, dep_bwd) = connected_transition_fixture(FocusDirection::Backward);
+
+        let dep_w_fwd = transition_unit_display_width(&dep_fwd.geometry, stub);
+        let arr_w_fwd = transition_unit_display_width(&arr_fwd.geometry, stub);
+        let slide_fwd = (dep_w_fwd + arr_w_fwd) / 2.0 - stub;
+
+        let dep_w_bwd = transition_unit_display_width(&dep_bwd.geometry, stub);
+        let arr_w_bwd = transition_unit_display_width(&arr_bwd.geometry, stub);
+        let slide_bwd = (dep_w_bwd + arr_w_bwd) / 2.0 - stub;
+
+        assert_eq!(slide_fwd, slide_bwd, "forward and backward slide distances must match");
     }
 }
