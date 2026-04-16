@@ -2,16 +2,16 @@ pane_layout: default
 theme: default-theme
 sticky_values:
   date_year_list: '2026'
-  year: '2026'
-  day: '12'
+  date_month_list: Apr
+  date_month_wor_list: Apr
   date_day: '08'
-  date_month_num_list: '04'
   month: '04'
+  date_month: '04'
+  day: '12'
+  date_year: '2026'
+  year: '2026'
   start_hour_list: '12'
   date_day_list: '08'
-  date_year: '2026'
-  date_month_wor_list: Apr
-  date_month_list: Apr
-  date_month: '04'
+  date_month_num_list: '04'
 hint_labels_capitalized: true
 hint_labels_case_sensitive: false

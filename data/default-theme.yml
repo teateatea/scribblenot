@@ -60,7 +60,7 @@ text_color_flash: "#FFFFFF"
 text_color_flash_duration: 650
 modal_spacer_width: 3.0
 modal_stub_width: 60.0
-modal_transition_duration: 4000
+modal_transition_duration: 500
 status_background: "#0A0D12"
 
 # Font roles. Use installed font family names such as "Fira Code",
@@ -84,7 +84,7 @@ scroll_width: 10.0
 scroll_spacing: 6.0
 
 # modal transitions
-modal_transition_easing: expo_out
+modal_transition_easing: expo_in_out
 modal_nav_stub_background: pane-blue
 modal_nav_stub_text: "#E6E6E6"
 modal_exit_stub_background: pane-blue

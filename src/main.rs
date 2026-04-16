@@ -5,9 +5,11 @@ mod config;
 mod data;
 mod document;
 mod modal;
+mod modal_layout;
 mod note;
 mod sections;
 mod theme;
+mod transition;
 mod ui;
 
 use iced::keyboard;

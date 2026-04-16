@@ -1,6 +1,6 @@
 [package]
 name = "scribblenot"
-version = "0.5.0-alpha"
+version = "0.5.0"
 edition = "2021"
 
 [[bin]]
@@ -8,7 +8,7 @@ name = "scribblenot"
 path = "src/main.rs"
 
 [dependencies]
-iced = { version = "0.13", features = ["tokio", "multi-window"] }
+iced = { version = "0.13", features = ["tokio", "multi-window", "advanced"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 arboard = "3.4"

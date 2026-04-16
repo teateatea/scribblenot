@@ -5,10 +5,14 @@
 use crate::app::App;
 use crate::modal_layout::{modal_list_view_dimensions, ModalListViewSnapshot, ModalStubKind, ModalUnitRange, SimpleModalUnitLayout};
 use crate::Message;
+use iced::advanced::{layout, renderer, widget as adv_widget};
+use iced::advanced::widget::Widget as AdvWidget;
 use iced::widget::{container, row, Space};
-use iced::{Element, Length};
+use iced::{Element, Length, Point, Rectangle, Size};
+use iced::mouse;
 use super::{active_simple_modal_content, apply_alpha, modal_card, preview_simple_modal_content, ModalCardRole, ModalRenderMode};
 
+// LESSON 1: The card vocabulary. Every card in the modal strip is described by one of these types before anything is painted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ModalUnitStubMode {
     Visible,
@@ -42,6 +46,7 @@ pub(super) struct ModalUnitCardData {
     pub(super) alpha: f32,
 }
 
+// LESSON 2: The finished strip description. A list of cards in left-to-right order, plus a helper to measure the strip's total pixel width including gaps.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct RenderedModalUnit {
     pub(super) cards: Vec<ModalUnitCardData>,
@@ -59,6 +64,7 @@ pub(super) fn default_stub_mode(_side: ModalUnitSide) -> ModalUnitStubMode {
     ModalUnitStubMode::Visible
 }
 
+// LESSON 3: Assembles a still (at-rest) modal strip. Decides stub types based on position, marks the active card, and returns a RenderedModalUnit with all alphas at 1.0.
 pub(super) fn build_rendered_modal_unit(
     app: &App,
     layout: &SimpleModalUnitLayout,
@@ -120,6 +126,7 @@ pub(super) fn build_rendered_modal_unit(
     RenderedModalUnit { cards }
 }
 
+// LESSON 4: Convenience helper for adding a stub card to a list. Used by the transition builder to avoid repeating the same struct construction each time.
 pub(super) fn push_strip_stub(
     cards: &mut Vec<ModalUnitCardData>,
     side: ModalUnitSide,
@@ -263,6 +270,7 @@ pub(super) fn build_connected_transition_rendered_unit(
     RenderedModalUnit { cards }
 }
 
+// LESSON 6: Centering math for the modal strip. Returns (outer_width, left_pad, right_pad) to position the strip inside an oversized container. The container is wider than the viewport (the "runway") so the strip can slide without being clipped. A positive shift moves the strip right; left_pad and right_pad tip in opposite directions to achieve that.
 pub(super) fn modal_unit_runway_layout(viewport_width: f32, row_width: f32, shift: f32) -> (f32, f32, f32) {
     let base_offset = (viewport_width - row_width) * 0.5;
     let runway = ((row_width - viewport_width) * 0.5).max(0.0) + shift.abs();
@@ -272,6 +280,7 @@ pub(super) fn modal_unit_runway_layout(viewport_width: f32, row_width: f32, shif
     (outer_width, left_pad, right_pad)
 }
 
+// LESSON 7: Paints the still modal strip. Loops through each card description and produces an iced widget - stub symbol, dim preview, or interactive active card. Wraps the result in a centered runway container using the shift math from modal_unit_runway_layout.
 pub(super) fn render_modal_unit<'a>(
     app: &'a App,
     rendered: &RenderedModalUnit,
@@ -398,6 +407,178 @@ pub(super) fn transition_unit_display_width(geometry: &crate::app::UnitGeometry,
     }
 }
 
+// ClipTranslate: custom widget that renders content at an arbitrary x_offset (may be negative)
+// and clips it to a viewport-width envelope. This is the only way in iced to correctly position
+// a widget strip at a negative x without the parent Limits system clamping the inner width.
+//
+// Why not the runway approach: iced's Limits.width(Length::Fixed(n)) clamps n to parent max,
+// so an inner container can never exceed viewport_width. Centering then gives 0 offset and
+// left_pad Space consumes all the room the cards need. ClipTranslate bypasses this by using
+// Limits::new(Size::ZERO, Size::new(f32::MAX, h)) for the content layout pass, then places
+// the resulting node at x_offset (can be negative). The clip envelope is explicit.
+struct ClipTranslate<'a, M, T, R> {
+    x_offset: f32,
+    width: f32,
+    height: f32,
+    content: Element<'a, M, T, R>,
+}
+
+impl<'a, M, T, R> ClipTranslate<'a, M, T, R> {
+    fn new(x_offset: f32, width: f32, height: f32, content: impl Into<Element<'a, M, T, R>>) -> Self {
+        Self { x_offset, width, height, content: content.into() }
+    }
+}
+
+impl<'a, M, T, R> AdvWidget<M, T, R> for ClipTranslate<'a, M, T, R>
+where
+    R: iced::advanced::Renderer,
+{
+    fn size(&self) -> Size<Length> {
+        Size {
+            width: Length::Fixed(self.width),
+            height: Length::Fixed(self.height),
+        }
+    }
+
+    fn layout(
+        &self,
+        tree: &mut adv_widget::Tree,
+        renderer: &R,
+        _limits: &layout::Limits,
+    ) -> layout::Node {
+        let content_limits = layout::Limits::new(
+            Size::ZERO,
+            Size::new(f32::MAX, self.height),
+        );
+        let content_node = self.content.as_widget()
+            .layout(&mut tree.children[0], renderer, &content_limits)
+            .move_to(Point::new(self.x_offset, 0.0));
+        layout::Node::with_children(Size::new(self.width, self.height), vec![content_node])
+    }
+
+    fn draw(
+        &self,
+        tree: &adv_widget::Tree,
+        renderer: &mut R,
+        theme: &T,
+        style: &renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let bounds = layout.bounds();
+        if let Some(clipped_viewport) = bounds.intersection(viewport) {
+            if let Some(child_layout) = layout.children().next() {
+                self.content.as_widget().draw(
+                    &tree.children[0],
+                    renderer,
+                    theme,
+                    style,
+                    child_layout,
+                    cursor,
+                    &clipped_viewport,
+                );
+            }
+        }
+    }
+
+    fn children(&self) -> Vec<adv_widget::Tree> {
+        vec![adv_widget::Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut adv_widget::Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn operate(
+        &self,
+        tree: &mut adv_widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        renderer: &R,
+        operation: &mut dyn adv_widget::Operation,
+    ) {
+        if let Some(child_layout) = layout.children().next() {
+            self.content.as_widget().operate(&mut tree.children[0], child_layout, renderer, operation);
+        }
+    }
+
+    fn on_event(
+        &mut self,
+        tree: &mut adv_widget::Tree,
+        event: iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &R,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, M>,
+        viewport: &Rectangle,
+    ) -> iced::event::Status {
+        if let Some(child_layout) = layout.children().next() {
+            self.content.as_widget_mut().on_event(
+                &mut tree.children[0],
+                event,
+                child_layout,
+                cursor,
+                renderer,
+                clipboard,
+                shell,
+                viewport,
+            )
+        } else {
+            iced::event::Status::Ignored
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &adv_widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &R,
+    ) -> mouse::Interaction {
+        if let Some(child_layout) = layout.children().next() {
+            self.content.as_widget().mouse_interaction(
+                &tree.children[0],
+                child_layout,
+                cursor,
+                viewport,
+                renderer,
+            )
+        } else {
+            mouse::Interaction::None
+        }
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut adv_widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        renderer: &R,
+        translation: iced::Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, M, T, R>> {
+        if let Some(child_layout) = layout.children().next() {
+            self.content.as_widget_mut().overlay(
+                &mut tree.children[0],
+                child_layout,
+                renderer,
+                translation,
+            )
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a, M: 'a, T: 'a, R: iced::advanced::Renderer + 'a> From<ClipTranslate<'a, M, T, R>>
+    for Element<'a, M, T, R>
+{
+    fn from(widget: ClipTranslate<'a, M, T, R>) -> Self {
+        Element::new(widget)
+    }
+}
+
+// LESSON 8: Paints the animated transition strip. Card painting is identical to render_modal_unit, but shift is computed live from p so the whole strip slides across the viewport. The departure unit is centered at p=0; as p grows, the strip moves and the arrival unit enters from the opposite side. clip(true) cuts off anything outside the viewport boundary.
 /// Render a connected transition strip with a true clipped-viewport envelope.
 ///
 /// The dep unit is centred in the viewport at p = 0.  The combined strip then
@@ -501,6 +682,9 @@ pub(super) fn render_connected_transition<'a>(
     let row_width = rendered.total_width(spacer_width);
     let viewport_width = app.viewport_size.map(|size| size.width).unwrap_or(row_width);
 
+    // LESSON 9: Per-frame position math. shift is the left offset of the entire strip each frame.
+    // Forward slides left (- slide * p); backward slides right (+ slide * p, negated formula).
+    // row_width and viewport_width centre the departing unit at p=0 in both cases.
     // Compute the dep unit's display width to anchor its centre to the viewport
     // centre at p = 0.  Forward: dep is on the left, strip slides left (arr enters
     // from right).  Backward: dep is on the right, strip slides right (arr enters
@@ -512,25 +696,16 @@ pub(super) fn render_connected_transition<'a>(
         crate::app::FocusDirection::Backward => -(row_width - dep_unit_width) / 2.0 + slide * p,
     };
 
-    // Use the runway helper for the oversized-container positioning, now with a
-    // clip(true) viewport envelope so the clipping is explicit and independent of
-    // the physical window boundary.
-    let (outer_width, left_pad, right_pad) =
-        modal_unit_runway_layout(viewport_width, row_width, shift);
+    // inner_left: x coordinate in viewport space where the strip's left edge sits.
+    // Negative values (strip overhangs left) are allowed because ClipTranslate bypasses
+    // iced's Limits clamping. The clip envelope is exactly [0, viewport_width].
+    let inner_left = (viewport_width - row_width) / 2.0 + shift;
 
-    container(
-        container(
-            row![
-                Space::with_width(Length::Fixed(left_pad)),
-                row(cards).spacing(spacer_width).align_y(iced::alignment::Vertical::Center),
-                Space::with_width(Length::Fixed(right_pad))
-            ]
-            .align_y(iced::alignment::Vertical::Center),
-        )
-        .width(Length::Fixed(outer_width)),
+    ClipTranslate::new(
+        inner_left,
+        viewport_width,
+        modal_height,
+        row(cards).spacing(spacer_width).align_y(iced::alignment::Vertical::Center),
     )
-    .width(Length::Fill)
-    .center_x(Length::Fill)
-    .clip(true)
     .into()
 }

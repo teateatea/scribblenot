@@ -6,7 +6,7 @@ This file tracks improvement ideas, technical debt, reliability upgrades, securi
 It is not a commitment list. It is a place to keep useful ideas from getting lost.
 
 ## Tracker
-- Next suggestion number: 25
+- Next suggestion number: 27
 - Rule: never reuse or renumber old suggestion IDs, even if an item is completed or removed later.
 - Status values: `open`, `planned`, `in-progress`, `blocked`, `done`, `dropped`
 
@@ -82,7 +82,8 @@ Priority rule of thumb:
 24. [open] [Developer Experience] {GPT-5 Codex}: Preserve source file and line provenance for hierarchy IDs and child refs so validation errors can point to exact authored locations. Why it matters: current validation can explain what is wrong and how to fix it, but merged semantic errors still lose file/line context after deserialization, which slows down debugging in larger YAML edits. Suggested next step: carry source spans for top-level nodes and `contains` refs through parse/merge, then include `path:line` in missing-ref, wrong-kind, and duplicate-id errors.
 
 ## Icebox
-- None yet.
+26. [open] [Code Quality] {Claude Sonnet 4.6}: Consider merging ModalArrivalLayer and ModalDepartureLayer into a single struct. Why it matters: both layers are currently created at the same instant with the same timing settings - the separation exists only to support a planned Part 3 feature where the departure runs on independent timing. If that feature is deferred, a merged struct would reduce complexity. Suggested next step: get a functional baseline first, then evaluate whether Part 3 independent timing is still on the roadmap before committing to the split.
+25. [open] [Code Quality] {Claude Sonnet 4.6}: Consider cancelling in-flight transitions on window resize rather than relying on frozen geometry. Why it matters: UnitGeometry and UnitContentSnapshot exist primarily to insulate the animation from mid-flight layout changes - if a resize simply cancelled and restarted the transition from the new layout, much of the freeze machinery could be dropped or simplified. Suggested next step: evaluate whether cancel-and-restart on resize is perceptually acceptable (quick resize gestures during animations are rare), then assess how much of the freeze scaffolding could be removed.
 
 ## Security
 - None yet.
