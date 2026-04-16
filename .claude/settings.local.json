@@ -46,7 +46,8 @@
       "Bash(curl \"https://crates.io/api/v1/crates/tray-icon\")",
       "Bash(curl:*)",
       "Bash(cargo test:*)",
-      "Bash(SCRIBBLENOT_HEADLESS=1 cargo run:*)"
+      "Bash(SCRIBBLENOT_HEADLESS=1 cargo run:*)",
+      "Skill(teach)"
     ],
     "defaultMode": "acceptEdits"
   },

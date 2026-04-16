@@ -7,10 +7,10 @@ sticky_values:
   date_day: '08'
   month: '04'
   date_month: '04'
-  day: '12'
+  day: '16'
   date_year: '2026'
   year: '2026'
-  start_hour_list: '12'
+  start_hour_list: '6'
   date_day_list: '08'
   date_month_num_list: '04'
 hint_labels_capitalized: true
