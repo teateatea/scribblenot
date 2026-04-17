@@ -12,6 +12,8 @@ custom_colors:
   bright-cyan: 7FD7FF
   dark-magenta: fc027f
   purple: 9400d3
+  dark-green: 0B2800 #191A0C
+  burgundy-red: 33080B #1A0A0E
 
 # Text and semantic roles
 text: "#E6E6E6"
@@ -87,9 +89,9 @@ scroll_spacing: 6.0
 modal_transition_easing: expo_in_out
 modal_nav_stub_background: pane-blue
 modal_nav_stub_text: "#E6E6E6"
-modal_exit_stub_background: pane-blue
+modal_exit_stub_background: burgundy-red
 modal_exit_stub_text: "#E6E6E6"
-modal_confirm_stub_background: pane-blue
+modal_confirm_stub_background: dark-green
 modal_confirm_stub_text: "#E6E6E6"
 #modal_active_background:
 #modal_inactive_background:

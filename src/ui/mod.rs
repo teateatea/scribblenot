@@ -1664,6 +1664,7 @@ fn active_simple_modal_content<'a>(
             .on_input(Message::ModalQueryChanged)
             .font(ui_theme.font_modal)
             .width(Length::Fill)
+            .padding([6, 8])
             .style(move |_theme, status| modal_input_style(&app_theme, status))
             .into(),
     );
@@ -1726,6 +1727,7 @@ fn active_simple_modal_content<'a>(
             list_items.push(
                 button(button_label)
                     .width(Length::Fill)
+                    .padding(0)
                     .on_press(Message::ModalSelect(window_pos))
                     .style(move |_theme, status| modal_item_button_style(&app_theme, status))
                     .into(),
@@ -1733,7 +1735,7 @@ fn active_simple_modal_content<'a>(
         }
     }
     modal_items.push(
-        themed_scrollable_with_theme(ui_theme.clone(), column(list_items))
+        themed_scrollable_with_theme(ui_theme.clone(), column(list_items).spacing(4))
             .height(Length::Fill)
             .into(),
     );

@@ -62,14 +62,14 @@ enum ModalSize {
 impl ModalSize {
     fn dimensions(self) -> (f32, f32) {
         match self {
-            Self::Small => (240.0, 200.0),
+            Self::Small => (280.0, 200.0),
             Self::Medium => (560.0, 360.0),
             Self::Large => (720.0, 480.0),
         }
     }
 }
 
-// LESSON 3: The four action markers shown at the edges of a unit (navigate left/right, exit, confirm). Exists so the renderer knows which symbol to draw and what each edge card means.
+// LESSON 3 Stubs: The four action markers shown at the edges of a unit (navigate left/right, exit, confirm). Exists so the renderer knows which symbol to draw and what each edge card means.
 /// The semantic kind of a stub card shown at the edge of a modal unit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModalStubKind {

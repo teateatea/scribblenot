@@ -280,7 +280,7 @@ lists:
       - { id: day_31, label: "31", output: "31" }
 
   - id: start_hour_list
-    label: "Start Time [mm / XM / (x)]"
+    label: "Start Time [mm / XM /...]"
     preview: "hh"
     sticky: true
     items:
