@@ -4,13 +4,11 @@
 use crate::config::Config;
 use crate::data::{AppData, SectionConfig};
 use crate::document::build_initial_document;
-use crate::modal::{joined_repeating_value, resolved_item_labels_for_list, FieldAdvance, SearchModal};
+use crate::modal::{
+    joined_repeating_value, resolved_item_labels_for_list, FieldAdvance, SearchModal,
+};
 use crate::modal_layout::{
     modal_height_for_viewport, modal_window_size_for_height, ModalFocus, SimpleModalUnitLayout,
-};
-pub use crate::transition::{
-    unit_display_width, FocusDirection, ModalArrivalLayer, ModalDepartureLayer,
-    ModalTransitionEasing, ModalTransitionLayer, UnitContentSnapshot, UnitGeometry,
 };
 use crate::sections::{
     checklist::ChecklistState,
@@ -18,6 +16,10 @@ use crate::sections::{
     free_text::FreeTextState,
     header::{HeaderFieldValue, HeaderState},
     list_select::{ListSelectMode, ListSelectState},
+};
+pub use crate::transition::{
+    unit_display_width, FocusDirection, ModalArrivalLayer, ModalDepartureLayer,
+    ModalTransitionEasing, ModalTransitionLayer, UnitContentSnapshot, UnitGeometry,
 };
 use iced::keyboard::{key::Named, Key, Modifiers};
 use std::collections::HashMap;
@@ -94,7 +96,6 @@ pub enum ModalPaneTarget {
     Left,
     Right,
 }
-
 
 #[derive(Debug, Clone)]
 struct ModalRestoreSnapshot {
@@ -317,8 +318,11 @@ impl App {
             .viewport_size
             .map(|size| size.width)
             .unwrap_or(f32::INFINITY);
-        crate::modal_layout::effective_spacer_width(viewport_width, self.ui_theme.modal_spacer_width)
-            .max(0.0)
+        crate::modal_layout::effective_spacer_width(
+            viewport_width,
+            self.ui_theme.modal_spacer_width,
+        )
+        .max(0.0)
     }
 
     pub fn set_editable_note(&mut self, new_text: String) {
@@ -856,12 +860,12 @@ impl App {
         false
     }
 
-    fn is_navigate_down(&self, key: &AppKey) -> bool {
-        self.matches_key(key, &self.data.keybindings.navigate_down)
+    fn is_nav_down(&self, key: &AppKey) -> bool {
+        self.matches_key(key, &self.data.keybindings.nav_down)
     }
 
-    fn is_navigate_up(&self, key: &AppKey) -> bool {
-        self.matches_key(key, &self.data.keybindings.navigate_up)
+    fn is_nav_up(&self, key: &AppKey) -> bool {
+        self.matches_key(key, &self.data.keybindings.nav_up)
     }
 
     fn is_select(&self, key: &AppKey) -> bool {
@@ -896,12 +900,12 @@ impl App {
         self.matches_key(key, &self.data.keybindings.copy_note)
     }
 
-    fn is_focus_left(&self, key: &AppKey) -> bool {
-        self.matches_key(key, &self.data.keybindings.focus_left)
+    fn is_nav_left(&self, key: &AppKey) -> bool {
+        self.matches_key(key, &self.data.keybindings.nav_left)
     }
 
-    fn is_focus_right(&self, key: &AppKey) -> bool {
-        self.matches_key(key, &self.data.keybindings.focus_right)
+    fn is_nav_right(&self, key: &AppKey) -> bool {
+        self.matches_key(key, &self.data.keybindings.nav_right)
     }
 
     fn is_super_confirm(&self, key: &AppKey) -> bool {
@@ -926,8 +930,32 @@ impl App {
         }
     }
 
+    fn active_header_field_can_open_modal(&self) -> bool {
+        match self.section_states.get(self.current_idx) {
+            Some(SectionState::Header(s)) => {
+                s.field_configs.get(s.field_index).is_some_and(|cfg| {
+                    !(cfg.lists.is_empty() && cfg.collections.is_empty() && cfg.fields.is_empty())
+                })
+            }
+            _ => false,
+        }
+    }
+
+    fn try_open_wizard_modal_on_nav_right(&mut self, key: &AppKey) -> bool {
+        if self.focus != Focus::Wizard || !self.is_nav_right(key) {
+            return false;
+        }
+
+        if self.active_header_field_can_open_modal() {
+            self.open_header_modal();
+            return true;
+        }
+
+        false
+    }
+
     fn handle_map_key(&mut self, key: AppKey) {
-        if self.is_navigate_down(&key) {
+        if self.is_nav_down(&key) {
             self.hint_buffer.clear();
             if self.map_cursor + 1 < self.sections.len() {
                 self.map_cursor += 1;
@@ -938,7 +966,7 @@ impl App {
             }
             return;
         }
-        if self.is_navigate_up(&key) {
+        if self.is_nav_up(&key) {
             self.hint_buffer.clear();
             if self.map_cursor > 0 {
                 self.map_cursor -= 1;
@@ -1048,18 +1076,20 @@ impl App {
     pub fn map_hint_labels(&self, group_idx: Option<usize>) -> MapHintLabels {
         let labels = self.section_hint_labels();
         let Some(group_idx) = group_idx else {
-            return MapHintLabels { sections: Vec::new() };
+            return MapHintLabels {
+                sections: Vec::new(),
+            };
         };
         let Some(group) = self.data.groups.get(group_idx) else {
-            return MapHintLabels { sections: Vec::new() };
+            return MapHintLabels {
+                sections: Vec::new(),
+            };
         };
         MapHintLabels {
             sections: labels
                 .into_iter()
                 .zip(self.sections.iter())
-                .filter_map(|(label, section)| {
-                    (section.group_id == group.id).then_some(label)
-                })
+                .filter_map(|(label, section)| (section.group_id == group.id).then_some(label))
                 .collect(),
         }
     }
@@ -1258,9 +1288,13 @@ impl App {
             return;
         }
 
-        // Focus switching: h/← moves left in layout, i/→ moves right
+        if self.try_open_wizard_modal_on_nav_right(&key) {
+            return;
+        }
+
+        // Focus switching: nav_left moves left in layout, nav_right moves right
         // Map is always on the outside: left when default, right when swapped
-        if self.is_focus_left(&key) {
+        if self.is_nav_left(&key) {
             if self.focus == Focus::Wizard && !self.pane_swapped {
                 // Map is to the left of wizard in default layout
                 let g_idx = self.group_idx_for_section(self.current_idx);
@@ -1282,7 +1316,7 @@ impl App {
             }
         }
 
-        if self.is_focus_right(&key) {
+        if self.is_nav_right(&key) {
             if self.focus == Focus::Wizard && self.pane_swapped {
                 // Map is to the right of wizard in swapped layout
                 let g_idx = self.group_idx_for_section(self.current_idx);
@@ -1329,7 +1363,7 @@ impl App {
             SectionState::Collection(_) => self.handle_collection_key(key),
             SectionState::Checklist(_) => self.handle_checklist_key(key),
             SectionState::Pending => {
-                if self.is_confirm(&key) || self.is_navigate_down(&key) {
+                if self.is_confirm(&key) || self.is_nav_down(&key) {
                     self.advance_section();
                 }
             }
@@ -1480,7 +1514,7 @@ impl App {
             return;
         }
 
-        if self.is_back(&key) || self.is_navigate_up(&key) {
+        if self.is_back(&key) || self.is_nav_up(&key) {
             let idx = self.current_idx;
             let went_back = if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx)
             {
@@ -1502,7 +1536,7 @@ impl App {
             return;
         }
 
-        if self.is_navigate_down(&key) {
+        if self.is_nav_down(&key) {
             let idx = self.current_idx;
             if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                 let last = s.field_configs.len().saturating_sub(1);
@@ -1516,7 +1550,7 @@ impl App {
             return;
         }
 
-        if matches!(key, AppKey::Enter) {
+        if matches!(key, AppKey::Enter) || self.is_nav_right(&key) {
             self.open_header_modal();
         }
     }
@@ -1603,12 +1637,25 @@ impl App {
             return;
         }
 
-        if matches!(key, AppKey::Left) {
+        let focus = match &self.modal {
+            Some(m) => m.focus.clone(),
+            None => return,
+        };
+
+        let nav_left_active = match focus {
+            ModalFocus::SearchBar => matches!(key, AppKey::Left),
+            ModalFocus::List => self.is_nav_left(&key),
+        };
+        if nav_left_active {
             self.composite_go_back();
             return;
         }
 
-        if matches!(key, AppKey::Right) {
+        let nav_right_active = match focus {
+            ModalFocus::SearchBar => matches!(key, AppKey::Right),
+            ModalFocus::List => self.is_nav_right(&key),
+        };
+        if nav_right_active {
             if let Some(value) = self
                 .modal
                 .as_ref()
@@ -1619,15 +1666,13 @@ impl App {
             return;
         }
 
-        let focus = match &self.modal {
-            Some(m) => m.focus.clone(),
-            None => return,
-        };
-
         match focus {
-            ModalFocus::SearchBar => match key {
-                AppKey::Up => {}
-                AppKey::Down => {
+            ModalFocus::SearchBar => {
+                if matches!(key, AppKey::Up) {
+                    return;
+                }
+
+                if matches!(key, AppKey::Down) {
                     if self
                         .modal
                         .as_ref()
@@ -1635,14 +1680,18 @@ impl App {
                     {
                         self.modal.as_mut().unwrap().focus = ModalFocus::List;
                     }
+                    return;
                 }
-                AppKey::Tab => {
+
+                if matches!(key, AppKey::Tab) {
                     let query = self.modal.as_ref().unwrap().query.trim().to_string();
                     if !query.is_empty() {
                         self.confirm_modal_value(query);
                     }
+                    return;
                 }
-                AppKey::Enter => {
+
+                if matches!(key, AppKey::Enter) {
                     if self
                         .modal
                         .as_ref()
@@ -1668,29 +1717,37 @@ impl App {
                     {
                         self.modal.as_mut().unwrap().focus = ModalFocus::List;
                     }
+                    return;
                 }
-                AppKey::Backspace => {
+
+                if matches!(key, AppKey::Backspace) {
                     let modal = self.modal.as_mut().unwrap();
                     modal.query.pop();
                     modal.update_filter();
                     if modal.query.is_empty() {
                         modal.center_scroll();
                     }
+                    return;
                 }
-                AppKey::Char(c) => {
+
+                if let AppKey::Char(c) = key {
                     let modal = self.modal.as_mut().unwrap();
                     modal.query.push(c);
                     modal.update_filter();
+                    return;
                 }
-                AppKey::Space => {
+
+                if matches!(key, AppKey::Space) {
                     let modal = self.modal.as_mut().unwrap();
                     modal.query.push(' ');
                     modal.update_filter();
+                    return;
                 }
-                _ => {}
-            },
-            ModalFocus::List => match key {
-                AppKey::Backspace => {
+
+                return;
+            }
+            ModalFocus::List => {
+                if matches!(key, AppKey::Backspace) {
                     self.hint_buffer.clear();
                     let can_go_back = self
                         .modal
@@ -1703,12 +1760,16 @@ impl App {
                         // First part or simple field: exit modal, return to wizard
                         self.dismiss_modal();
                     }
+                    return;
                 }
-                AppKey::Space => {
+
+                if matches!(key, AppKey::Space) {
                     self.hint_buffer.clear();
                     self.modal.as_mut().unwrap().focus = ModalFocus::SearchBar;
+                    return;
                 }
-                AppKey::Enter => {
+
+                if matches!(key, AppKey::Enter) {
                     self.hint_buffer.clear();
                     if let Some(val) = self
                         .modal
@@ -1719,8 +1780,10 @@ impl App {
                     {
                         self.confirm_modal_value(val);
                     }
+                    return;
                 }
-                AppKey::Up => {
+
+                if self.is_nav_up(&key) {
                     self.hint_buffer.clear();
                     let modal = self.modal.as_mut().unwrap();
                     if modal.list_cursor > 0 {
@@ -1729,16 +1792,20 @@ impl App {
                     } else {
                         modal.focus = ModalFocus::SearchBar;
                     }
+                    return;
                 }
-                AppKey::Down => {
+
+                if self.is_nav_down(&key) {
                     self.hint_buffer.clear();
                     let modal = self.modal.as_mut().unwrap();
                     if modal.list_cursor + 1 < modal.filtered.len() {
                         modal.list_cursor += 1;
                         modal.update_scroll();
                     }
+                    return;
                 }
-                AppKey::Char(c) => {
+
+                if let AppKey::Char(c) = key {
                     let case_sensitive = self.config.hint_labels_case_sensitive;
                     let ch_str: String = if case_sensitive {
                         c.to_string()
@@ -1784,120 +1851,135 @@ impl App {
                             self.confirm_modal_value(val);
                         }
                     }
+                    return;
                 }
-                _ => {}
-            },
+
+                return;
+            }
         }
     }
 
     fn handle_collection_modal_key(&mut self, key: AppKey) {
-        match key {
-            AppKey::Esc => {
-                self.hint_buffer.clear();
-                let went_back = self
-                    .modal
-                    .as_mut()
-                    .is_some_and(|modal| modal.collection_back());
-                if !went_back {
-                    self.dismiss_modal();
-                }
+        if matches!(key, AppKey::Esc) {
+            self.hint_buffer.clear();
+            let went_back = self
+                .modal
+                .as_mut()
+                .is_some_and(|modal| modal.collection_back());
+            if !went_back {
+                self.dismiss_modal();
             }
-            AppKey::Left => {
-                self.hint_buffer.clear();
-                if self
-                    .modal
-                    .as_mut()
-                    .is_some_and(|modal| modal.collection_back())
-                {
-                    self.update_collection_modal_preview();
-                }
-            }
-            AppKey::Right => {
-                self.hint_buffer.clear();
-                if let Some(modal) = self.modal.as_mut() {
-                    modal.collection_enter();
-                }
+            return;
+        }
+
+        if self.is_nav_left(&key) {
+            self.hint_buffer.clear();
+            if self
+                .modal
+                .as_mut()
+                .is_some_and(|modal| modal.collection_back())
+            {
                 self.update_collection_modal_preview();
             }
-            AppKey::Space => {
-                self.hint_buffer.clear();
-                let in_items = self
-                    .modal
-                    .as_ref()
-                    .and_then(|modal| modal.collection_state.as_ref())
-                    .is_some_and(|state| state.in_items());
-                if in_items {
-                    if let Some(modal) = self.modal.as_mut() {
-                        let _ = modal.collection_back();
+            return;
+        }
+
+        if self.is_nav_right(&key) {
+            self.hint_buffer.clear();
+            if let Some(modal) = self.modal.as_mut() {
+                modal.collection_enter();
+            }
+            self.update_collection_modal_preview();
+            return;
+        }
+
+        if matches!(key, AppKey::Space) {
+            self.hint_buffer.clear();
+            let in_items = self
+                .modal
+                .as_ref()
+                .and_then(|modal| modal.collection_state.as_ref())
+                .is_some_and(|state| state.in_items());
+            if in_items {
+                if let Some(modal) = self.modal.as_mut() {
+                    let _ = modal.collection_back();
+                }
+            } else if let Some(modal) = self.modal.as_mut() {
+                modal.collection_enter();
+            }
+            self.update_collection_modal_preview();
+            return;
+        }
+
+        if matches!(key, AppKey::Backspace) {
+            self.hint_buffer.clear();
+            let went_back = self
+                .modal
+                .as_mut()
+                .is_some_and(|modal| modal.collection_back());
+            if !went_back {
+                self.dismiss_modal();
+            }
+            return;
+        }
+
+        if matches!(key, AppKey::Enter) {
+            self.hint_buffer.clear();
+            if let Some(modal) = self.modal.as_mut() {
+                let evicted = modal.collection_toggle_current();
+                self.flash_evicted_collections(evicted);
+            }
+            self.update_collection_modal_preview();
+            return;
+        }
+
+        if self.is_nav_up(&key) {
+            self.hint_buffer.clear();
+            if let Some(modal) = self.modal.as_mut() {
+                modal.collection_navigate_up();
+            }
+            return;
+        }
+
+        if self.is_nav_down(&key) {
+            self.hint_buffer.clear();
+            if let Some(modal) = self.modal.as_mut() {
+                modal.collection_navigate_down();
+            }
+            return;
+        }
+
+        if let AppKey::Char(c) = key {
+            let case_sensitive = self.config.hint_labels_case_sensitive;
+            let ch_str: String = if case_sensitive {
+                c.to_string()
+            } else {
+                c.to_ascii_lowercase().to_string()
+            };
+            let visible_count = self.collection_modal_visible_count();
+            let labels: Vec<String> = self
+                .data
+                .keybindings
+                .hints
+                .iter()
+                .take(visible_count)
+                .cloned()
+                .collect();
+            let folded_labels: Vec<String> = labels
+                .iter()
+                .map(|h| {
+                    if case_sensitive {
+                        h.to_string()
+                    } else {
+                        h.to_ascii_lowercase()
                     }
-                } else if let Some(modal) = self.modal.as_mut() {
-                    modal.collection_enter();
-                }
+                })
+                .collect();
+            if let Some(hint_pos) = folded_labels.iter().position(|label| label == &ch_str) {
+                self.hint_buffer.clear();
+                self.toggle_collection_modal_hint(hint_pos);
                 self.update_collection_modal_preview();
             }
-            AppKey::Backspace => {
-                self.hint_buffer.clear();
-                let went_back = self
-                    .modal
-                    .as_mut()
-                    .is_some_and(|modal| modal.collection_back());
-                if !went_back {
-                    self.dismiss_modal();
-                }
-            }
-            AppKey::Enter => {
-                self.hint_buffer.clear();
-                if let Some(modal) = self.modal.as_mut() {
-                    let evicted = modal.collection_toggle_current();
-                    self.flash_evicted_collections(evicted);
-                }
-                self.update_collection_modal_preview();
-            }
-            AppKey::Up => {
-                self.hint_buffer.clear();
-                if let Some(modal) = self.modal.as_mut() {
-                    modal.collection_navigate_up();
-                }
-            }
-            AppKey::Down => {
-                self.hint_buffer.clear();
-                if let Some(modal) = self.modal.as_mut() {
-                    modal.collection_navigate_down();
-                }
-            }
-            AppKey::Char(c) => {
-                let case_sensitive = self.config.hint_labels_case_sensitive;
-                let ch_str: String = if case_sensitive {
-                    c.to_string()
-                } else {
-                    c.to_ascii_lowercase().to_string()
-                };
-                let visible_count = self.collection_modal_visible_count();
-                let labels: Vec<String> = self
-                    .data
-                    .keybindings
-                    .hints
-                    .iter()
-                    .take(visible_count)
-                    .cloned()
-                    .collect();
-                let folded_labels: Vec<String> = labels
-                    .iter()
-                    .map(|h| {
-                        if case_sensitive {
-                            h.to_string()
-                        } else {
-                            h.to_ascii_lowercase()
-                        }
-                    })
-                    .collect();
-                if let Some(hint_pos) = folded_labels.iter().position(|label| label == &ch_str) {
-                    self.hint_buffer.clear();
-                    self.toggle_collection_modal_hint(hint_pos);
-                    self.update_collection_modal_preview();
-                }
-            }
-            _ => {}
         }
     }
 
@@ -2137,14 +2219,14 @@ impl App {
             return;
         }
 
-        if self.is_navigate_up(&key) {
+        if self.is_nav_up(&key) {
             if let SectionState::FreeText(s) = &mut self.section_states[idx] {
                 s.navigate_up();
             }
             return;
         }
 
-        if self.is_navigate_down(&key) {
+        if self.is_nav_down(&key) {
             if let SectionState::FreeText(s) = &mut self.section_states[idx] {
                 s.navigate_down();
             }
@@ -2185,13 +2267,13 @@ impl App {
         if self.try_navigate_to_map_via_hint(&key) {
             return;
         }
-        if self.is_navigate_up(&key) {
+        if self.is_nav_up(&key) {
             if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
                 s.navigate_up();
             }
             return;
         }
-        if self.is_navigate_down(&key) {
+        if self.is_nav_down(&key) {
             if let SectionState::ListSelect(s) = &mut self.section_states[idx] {
                 s.navigate_down();
             }
@@ -2252,13 +2334,13 @@ impl App {
                 }
                 return;
             }
-            if self.is_navigate_up(&key) {
+            if self.is_nav_up(&key) {
                 if let SectionState::Collection(s) = &mut self.section_states[idx] {
                     s.navigate_up();
                 }
                 return;
             }
-            if self.is_navigate_down(&key) {
+            if self.is_nav_down(&key) {
                 if let SectionState::Collection(s) = &mut self.section_states[idx] {
                     s.navigate_down();
                 }
@@ -2284,13 +2366,13 @@ impl App {
         if self.try_navigate_to_map_via_hint(&key) {
             return;
         }
-        if self.is_navigate_up(&key) {
+        if self.is_nav_up(&key) {
             if let SectionState::Collection(s) = &mut self.section_states[idx] {
                 s.navigate_up();
             }
             return;
         }
-        if self.is_navigate_down(&key) {
+        if self.is_nav_down(&key) {
             if let SectionState::Collection(s) = &mut self.section_states[idx] {
                 s.navigate_down();
             }
@@ -2343,13 +2425,13 @@ impl App {
             return;
         }
 
-        if self.is_navigate_up(&key) {
+        if self.is_nav_up(&key) {
             if let SectionState::Checklist(s) = &mut self.section_states[idx] {
                 s.navigate_up();
             }
             return;
         }
-        if self.is_navigate_down(&key) {
+        if self.is_nav_down(&key) {
             if let SectionState::Checklist(s) = &mut self.section_states[idx] {
                 s.navigate_down();
             }
@@ -2622,11 +2704,12 @@ impl App {
             easing,
         };
 
-        self.modal_transitions.push(ModalTransitionLayer::ConnectedTransition {
-            arrival,
-            departure,
-            slide_distance,
-        });
+        self.modal_transitions
+            .push(ModalTransitionLayer::ConnectedTransition {
+                arrival,
+                departure,
+                slide_distance,
+            });
 
         // Update prepared neighbors for the new active unit.
         self.prev_prepared_unit = if arriving_unit_index > 0 {
@@ -2641,7 +2724,6 @@ impl App {
         };
     }
 }
-
 
 fn compute_field_spans(
     modal: &crate::modal::SearchModal,
@@ -3524,17 +3606,231 @@ mod tests {
 #[cfg(test)]
 mod composition_span_tests {
     use super::{
-        compute_field_composition_spans, App, AppKey, FieldCompositionSpanKind, SectionState,
+        compute_field_composition_spans, App, AppKey, FieldCompositionSpanKind, Focus, SectionState,
     };
     use crate::config::Config;
     use crate::data::{
-        AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem, HierarchyList, KeyBindings,
-        ModalStart, RuntimeNodeKind, RuntimeTemplate, SectionConfig, SectionGroup,
+        AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem, HierarchyList, JoinerStyle,
+        KeyBindings, ModalStart, ResolvedCollectionConfig, RuntimeNodeKind, RuntimeTemplate,
+        SectionConfig, SectionGroup,
     };
     use crate::modal::SearchModal;
+    use crate::modal_layout::ModalFocus;
     use crate::sections::header::HeaderFieldValue;
     use std::collections::HashMap;
     use std::path::PathBuf;
+
+    fn item(id: &str, label: &str, output: &str) -> HierarchyItem {
+        HierarchyItem {
+            id: id.to_string(),
+            label: Some(label.to_string()),
+            default_enabled: true,
+            output: Some(output.to_string()),
+            fields: None,
+            branch_fields: Vec::new(),
+        }
+    }
+
+    fn list_field(modal_start: ModalStart) -> HeaderFieldConfig {
+        HeaderFieldConfig {
+            id: "region".to_string(),
+            name: "Region".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "region".to_string(),
+                label: Some("Region".to_string()),
+                preview: Some("Region".to_string()),
+                sticky: false,
+                default: None,
+                modal_start,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![
+                    item("shoulder", "Shoulder", "Shoulder"),
+                    item("hip", "Hip", "Hip"),
+                ],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        }
+    }
+
+    fn collection_field() -> HeaderFieldConfig {
+        HeaderFieldConfig {
+            id: "regions".to_string(),
+            name: "Regions".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: Vec::new(),
+            collections: vec![ResolvedCollectionConfig {
+                id: "neck".to_string(),
+                label: "Neck".to_string(),
+                note_label: Some("##### Neck".to_string()),
+                default_enabled: false,
+                joiner_style: Some(JoinerStyle::CommaAnd),
+                lists: vec![HierarchyList {
+                    id: "neck_list".to_string(),
+                    label: Some("Neck".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![item("one", "One", "Upper traps"), item("two", "Two", "SCM")],
+                }],
+            }],
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        }
+    }
+
+    fn app_with_single_field(field: HeaderFieldConfig) -> App {
+        let section = SectionConfig {
+            id: "request_section".to_string(),
+            name: "Request".to_string(),
+            map_label: "Request".to_string(),
+            section_type: "multi_field".to_string(),
+            show_field_labels: true,
+            data_file: None,
+            fields: Some(vec![field]),
+            lists: Vec::new(),
+            note_label: None,
+            group_id: "intake".to_string(),
+            node_kind: RuntimeNodeKind::Section,
+        };
+        let group = SectionGroup {
+            id: "intake".to_string(),
+            num: None,
+            nav_label: "Intake".to_string(),
+            sections: vec![section.clone()],
+            note: GroupNoteMeta::default(),
+        };
+        let data = AppData {
+            template: RuntimeTemplate {
+                id: "test".to_string(),
+                children: Vec::new(),
+            },
+            groups: vec![group],
+            sections: vec![section],
+            list_data: HashMap::new(),
+            checklist_data: HashMap::new(),
+            collection_data: HashMap::new(),
+            boilerplate_texts: HashMap::new(),
+            keybindings: KeyBindings::default(),
+        };
+
+        App::new(data, Config::default(), PathBuf::new())
+    }
+
+    #[test]
+    fn nav_right_opens_header_modal_before_swapped_pane_nav() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+        app.pane_swapped = true;
+
+        app.handle_key(AppKey::Char('i'));
+
+        assert!(app.modal.is_some(), "nav_right should open the field modal");
+        assert_eq!(app.focus, Focus::Wizard);
+        assert_eq!(app.map_return_idx, None);
+    }
+
+    #[test]
+    fn modal_list_nav_aliases_move_and_confirm() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+        app.open_header_modal();
+
+        app.handle_key(AppKey::Char('n'));
+        let modal = app
+            .modal
+            .as_ref()
+            .expect("modal should stay open after nav_down");
+        assert_eq!(modal.focus, ModalFocus::List);
+        assert_eq!(modal.list_cursor, 1);
+
+        app.handle_key(AppKey::Char('i'));
+
+        assert!(
+            app.modal.is_none(),
+            "nav_right should confirm the current list row"
+        );
+        let SectionState::Header(state) = &app.section_states[0] else {
+            panic!("expected header state");
+        };
+        assert!(matches!(
+            &state.repeated_values[0][0],
+            HeaderFieldValue::Text(value) if value == "Hip"
+        ));
+    }
+
+    #[test]
+    fn modal_search_keeps_nav_aliases_as_query_text() {
+        let mut app = app_with_single_field(list_field(ModalStart::Search));
+        app.open_header_modal();
+
+        app.handle_key(AppKey::Char('n'));
+        app.handle_key(AppKey::Char('i'));
+
+        let modal = app.modal.as_ref().expect("modal should remain open");
+        assert_eq!(modal.focus, ModalFocus::SearchBar);
+        assert_eq!(modal.query, "ni");
+    }
+
+    #[test]
+    fn modal_search_arrow_down_still_enters_list() {
+        let mut app = app_with_single_field(list_field(ModalStart::Search));
+        app.open_header_modal();
+
+        app.handle_key(AppKey::Down);
+
+        let modal = app.modal.as_ref().expect("modal should remain open");
+        assert_eq!(modal.focus, ModalFocus::List);
+    }
+
+    #[test]
+    fn collection_modal_nav_aliases_enter_move_and_back() {
+        let mut app = app_with_single_field(collection_field());
+        app.open_header_modal();
+
+        app.handle_key(AppKey::Char('i'));
+        let state = app
+            .modal
+            .as_ref()
+            .and_then(|modal| modal.collection_state.as_ref())
+            .expect("collection state should exist after opening");
+        assert!(state.in_items(), "nav_right should enter collection items");
+        assert_eq!(state.item_cursor, 0);
+
+        app.handle_key(AppKey::Char('n'));
+        let state = app
+            .modal
+            .as_ref()
+            .and_then(|modal| modal.collection_state.as_ref())
+            .expect("collection state should remain available");
+        assert_eq!(
+            state.item_cursor, 1,
+            "nav_down should move within collection items"
+        );
+
+        app.handle_key(AppKey::Char('h'));
+        let state = app
+            .modal
+            .as_ref()
+            .and_then(|modal| modal.collection_state.as_ref())
+            .expect("collection state should remain available");
+        assert!(
+            !state.in_items(),
+            "nav_left should return to the collection list"
+        );
+    }
 
     #[test]
     fn composition_spans_distinguish_literal_confirmed_and_preview_segments() {

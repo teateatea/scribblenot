@@ -77,8 +77,8 @@ pub struct ListEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyBindings {
-    pub navigate_down: Vec<String>,
-    pub navigate_up: Vec<String>,
+    pub nav_down: Vec<String>,
+    pub nav_up: Vec<String>,
     pub select: Vec<String>,
     pub confirm: Vec<String>,
     pub add_entry: Vec<String>,
@@ -86,10 +86,10 @@ pub struct KeyBindings {
     pub swap_panes: Vec<String>,
     pub help: Vec<String>,
     pub quit: Vec<String>,
-    #[serde(default = "default_focus_left")]
-    pub focus_left: Vec<String>,
-    #[serde(default = "default_focus_right")]
-    pub focus_right: Vec<String>,
+    #[serde(default = "default_nav_left")]
+    pub nav_left: Vec<String>,
+    #[serde(default = "default_nav_right")]
+    pub nav_right: Vec<String>,
     #[serde(default = "default_hints")]
     pub hints: Vec<String>,
     #[serde(default = "default_super_confirm")]
@@ -108,11 +108,11 @@ fn default_super_confirm() -> Vec<String> {
     vec!["shift+enter".to_string()]
 }
 
-fn default_focus_left() -> Vec<String> {
+fn default_nav_left() -> Vec<String> {
     vec!["left".to_string(), "h".to_string()]
 }
 
-fn default_focus_right() -> Vec<String> {
+fn default_nav_right() -> Vec<String> {
     vec!["right".to_string(), "i".to_string()]
 }
 
@@ -126,8 +126,8 @@ fn default_hints() -> Vec<String> {
 impl Default for KeyBindings {
     fn default() -> Self {
         Self {
-            navigate_down: vec!["down".to_string(), "n".to_string()],
-            navigate_up: vec!["up".to_string(), "e".to_string()],
+            nav_down: vec!["down".to_string(), "n".to_string()],
+            nav_up: vec!["up".to_string(), "e".to_string()],
             select: vec!["space".to_string(), "s".to_string()],
             confirm: vec!["enter".to_string(), "t".to_string()],
             add_entry: vec!["a".to_string(), "d".to_string()],
@@ -135,8 +135,8 @@ impl Default for KeyBindings {
             swap_panes: vec!["`".to_string()],
             help: vec!["?".to_string()],
             quit: vec!["ctrl+q".to_string()],
-            focus_left: default_focus_left(),
-            focus_right: default_focus_right(),
+            nav_left: default_nav_left(),
+            nav_right: default_nav_right(),
             hints: default_hints(),
             super_confirm: default_super_confirm(),
             hint_permutations: vec![],
@@ -2172,7 +2172,7 @@ mod tests {
         .expect("hierarchy fixture should be written");
         fs::write(
             dir.path.join("keybindings.yml"),
-            "navigate_down: down\nconfirm: [enter]\n",
+            "nav_down: down\nconfirm: [enter]\n",
         )
         .expect("keybindings fixture should be written");
 
@@ -2181,5 +2181,61 @@ mod tests {
 
         assert!(err.contains("keybindings.yml"));
         assert!(err.contains("failed to parse"));
+    }
+
+    #[test]
+    fn keybindings_default_uses_nav_field_names() {
+        let kb = KeyBindings::default();
+        assert_eq!(kb.nav_down, vec!["down".to_string(), "n".to_string()]);
+        assert_eq!(kb.nav_up, vec!["up".to_string(), "e".to_string()]);
+        assert_eq!(kb.nav_left, vec!["left".to_string(), "h".to_string()]);
+        assert_eq!(kb.nav_right, vec!["right".to_string(), "i".to_string()]);
+    }
+
+    #[test]
+    fn keybindings_nav_fields_deserialize() {
+        let kb: KeyBindings = serde_yaml::from_str(concat!(
+            "nav_down: [down, n]\n",
+            "nav_up: [up, e]\n",
+            "select: [space]\n",
+            "confirm: [enter]\n",
+            "add_entry: [d]\n",
+            "back: [esc]\n",
+            "swap_panes: ['`']\n",
+            "help: ['?']\n",
+            "quit: [ctrl+q]\n",
+            "nav_left: [left, h]\n",
+            "nav_right: [right, i]\n",
+            "hints: [a]\n",
+            "super_confirm: [shift+enter]\n",
+            "copy_note: [c]\n",
+        ))
+        .expect("new nav field names should deserialize");
+
+        assert_eq!(kb.nav_down, vec!["down".to_string(), "n".to_string()]);
+        assert_eq!(kb.nav_right, vec!["right".to_string(), "i".to_string()]);
+    }
+
+    #[test]
+    fn keybindings_legacy_directional_names_fail_to_deserialize() {
+        let err = serde_yaml::from_str::<KeyBindings>(concat!(
+            "navigate_down: [down, n]\n",
+            "navigate_up: [up, e]\n",
+            "select: [space]\n",
+            "confirm: [enter]\n",
+            "add_entry: [d]\n",
+            "back: [esc]\n",
+            "swap_panes: ['`']\n",
+            "help: ['?']\n",
+            "quit: [ctrl+q]\n",
+            "focus_left: [left, h]\n",
+            "focus_right: [right, i]\n",
+            "hints: [a]\n",
+            "super_confirm: [shift+enter]\n",
+            "copy_note: [c]\n",
+        ))
+        .expect_err("legacy directional field names should fail");
+
+        assert!(err.to_string().contains("nav_down"));
     }
 }

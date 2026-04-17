@@ -108,8 +108,8 @@ Important distinction:
 Checked-in example:
 
 ```yaml
-navigate_down: [down, n]
-navigate_up: [up, e]
+nav_down: [down, n]
+nav_up: [up, e]
 select: [space]
 confirm: [enter]
 add_entry: [d]
@@ -117,8 +117,8 @@ back: [esc, backspace]
 swap_panes: ['`']
 help: ['?']
 quit: [ctrl+q]
-focus_left: [left, h]
-focus_right: [right, i]
+nav_left: [left, h]
+nav_right: [right, i]
 hints: [a, r, s, t, q, w, f, p, 1, 2, 3, 4]
 super_confirm: [shift+enter]
 copy_note: [c]
@@ -127,8 +127,8 @@ copy_note: [c]
 Built-in fallback defaults:
 
 ```yaml
-navigate_down: [down, n]
-navigate_up: [up, e]
+nav_down: [down, n]
+nav_up: [up, e]
 select: [space, s]
 confirm: [enter, t]
 add_entry: [a, d]
@@ -136,8 +136,8 @@ back: [esc]
 swap_panes: ['`']
 help: ['?']
 quit: [ctrl+q]
-focus_left: [left, h]
-focus_right: [right, i]
+nav_left: [left, h]
+nav_right: [right, i]
 hints: [1, 2, 3, 4, 5, 6, 7, 8, 9]
 super_confirm: [shift+enter]
 copy_note: [c]
@@ -145,7 +145,7 @@ copy_note: [c]
 
 | Action | What It Does |
 |--------|--------------|
-| `navigate_down` / `navigate_up` | Move cursor or selection |
+| `nav_down` / `nav_up` | Move cursor or selection |
 | `select` | Toggle current item in multi-select or collection flows |
 | `confirm` | Confirm current value or advance |
 | `add_entry` | Start a new free-text entry; it is not used for reusable list authoring, and in list-select sections it currently shows an error because custom list entry creation was removed |
@@ -153,12 +153,17 @@ copy_note: [c]
 | `swap_panes` | Toggle pane layout |
 | `help` | Show help overlay |
 | `quit` | Quit app |
-| `focus_left` / `focus_right` | Move focus between panes |
+| `nav_left` / `nav_right` | Move left or right in the current context: pane movement, modal movement, or wizard modal entry |
 | `super_confirm` | Confirm using defaults or sticky fallbacks where possible |
 | `copy_note` | Copy exported note |
 | `hints` | Hint key pool used to generate quick-select labels |
 
 Key string syntax:
+
+Modal search-bar exception:
+
+- In modal search bars, raw arrow keys still perform navigation.
+- Character aliases such as `n`, `e`, `h`, and `i` stay as typed text there.
 
 - Single characters: `a`, `1`, `/`
 - Special keys: `up`, `down`, `left`, `right`, `enter`, `esc`, `space`, `backspace`, `tab`
