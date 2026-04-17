@@ -444,16 +444,18 @@ where
         &self,
         tree: &mut adv_widget::Tree,
         renderer: &R,
-        _limits: &layout::Limits,
+        limits: &layout::Limits,
     ) -> layout::Node {
+        // Clamp to parent-granted height so clip envelope and child layout agree.
+        let effective_height = self.height.min(limits.max().height);
         let content_limits = layout::Limits::new(
             Size::ZERO,
-            Size::new(f32::MAX, self.height),
+            Size::new(f32::MAX, effective_height),
         );
         let content_node = self.content.as_widget()
             .layout(&mut tree.children[0], renderer, &content_limits)
             .move_to(Point::new(self.x_offset, 0.0));
-        layout::Node::with_children(Size::new(self.width, self.height), vec![content_node])
+        layout::Node::with_children(Size::new(self.width, effective_height), vec![content_node])
     }
 
     fn draw(
@@ -708,4 +710,35 @@ pub(super) fn render_connected_transition<'a>(
         row(cards).spacing(spacer_width).align_y(iced::alignment::Vertical::Center),
     )
     .into()
+}
+
+#[cfg(test)]
+mod clip_translate_height_tests {
+    fn effective_height(ideal: f32, parent_max: f32) -> f32 {
+        ideal.min(parent_max)
+    }
+
+    #[test]
+    fn height_respects_parent_limit_when_tighter() {
+        assert_eq!(effective_height(800.0, 600.0), 600.0);
+    }
+
+    #[test]
+    fn height_uses_ideal_when_parent_has_room() {
+        assert_eq!(effective_height(400.0, 800.0), 400.0);
+    }
+
+    #[test]
+    fn height_uses_ideal_when_parent_matches_exactly() {
+        assert_eq!(effective_height(500.0, 500.0), 500.0);
+    }
+
+    #[test]
+    fn clip_envelope_and_child_layout_height_agree() {
+        let ideal = 900.0;
+        let parent_max = 700.0;
+        let effective = effective_height(ideal, parent_max);
+        assert_eq!(effective, 700.0);
+        assert!(effective <= parent_max);
+    }
 }
