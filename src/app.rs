@@ -2464,7 +2464,10 @@ impl App {
                 None => return,
             };
             if modal.field_flow.list_idx == 0 {
-                let _ = modal.restore_parent_branch(&self.config.sticky_values, window_size);
+                let restored = modal.restore_parent_branch(&self.config.sticky_values, window_size);
+                if !restored {
+                    self.dismiss_modal();
+                }
                 return;
             }
             let popped = modal.field_flow.values.pop();
