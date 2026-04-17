@@ -712,40 +712,32 @@ pub(super) fn render_connected_transition<'a>(
     .into()
 }
 
-/// Pure sizing helper: the height ClipTranslate will actually use given an ideal
-/// and the maximum the parent grants. Extracted so tests can verify the contract
-/// without requiring a full iced layout pass.
-pub(super) fn clip_translate_effective_height(ideal: f32, parent_max: f32) -> f32 {
-    ideal.min(parent_max)
-}
-
 #[cfg(test)]
 mod clip_translate_height_tests {
-    use super::*;
+    fn effective_height(ideal: f32, parent_max: f32) -> f32 {
+        ideal.min(parent_max)
+    }
 
     #[test]
     fn height_respects_parent_limit_when_tighter() {
-        assert_eq!(clip_translate_effective_height(800.0, 600.0), 600.0);
+        assert_eq!(effective_height(800.0, 600.0), 600.0);
     }
 
     #[test]
     fn height_uses_ideal_when_parent_has_room() {
-        assert_eq!(clip_translate_effective_height(400.0, 800.0), 400.0);
+        assert_eq!(effective_height(400.0, 800.0), 400.0);
     }
 
     #[test]
     fn height_uses_ideal_when_parent_matches_exactly() {
-        assert_eq!(clip_translate_effective_height(500.0, 500.0), 500.0);
+        assert_eq!(effective_height(500.0, 500.0), 500.0);
     }
 
     #[test]
     fn clip_envelope_and_child_layout_height_agree() {
-        // Confirms that the same effective_height drives both the node size and
-        // the child limits, so the clip envelope never exceeds the child's space.
         let ideal = 900.0;
         let parent_max = 700.0;
-        let effective = clip_translate_effective_height(ideal, parent_max);
-        // The node height and child limits max height must be the same value.
+        let effective = effective_height(ideal, parent_max);
         assert_eq!(effective, 700.0);
         assert!(effective <= parent_max);
     }
