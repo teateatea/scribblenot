@@ -1256,7 +1256,7 @@ fn panel_status_text(app: &App) -> String {
             ModalFocus::List => "list",
         };
         return format!(
-            "Modal: {focus} | {} matches | Enter selects | Ctrl+E edits entry | Esc closes",
+            "Modal: {focus} | {} matches | Enter selects | Empty Space moves into list | Ctrl+E edits entry | Esc closes",
             modal.filtered.len()
         );
     }
@@ -1416,11 +1416,14 @@ fn modal_card_style(
         ModalCardRole::Active => app.ui_theme.modal_inactive_background,
         ModalCardRole::Inactive => app.ui_theme.modal_inactive_background,
         ModalCardRole::Stub(kind) => match kind {
-            crate::modal_layout::ModalStubKind::NavLeft | crate::modal_layout::ModalStubKind::NavRight => {
+            crate::modal_layout::ModalStubKind::NavLeft
+            | crate::modal_layout::ModalStubKind::NavRight => {
                 app.ui_theme.modal_nav_stub_background
             }
             crate::modal_layout::ModalStubKind::Exit => app.ui_theme.modal_exit_stub_background,
-            crate::modal_layout::ModalStubKind::Confirm => app.ui_theme.modal_confirm_stub_background,
+            crate::modal_layout::ModalStubKind::Confirm => {
+                app.ui_theme.modal_confirm_stub_background
+            }
         },
     };
     let (mut background, mut text_color, mut border_color) = if mode.is_preview() {
@@ -1708,12 +1711,8 @@ fn active_simple_modal_content<'a>(
                     ui_theme.modal_muted_text
                 };
             let button_label = row![
-                container(
-                    text(marker)
-                        .font(ui_theme.font_modal)
-                        .color(marker_color)
-                )
-                .align_left(Length::Fixed(14.0)),
+                container(text(marker).font(ui_theme.font_modal).color(marker_color))
+                    .align_left(Length::Fixed(14.0)),
                 container(
                     text(format!("{hint:<4}"))
                         .font(ui_theme.font_modal)
@@ -1885,7 +1884,6 @@ fn entry_composition_panel<'a>(
             .into(),
     )
 }
-
 
 fn simple_modal_unit_root_width(layout: &SimpleModalUnitLayout) -> Option<f32> {
     layout
@@ -2565,7 +2563,10 @@ mod tests {
         UnitContentSnapshot, UnitGeometry,
     };
     use crate::data::{HierarchyItem, HierarchyList, ModalStart, ResolvedCollectionConfig};
-    use crate::modal_layout::{ModalFocus, ModalListViewSnapshot, ModalStubKind, SimpleModalSequence, SimpleModalUnitLayout};
+    use crate::modal_layout::{
+        ModalFocus, ModalListViewSnapshot, ModalStubKind, SimpleModalSequence,
+        SimpleModalUnitLayout,
+    };
     use crate::sections::collection::CollectionEntry;
     use std::time::Instant;
 
@@ -2615,7 +2616,11 @@ mod tests {
 
     fn connected_transition_fixture(
         direction: FocusDirection,
-    ) -> (SimpleModalUnitLayout, ModalArrivalLayer, ModalDepartureLayer) {
+    ) -> (
+        SimpleModalUnitLayout,
+        ModalArrivalLayer,
+        ModalDepartureLayer,
+    ) {
         let (dep_leading_stub, dep_trailing_stub, arr_leading_stub, arr_trailing_stub) =
             match direction {
                 FocusDirection::Forward => (
@@ -2892,7 +2897,10 @@ mod tests {
         let arr_w_bwd = transition_unit_display_width(&arr_bwd.geometry, stub);
         let slide_bwd = (dep_w_bwd + arr_w_bwd) / 2.0 - stub;
 
-        assert_eq!(slide_fwd, slide_bwd, "forward and backward slide distances must match");
+        assert_eq!(
+            slide_fwd, slide_bwd,
+            "forward and backward slide distances must match"
+        );
     }
 
     #[test]
@@ -2906,7 +2914,10 @@ mod tests {
         let transition_pos = rendered.cards.iter().position(|c| {
             matches!(
                 c.kind,
-                ModalUnitCardKind::Stub { stub_kind: ModalStubKind::NavRight, .. }
+                ModalUnitCardKind::Stub {
+                    stub_kind: ModalStubKind::NavRight,
+                    ..
+                }
             )
         });
         let active_pos = rendered
@@ -2932,7 +2943,10 @@ mod tests {
         let transition_pos = rendered.cards.iter().position(|c| {
             matches!(
                 c.kind,
-                ModalUnitCardKind::Stub { stub_kind: ModalStubKind::NavLeft, .. }
+                ModalUnitCardKind::Stub {
+                    stub_kind: ModalStubKind::NavLeft,
+                    ..
+                }
             )
         });
         let active_pos = rendered

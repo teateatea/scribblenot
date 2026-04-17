@@ -1738,6 +1738,39 @@ impl App {
                 }
 
                 if matches!(key, AppKey::Space) {
+                    if self
+                        .modal
+                        .as_ref()
+                        .is_some_and(|modal| modal.query.is_empty())
+                    {
+                        if self
+                            .modal
+                            .as_ref()
+                            .is_some_and(|modal| modal.should_finish_repeating_from_empty_search())
+                        {
+                            self.confirm_modal_value(String::new());
+                            return;
+                        }
+
+                        let only_value = self.modal.as_ref().and_then(|modal| {
+                            if modal.filtered.len() == 1 {
+                                modal.selected_value().map(String::from)
+                            } else {
+                                None
+                            }
+                        });
+                        if let Some(value) = only_value {
+                            self.confirm_modal_value(value);
+                        } else if self
+                            .modal
+                            .as_ref()
+                            .is_some_and(|modal| !modal.filtered.is_empty())
+                        {
+                            self.modal.as_mut().unwrap().focus = ModalFocus::List;
+                        }
+                        return;
+                    }
+
                     let modal = self.modal.as_mut().unwrap();
                     modal.query.push(' ');
                     modal.update_filter();
@@ -3793,6 +3826,31 @@ mod composition_span_tests {
 
         let modal = app.modal.as_ref().expect("modal should remain open");
         assert_eq!(modal.focus, ModalFocus::List);
+    }
+
+    #[test]
+    fn modal_search_space_on_empty_query_enters_list() {
+        let mut app = app_with_single_field(list_field(ModalStart::Search));
+        app.open_header_modal();
+
+        app.handle_key(AppKey::Space);
+
+        let modal = app.modal.as_ref().expect("modal should remain open");
+        assert_eq!(modal.focus, ModalFocus::List);
+        assert!(modal.query.is_empty());
+    }
+
+    #[test]
+    fn modal_search_space_after_typing_stays_query_text() {
+        let mut app = app_with_single_field(list_field(ModalStart::Search));
+        app.open_header_modal();
+
+        app.handle_key(AppKey::Char('h'));
+        app.handle_key(AppKey::Space);
+
+        let modal = app.modal.as_ref().expect("modal should remain open");
+        assert_eq!(modal.focus, ModalFocus::SearchBar);
+        assert_eq!(modal.query, "h ");
     }
 
     #[test]

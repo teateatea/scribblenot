@@ -93,10 +93,7 @@ pub fn render_field_display(
     }
 }
 
-pub fn renders_without_field_label(
-    section: &SectionConfig,
-    field: &HeaderFieldConfig,
-) -> bool {
+pub fn renders_without_field_label(section: &SectionConfig, field: &HeaderFieldConfig) -> bool {
     !section.show_field_labels
         || (!field.collections.is_empty() && field.lists.is_empty() && field.format.is_none())
 }

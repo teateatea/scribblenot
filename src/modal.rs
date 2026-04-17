@@ -1,13 +1,13 @@
 use crate::data::{
     HeaderFieldConfig, HierarchyList, JoinerStyle, ModalStart, ResolvedCollectionConfig,
 };
-use crate::sections::collection::CollectionState;
-use crate::sections::header::{
-    CollectionFieldValue, CollectionSelection, HeaderFieldValue, HeaderState, ListFieldValue,
-};
 use crate::modal_layout::{
     build_simple_modal_unit_layout, ModalFocus, ModalListViewSnapshot, SimpleModalSequence,
     SimpleModalUnitLayout,
+};
+use crate::sections::collection::CollectionState;
+use crate::sections::header::{
+    CollectionFieldValue, CollectionSelection, HeaderFieldValue, HeaderState, ListFieldValue,
 };
 use std::collections::HashMap;
 

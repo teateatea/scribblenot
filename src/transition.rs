@@ -14,8 +14,8 @@ use std::time::Instant;
 /// Strip slides in the opposite direction: Forward = strip moves left.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FocusDirection {
-    Forward,   // focus moved to a higher-index unit (rightward)
-    Backward,  // focus moved to a lower-index unit (leftward)
+    Forward,  // focus moved to a higher-index unit (rightward)
+    Backward, // focus moved to a lower-index unit (leftward)
 }
 
 // LESSON 2: A menu of animation curve options. The apply() function shapes raw 0-to-1 progress

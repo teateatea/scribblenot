@@ -185,10 +185,7 @@ pub fn build_simple_modal_unit_layout(
         start = end + 1;
     }
 
-    Some(SimpleModalUnitLayout {
-        sequence,
-        units,
-    })
+    Some(SimpleModalUnitLayout { sequence, units })
 }
 
 // LESSON 6: Two height helpers - one sets modal height to 80% of the viewport (with a 160px floor), the other calculates how many list rows fit after subtracting the chrome. Vertical position is handled elsewhere; this is only about size.

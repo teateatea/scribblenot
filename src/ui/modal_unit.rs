@@ -2,15 +2,21 @@
 // for the at-rest and in-transition modal strip. Split out of ui/mod.rs for readability.
 // All items are pub(super) - visible to ui/mod.rs but not exported beyond the ui module.
 
+use super::{
+    active_simple_modal_content, apply_alpha, modal_card, preview_simple_modal_content,
+    ModalCardRole, ModalRenderMode,
+};
 use crate::app::App;
-use crate::modal_layout::{modal_list_view_dimensions, ModalListViewSnapshot, ModalStubKind, ModalUnitRange, SimpleModalUnitLayout};
+use crate::modal_layout::{
+    modal_list_view_dimensions, ModalListViewSnapshot, ModalStubKind, ModalUnitRange,
+    SimpleModalUnitLayout,
+};
 use crate::Message;
-use iced::advanced::{layout, renderer, widget as adv_widget};
 use iced::advanced::widget::Widget as AdvWidget;
+use iced::advanced::{layout, renderer, widget as adv_widget};
+use iced::mouse;
 use iced::widget::{container, row, Space};
 use iced::{Element, Length, Point, Rectangle, Size};
-use iced::mouse;
-use super::{active_simple_modal_content, apply_alpha, modal_card, preview_simple_modal_content, ModalCardRole, ModalRenderMode};
 
 // LESSON 1: The card vocabulary. Every card in the modal strip is described by one of these types before anything is painted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,14 +167,26 @@ pub(super) fn build_connected_transition_rendered_unit(
 
     let (dep_far_stub, transition_stub, arr_far_stub) = match arrival.focus_direction {
         crate::app::FocusDirection::Forward => (
-            dep_geo.leading_stub_kind.map(|kind| (ModalUnitSide::Left, kind)),
-            dep_geo.trailing_stub_kind.map(|kind| (ModalUnitSide::Right, kind)),
-            arr_geo.trailing_stub_kind.map(|kind| (ModalUnitSide::Right, kind)),
+            dep_geo
+                .leading_stub_kind
+                .map(|kind| (ModalUnitSide::Left, kind)),
+            dep_geo
+                .trailing_stub_kind
+                .map(|kind| (ModalUnitSide::Right, kind)),
+            arr_geo
+                .trailing_stub_kind
+                .map(|kind| (ModalUnitSide::Right, kind)),
         ),
         crate::app::FocusDirection::Backward => (
-            dep_geo.trailing_stub_kind.map(|kind| (ModalUnitSide::Right, kind)),
-            dep_geo.leading_stub_kind.map(|kind| (ModalUnitSide::Left, kind)),
-            arr_geo.leading_stub_kind.map(|kind| (ModalUnitSide::Left, kind)),
+            dep_geo
+                .trailing_stub_kind
+                .map(|kind| (ModalUnitSide::Right, kind)),
+            dep_geo
+                .leading_stub_kind
+                .map(|kind| (ModalUnitSide::Left, kind)),
+            arr_geo
+                .leading_stub_kind
+                .map(|kind| (ModalUnitSide::Left, kind)),
         ),
     };
 
@@ -188,7 +206,9 @@ pub(super) fn build_connected_transition_rendered_unit(
                     .copied()
                     .unwrap_or_else(|| modal_list_view_dimensions(snapshot).0);
                 cards.push(ModalUnitCardData {
-                    kind: ModalUnitCardKind::Preview { snapshot: snapshot.clone() },
+                    kind: ModalUnitCardKind::Preview {
+                        snapshot: snapshot.clone(),
+                    },
                     width,
                     alpha: dep_alpha,
                 });
@@ -211,7 +231,11 @@ pub(super) fn build_connected_transition_rendered_unit(
                 } else {
                     ModalUnitCardKind::Preview { snapshot }
                 };
-                cards.push(ModalUnitCardData { kind, width, alpha: arr_alpha });
+                cards.push(ModalUnitCardData {
+                    kind,
+                    width,
+                    alpha: arr_alpha,
+                });
             }
             if arr_geo.shows_stubs {
                 if let Some((side, kind)) = arr_far_stub {
@@ -240,7 +264,11 @@ pub(super) fn build_connected_transition_rendered_unit(
                 } else {
                     ModalUnitCardKind::Preview { snapshot }
                 };
-                cards.push(ModalUnitCardData { kind, width, alpha: arr_alpha });
+                cards.push(ModalUnitCardData {
+                    kind,
+                    width,
+                    alpha: arr_alpha,
+                });
             }
             if dep_geo.shows_stubs {
                 if let Some((side, kind)) = transition_stub {
@@ -254,7 +282,9 @@ pub(super) fn build_connected_transition_rendered_unit(
                     .copied()
                     .unwrap_or_else(|| modal_list_view_dimensions(snapshot).0);
                 cards.push(ModalUnitCardData {
-                    kind: ModalUnitCardKind::Preview { snapshot: snapshot.clone() },
+                    kind: ModalUnitCardKind::Preview {
+                        snapshot: snapshot.clone(),
+                    },
                     width,
                     alpha: dep_alpha,
                 });
@@ -271,7 +301,11 @@ pub(super) fn build_connected_transition_rendered_unit(
 }
 
 // LESSON 6: Centering math for the modal strip. Returns (outer_width, left_pad, right_pad) to position the strip inside an oversized container. The container is wider than the viewport (the "runway") so the strip can slide without being clipped. A positive shift moves the strip right; left_pad and right_pad tip in opposite directions to achieve that.
-pub(super) fn modal_unit_runway_layout(viewport_width: f32, row_width: f32, shift: f32) -> (f32, f32, f32) {
+pub(super) fn modal_unit_runway_layout(
+    viewport_width: f32,
+    row_width: f32,
+    shift: f32,
+) -> (f32, f32, f32) {
     let base_offset = (viewport_width - row_width) * 0.5;
     let runway = ((row_width - viewport_width) * 0.5).max(0.0) + shift.abs();
     let left_pad = (runway + base_offset + shift).max(0.0);
@@ -294,7 +328,9 @@ pub(super) fn render_modal_unit<'a>(
     for card in &rendered.cards {
         let alpha = card.alpha;
         match &card.kind {
-            ModalUnitCardKind::Stub { mode, stub_kind, .. } => match mode {
+            ModalUnitCardKind::Stub {
+                mode, stub_kind, ..
+            } => match mode {
                 ModalUnitStubMode::Visible => {
                     let text_color = match stub_kind {
                         ModalStubKind::NavLeft | ModalStubKind::NavRight => {
@@ -376,7 +412,10 @@ pub(super) fn render_modal_unit<'a>(
     }
 
     let row_width = rendered.total_width(spacer_width);
-    let viewport_width = app.viewport_size.map(|size| size.width).unwrap_or(row_width);
+    let viewport_width = app
+        .viewport_size
+        .map(|size| size.width)
+        .unwrap_or(row_width);
     let (outer_width, left_pad, right_pad) =
         modal_unit_runway_layout(viewport_width, row_width, shift);
 
@@ -384,7 +423,9 @@ pub(super) fn render_modal_unit<'a>(
         container(
             row![
                 Space::with_width(Length::Fixed(left_pad)),
-                row(cards).spacing(spacer_width).align_y(iced::alignment::Vertical::Center),
+                row(cards)
+                    .spacing(spacer_width)
+                    .align_y(iced::alignment::Vertical::Center),
                 Space::with_width(Length::Fixed(right_pad))
             ]
             .align_y(iced::alignment::Vertical::Center),
@@ -397,7 +438,10 @@ pub(super) fn render_modal_unit<'a>(
 }
 
 /// Returns the total rendered width of a unit from its frozen geometry.
-pub(super) fn transition_unit_display_width(geometry: &crate::app::UnitGeometry, stub_width: f32) -> f32 {
+pub(super) fn transition_unit_display_width(
+    geometry: &crate::app::UnitGeometry,
+    stub_width: f32,
+) -> f32 {
     let n = geometry.modal_widths.len();
     let modals: f32 = geometry.modal_widths.iter().sum();
     if geometry.shows_stubs {
@@ -424,8 +468,18 @@ struct ClipTranslate<'a, M, T, R> {
 }
 
 impl<'a, M, T, R> ClipTranslate<'a, M, T, R> {
-    fn new(x_offset: f32, width: f32, height: f32, content: impl Into<Element<'a, M, T, R>>) -> Self {
-        Self { x_offset, width, height, content: content.into() }
+    fn new(
+        x_offset: f32,
+        width: f32,
+        height: f32,
+        content: impl Into<Element<'a, M, T, R>>,
+    ) -> Self {
+        Self {
+            x_offset,
+            width,
+            height,
+            content: content.into(),
+        }
     }
 }
 
@@ -448,11 +502,10 @@ where
     ) -> layout::Node {
         // Clamp to parent-granted height so clip envelope and child layout agree.
         let effective_height = self.height.min(limits.max().height);
-        let content_limits = layout::Limits::new(
-            Size::ZERO,
-            Size::new(f32::MAX, effective_height),
-        );
-        let content_node = self.content.as_widget()
+        let content_limits = layout::Limits::new(Size::ZERO, Size::new(f32::MAX, effective_height));
+        let content_node = self
+            .content
+            .as_widget()
             .layout(&mut tree.children[0], renderer, &content_limits)
             .move_to(Point::new(self.x_offset, 0.0));
         layout::Node::with_children(Size::new(self.width, effective_height), vec![content_node])
@@ -500,7 +553,12 @@ where
         operation: &mut dyn adv_widget::Operation,
     ) {
         if let Some(child_layout) = layout.children().next() {
-            self.content.as_widget().operate(&mut tree.children[0], child_layout, renderer, operation);
+            self.content.as_widget().operate(
+                &mut tree.children[0],
+                child_layout,
+                renderer,
+                operation,
+            );
         }
     }
 
@@ -600,7 +658,9 @@ pub(super) fn render_connected_transition<'a>(
     for card in &rendered.cards {
         let alpha = card.alpha;
         match &card.kind {
-            ModalUnitCardKind::Stub { mode, stub_kind, .. } => match mode {
+            ModalUnitCardKind::Stub {
+                mode, stub_kind, ..
+            } => match mode {
                 ModalUnitStubMode::Visible => {
                     let text_color = match stub_kind {
                         ModalStubKind::NavLeft | ModalStubKind::NavRight => {
@@ -682,7 +742,10 @@ pub(super) fn render_connected_transition<'a>(
     }
 
     let row_width = rendered.total_width(spacer_width);
-    let viewport_width = app.viewport_size.map(|size| size.width).unwrap_or(row_width);
+    let viewport_width = app
+        .viewport_size
+        .map(|size| size.width)
+        .unwrap_or(row_width);
 
     // LESSON 9: Per-frame position math. shift is the left offset of the entire strip each frame.
     // Forward slides left (- slide * p); backward slides right (+ slide * p, negated formula).
@@ -707,7 +770,9 @@ pub(super) fn render_connected_transition<'a>(
         inner_left,
         viewport_width,
         modal_height,
-        row(cards).spacing(spacer_width).align_y(iced::alignment::Vertical::Center),
+        row(cards)
+            .spacing(spacer_width)
+            .align_y(iced::alignment::Vertical::Center),
     )
     .into()
 }
