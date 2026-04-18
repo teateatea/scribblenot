@@ -2725,6 +2725,11 @@ impl App {
             .as_ref()
             .and_then(|v| new_outputs.iter().position(|e| e == v))
             .unwrap_or(0);
+        let assignment_key = if new_list_idx == 0 {
+            self.modal_assignment_source_key()
+        } else {
+            None
+        };
         {
             let modal = self.modal.as_mut().unwrap();
             modal.all_entries = new_labels;
@@ -2738,6 +2743,9 @@ impl App {
         }
 
         if new_list_idx == 0 {
+            if let Some(key) = assignment_key.as_ref() {
+                self.clear_assignments_for_key(key);
+            }
             if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                 s.composite_spans = None;
                 s.clear_active_value();
@@ -3756,9 +3764,9 @@ mod composition_span_tests {
     };
     use crate::config::Config;
     use crate::data::{
-        AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem, HierarchyList, JoinerStyle,
-        KeyBindings, ModalStart, ResolvedCollectionConfig, RuntimeNodeKind, RuntimeTemplate,
-        SectionConfig, SectionGroup,
+        AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem, HierarchyList, ItemAssignment,
+        JoinerStyle, KeyBindings, ModalStart, ResolvedCollectionConfig, RuntimeNodeKind,
+        RuntimeTemplate, SectionConfig, SectionGroup,
     };
     use crate::modal::SearchModal;
     use crate::modal_layout::ModalFocus;
@@ -3775,6 +3783,29 @@ mod composition_span_tests {
             fields: None,
             branch_fields: Vec::new(),
             assigns: Vec::new(),
+        }
+    }
+
+    fn item_with_assignment(
+        id: &str,
+        label: &str,
+        output: &str,
+        list_id: &str,
+        item_id: &str,
+        assigned_output: &str,
+    ) -> HierarchyItem {
+        HierarchyItem {
+            id: id.to_string(),
+            label: Some(label.to_string()),
+            default_enabled: true,
+            output: Some(output.to_string()),
+            fields: None,
+            branch_fields: Vec::new(),
+            assigns: vec![ItemAssignment {
+                list_id: list_id.to_string(),
+                item_id: item_id.to_string(),
+                output: assigned_output.to_string(),
+            }],
         }
     }
 
@@ -3834,6 +3865,58 @@ mod composition_span_tests {
                 }],
             }],
             format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        }
+    }
+
+    fn assigned_time_field() -> HeaderFieldConfig {
+        HeaderFieldConfig {
+            id: "appointment".to_string(),
+            name: "Appointment".to_string(),
+            format: Some("{start_hour}:{start_minute}{am_pm}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![
+                HierarchyList {
+                    id: "start_hour".to_string(),
+                    label: Some("Start Hour".to_string()),
+                    preview: Some("hh".to_string()),
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        item_with_assignment("hour_9", "9", "9", "am_pm", "am_item", "AM"),
+                        item_with_assignment("hour_12", "12", "12", "am_pm", "pm_item", "PM"),
+                    ],
+                },
+                HierarchyList {
+                    id: "start_minute".to_string(),
+                    label: Some("Start Minute".to_string()),
+                    preview: Some("mm".to_string()),
+                    sticky: false,
+                    default: Some("minute_00".to_string()),
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![item("minute_00", "00", "00")],
+                },
+            ],
+            collections: Vec::new(),
+            format_lists: vec![HierarchyList {
+                id: "am_pm".to_string(),
+                label: Some("AM/PM".to_string()),
+                preview: Some("XM".to_string()),
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![item("am_item", "AM", "AM"), item("pm_item", "PM", "PM")],
+            }],
             joiner_style: None,
             max_entries: None,
             max_actives: None,
@@ -4268,5 +4351,79 @@ mod composition_span_tests {
             modal.preview_field_value(&app.config.sticky_values),
             HeaderFieldValue::ListState(_)
         ));
+    }
+
+    #[test]
+    fn modal_confirm_persists_assigned_format_list_value() {
+        let mut app = app_with_single_field(assigned_time_field());
+        app.open_header_modal();
+
+        app.confirm_modal_value("9".to_string());
+        assert!(app.modal.is_some(), "first list should advance to minute selection");
+
+        app.confirm_modal_value("00".to_string());
+
+        assert_eq!(app.assigned_values.get("am_pm").map(String::as_str), Some("AM"));
+        assert!(app.editable_note.contains("Appointment: 9:00AM"));
+        let SectionState::Header(state) = &app.section_states[0] else {
+            panic!("expected header state");
+        };
+        assert!(matches!(
+            &state.repeated_values[0][0],
+            HeaderFieldValue::Text(value) if value == "9:00AM"
+        ));
+    }
+
+    #[test]
+    fn header_backspace_clears_confirmed_assignment_state() {
+        let mut app = app_with_single_field(assigned_time_field());
+        app.open_header_modal();
+        app.confirm_modal_value("9".to_string());
+        app.confirm_modal_value("00".to_string());
+
+        app.handle_header_key(AppKey::Backspace);
+
+        assert!(
+            !app.assigned_values.contains_key("am_pm"),
+            "backspace should remove the slot's assigned format-list value"
+        );
+        let SectionState::Header(state) = &app.section_states[0] else {
+            panic!("expected header state");
+        };
+        assert!(matches!(
+            &state.repeated_values[0][0],
+            HeaderFieldValue::ExplicitEmpty
+        ));
+        assert!(!app.editable_note.contains("Appointment: 9:00AM"));
+    }
+
+    #[test]
+    fn modal_back_to_first_list_clears_existing_assignment_state() {
+        let mut app = app_with_single_field(assigned_time_field());
+        app.open_header_modal();
+        app.confirm_modal_value("9".to_string());
+        app.confirm_modal_value("00".to_string());
+        assert_eq!(app.assigned_values.get("am_pm").map(String::as_str), Some("AM"));
+
+        app.open_header_modal();
+        app.confirm_modal_value("12".to_string());
+        let modal = app.modal.as_ref().expect("modal should still be open");
+        assert_eq!(modal.field_flow.list_idx, 1);
+
+        app.composite_go_back();
+
+        let modal = app.modal.as_ref().expect("modal should remain open");
+        assert_eq!(modal.field_flow.list_idx, 0);
+        assert!(
+            !app.assigned_values.contains_key("am_pm"),
+            "backing out to the first list should clear the stale assigned value for that slot"
+        );
+        let SectionState::Header(state) = &app.section_states[0] else {
+            panic!("expected header state");
+        };
+        assert!(
+            state.repeated_values[0].is_empty(),
+            "backing out to the first list should clear the in-progress preview slot"
+        );
     }
 }
