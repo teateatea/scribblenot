@@ -16,8 +16,10 @@ pub struct CollectionFieldValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListFieldValue {
     pub values: Vec<String>,
+    pub item_ids: Vec<String>,
     pub list_idx: usize,
     pub repeat_values: Vec<String>,
+    pub repeat_item_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

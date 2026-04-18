@@ -263,6 +263,16 @@ pub struct HierarchyList {
     pub items: Vec<HierarchyItem>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ItemAssignment {
+    #[serde(rename = "list")]
+    pub list_id: String,
+    #[serde(rename = "item")]
+    pub item_id: String,
+    #[serde(skip)]
+    pub output: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(from = "HierarchyItemInput")]
 pub struct HierarchyItem {
@@ -277,6 +287,8 @@ pub struct HierarchyItem {
     pub fields: Option<Vec<String>>,
     #[serde(default)]
     pub branch_fields: Vec<HeaderFieldConfig>,
+    #[serde(default)]
+    pub assigns: Vec<ItemAssignment>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -308,6 +320,8 @@ struct HierarchyItemRaw {
     fields: Option<Vec<String>>,
     #[serde(default)]
     branch_fields: Vec<HeaderFieldConfig>,
+    #[serde(default)]
+    assigns: Vec<ItemAssignment>,
 }
 
 impl From<HierarchyItemInput> for HierarchyItem {
@@ -329,6 +343,7 @@ impl From<HierarchyItemInput> for HierarchyItem {
                 output: item.output,
                 fields: item.fields,
                 branch_fields: item.branch_fields,
+                assigns: item.assigns,
             },
             HierarchyItemInput::Simple(label) => Self {
                 id: slugify_id(&label),
@@ -337,6 +352,7 @@ impl From<HierarchyItemInput> for HierarchyItem {
                 output: Some(label),
                 fields: None,
                 branch_fields: Vec::new(),
+                assigns: Vec::new(),
             },
         }
     }
@@ -739,12 +755,12 @@ fn section_to_config(
                 )?);
             }
             HierarchyChildRef::List { list } => {
-                attached_lists.push(
-                    (*lists_by_id
+                attached_lists.push(resolve_runtime_list(
+                    lists_by_id
                         .get(list.as_str())
-                        .ok_or_else(|| format!("unknown list '{}'", list))?)
-                    .clone(),
-                );
+                        .ok_or_else(|| format!("unknown list '{}'", list))?,
+                    lists_by_id,
+                )?);
             }
             other => {
                 return Err(format!(
@@ -817,12 +833,12 @@ fn resolve_collection(
     let mut lists = Vec::new();
     for child in &collection.contains {
         match child {
-            HierarchyChildRef::List { list } => lists.push(
-                (*lists_by_id
+            HierarchyChildRef::List { list } => lists.push(resolve_runtime_list(
+                lists_by_id
                     .get(list.as_str())
-                    .ok_or_else(|| format!("unknown list '{}'", list))?)
-                .clone(),
-            ),
+                    .ok_or_else(|| format!("unknown list '{}'", list))?,
+                lists_by_id,
+            )?),
             other => {
                 return Err(format!(
                     "collection '{}' cannot contain {:?}",
@@ -926,10 +942,12 @@ fn resolve_field_inner(
                     )?);
                 }
                 HierarchyChildRef::List { list } => {
-                    let list = (*lists_by_id.get(list.as_str()).ok_or_else(|| {
-                        format!("field '{}' references unknown list '{}'", field.id, list)
-                    })?)
-                    .clone();
+                    let list = resolve_runtime_list(
+                        lists_by_id.get(list.as_str()).ok_or_else(|| {
+                            format!("field '{}' references unknown list '{}'", field.id, list)
+                        })?,
+                        lists_by_id,
+                    )?;
                     if has_nested_fields {
                         fields.push(wrap_list_as_field(&list));
                     } else {
@@ -962,12 +980,12 @@ fn resolve_field_inner(
         }
     } else {
         for list_id in &field.lists {
-            lists.push(
-                (*lists_by_id.get(list_id.as_str()).ok_or_else(|| {
+            lists.push(resolve_runtime_list(
+                lists_by_id.get(list_id.as_str()).ok_or_else(|| {
                     format!("field '{}' references unknown list '{}'", field.id, list_id)
-                })?)
-                .clone(),
-            );
+                })?,
+                lists_by_id,
+            )?);
         }
         for collection_id in &field.collections {
             let collection = collections_by_id
@@ -990,15 +1008,15 @@ fn resolve_field_inner(
         if list_is_primary || collection_matches || field_matches {
             continue;
         }
-        format_lists.push(
-            (*lists_by_id.get(list_id.as_str()).ok_or_else(|| {
+        format_lists.push(resolve_runtime_list(
+            lists_by_id.get(list_id.as_str()).ok_or_else(|| {
                 format!(
                     "field '{}' references unknown format list '{}'",
                     field.id, list_id
                 )
-            })?)
-            .clone(),
-        );
+            })?,
+            lists_by_id,
+        )?);
     }
     Ok(HeaderFieldConfig {
         id: field.id.clone(),
@@ -1279,6 +1297,35 @@ fn normalize_items(file: &mut HierarchyFile) {
     }
 }
 
+fn resolve_runtime_list(
+    list: &HierarchyList,
+    lists_by_id: &HashMap<&str, &HierarchyList>,
+) -> Result<HierarchyList, String> {
+    let mut resolved = list.clone();
+    for item in &mut resolved.items {
+        for assign in &mut item.assigns {
+            let target_list = lists_by_id.get(assign.list_id.as_str()).ok_or_else(|| {
+                format!(
+                    "list '{}' item '{}' assigns unknown list '{}'",
+                    list.id, item.id, assign.list_id
+                )
+            })?;
+            let target_item = target_list
+                .items
+                .iter()
+                .find(|target| target.id == assign.item_id)
+                .ok_or_else(|| {
+                    format!(
+                        "list '{}' item '{}' assigns unknown item '{}' in list '{}'",
+                        list.id, item.id, assign.item_id, assign.list_id
+                    )
+                })?;
+            assign.output = target_item.output().to_string();
+        }
+    }
+    Ok(resolved)
+}
+
 fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
     let template = file
         .template
@@ -1450,6 +1497,36 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
                         list_id,
                         missing_reference_kind_fix_hint(&field.id, TypeTag::List, &list_id)
                     ))
+                }
+            }
+        }
+    }
+
+    let lists_by_id: HashMap<&str, &HierarchyList> = file
+        .lists
+        .iter()
+        .map(|list| (list.id.as_str(), list))
+        .collect();
+    for list in &file.lists {
+        for item in &list.items {
+            for assign in &item.assigns {
+                if assign.list_id == list.id {
+                    return Err(format!(
+                        "list '{}' item '{}' cannot assign back into the same list '{}'. Fix: remove that self-assignment or target a different list.",
+                        list.id, item.id, assign.list_id
+                    ));
+                }
+                let Some(target_list) = lists_by_id.get(assign.list_id.as_str()) else {
+                    return Err(format!(
+                        "list '{}' item '{}' assigns unknown list '{}'. Fix: point `assigns` at an existing list id.",
+                        list.id, item.id, assign.list_id
+                    ));
+                };
+                if !target_list.items.iter().any(|target| target.id == assign.item_id) {
+                    return Err(format!(
+                        "list '{}' item '{}' assigns unknown item '{}' in list '{}'. Fix: use an existing target item id.",
+                        list.id, item.id, assign.item_id, assign.list_id
+                    ));
                 }
             }
         }

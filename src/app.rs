@@ -5,7 +5,8 @@ use crate::config::Config;
 use crate::data::{AppData, SectionConfig};
 use crate::document::build_initial_document;
 use crate::modal::{
-    joined_repeating_value, resolved_item_labels_for_list, FieldAdvance, SearchModal,
+    joined_repeating_value, resolved_item_labels_for_list, FieldAdvance, ListValueLookup,
+    SearchModal,
 };
 use crate::modal_layout::{
     modal_height_for_viewport, modal_window_size_for_height, ModalFocus, SimpleModalUnitLayout,
@@ -22,7 +23,7 @@ pub use crate::transition::{
     ModalTransitionEasing, ModalTransitionLayer, UnitContentSnapshot, UnitGeometry,
 };
 use iced::keyboard::{key::Named, Key, Modifiers};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -154,12 +155,20 @@ impl StatusMsg {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct AssignmentSourceKey {
+    section_idx: usize,
+    field_idx: usize,
+    value_idx: usize,
+}
+
 pub struct App {
     pub sections: Vec<SectionConfig>,
     pub section_states: Vec<SectionState>,
     pub current_idx: usize,
     pub data: AppData,
     pub config: Config,
+    pub assigned_values: HashMap<String, String>,
     pub ui_theme: crate::theme::AppTheme,
     pub pane_swapped: bool,
     pub show_help: bool,
@@ -197,6 +206,7 @@ pub struct App {
     pub note_headings_valid: bool,
     pub note_structure_warning: Option<String>,
     pub viewport_size: Option<iced::Size>,
+    assigned_contributions: BTreeMap<AssignmentSourceKey, HashMap<String, String>>,
 }
 
 pub fn match_binding_str(binding: &str, key: &AppKey) -> bool {
@@ -245,6 +255,7 @@ impl App {
             &data.groups,
             &sections,
             &section_states,
+            &HashMap::new(),
             &config.sticky_values,
             &data.boilerplate_texts,
         );
@@ -263,6 +274,7 @@ impl App {
             current_idx: 0,
             data,
             config,
+            assigned_values: HashMap::new(),
             ui_theme,
             pane_swapped,
             show_help: false,
@@ -291,6 +303,7 @@ impl App {
             note_headings_valid,
             note_structure_warning,
             viewport_size: None,
+            assigned_contributions: BTreeMap::new(),
         }
     }
 
@@ -356,6 +369,7 @@ impl App {
         // Step 1: build layout from the current modal state.
         let layout = self.modal.as_ref().and_then(|modal| {
             modal.simple_modal_unit_layout(
+                &self.assigned_values,
                 &self.config.sticky_values,
                 self.viewport_size.map(|s| s.width),
                 self.ui_theme.modal_spacer_width,
@@ -429,7 +443,7 @@ impl App {
             .map(|modal| {
                 (
                     modal.preview_field_value(&self.config.sticky_values),
-                    compute_field_spans(modal, &self.config.sticky_values),
+                    compute_field_spans(modal, &self.assigned_values, &self.config.sticky_values),
                 )
             });
         if let Some((preview_value, spans)) = nested_preview {
@@ -512,7 +526,9 @@ impl App {
         let current_text = self
             .modal
             .as_ref()
-            .map(|modal| compute_field_preview(modal, &self.config.sticky_values))
+            .map(|modal| {
+                compute_field_preview(modal, &self.assigned_values, &self.config.sticky_values)
+            })
             .unwrap_or_default();
         if let Some(modal) = self.modal.as_mut() {
             if modal.is_collection_mode() {
@@ -729,6 +745,7 @@ impl App {
         let body = crate::note::render_editable_section_body(
             cfg,
             state,
+            &self.assigned_values,
             &self.config.sticky_values,
             crate::note::NoteRenderMode::Preview,
         );
@@ -1110,6 +1127,68 @@ impl App {
         self.note_scroll = self.preview_scroll_line_for_index(self.map_cursor);
     }
 
+    fn assignment_source_key(
+        &self,
+        section_idx: usize,
+        field_idx: usize,
+        value_idx: usize,
+    ) -> AssignmentSourceKey {
+        AssignmentSourceKey {
+            section_idx,
+            field_idx,
+            value_idx,
+        }
+    }
+
+    fn active_assignment_source_key(&self, section_idx: usize) -> Option<AssignmentSourceKey> {
+        let SectionState::Header(state) = self.section_states.get(section_idx)? else {
+            return None;
+        };
+        Some(self.assignment_source_key(
+            section_idx,
+            state.field_index,
+            state.active_value_index(),
+        ))
+    }
+
+    fn modal_assignment_source_key(&self) -> Option<AssignmentSourceKey> {
+        let snapshot = self.modal_restore_snapshot.as_ref()?;
+        Some(self.assignment_source_key(
+            self.current_idx,
+            snapshot.field_idx,
+            snapshot.value_index,
+        ))
+    }
+
+    fn rebuild_assigned_values(&mut self) {
+        self.assigned_values.clear();
+        for contributions in self.assigned_contributions.values() {
+            for (list_id, value) in contributions {
+                if !value.is_empty() {
+                    self.assigned_values.insert(list_id.clone(), value.clone());
+                }
+            }
+        }
+    }
+
+    fn replace_assignments_for_key(
+        &mut self,
+        key: AssignmentSourceKey,
+        assignments: HashMap<String, String>,
+    ) {
+        if assignments.is_empty() {
+            self.assigned_contributions.remove(&key);
+        } else {
+            self.assigned_contributions.insert(key, assignments);
+        }
+        self.rebuild_assigned_values();
+    }
+
+    fn clear_assignments_for_key(&mut self, key: &AssignmentSourceKey) {
+        self.assigned_contributions.remove(key);
+        self.rebuild_assigned_values();
+    }
+
     pub fn reload_theme(&mut self) -> anyhow::Result<()> {
         self.ui_theme = crate::theme::AppTheme::load(&self.data_dir, &self.config.theme)?;
         Ok(())
@@ -1133,10 +1212,13 @@ impl App {
         self.settle_modal_transitions();
         self.hint_buffer.clear();
         self.data = data;
+        self.assigned_values.clear();
+        self.assigned_contributions.clear();
         self.editable_note = build_initial_document(
             &self.data.groups,
             &self.sections,
             &self.section_states,
+            &self.assigned_values,
             &self.config.sticky_values,
             &self.data.boilerplate_texts,
         );
@@ -1483,6 +1565,7 @@ impl App {
                     crate::sections::multi_field::resolve_multifield_value(
                         &confirmed,
                         cfg,
+                        &self.assigned_values,
                         &self.config.sticky_values,
                     )
                 })
@@ -1506,9 +1589,13 @@ impl App {
 
         if matches!(key, AppKey::Backspace) {
             let idx = self.current_idx;
+            let assignment_key = self.active_assignment_source_key(idx);
             if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                 s.blank_active_value();
                 s.completed = false;
+                if let Some(key) = assignment_key.as_ref() {
+                    self.clear_assignments_for_key(key);
+                }
                 self.sync_section_into_editable_note(idx);
             }
             return;
@@ -1585,6 +1672,7 @@ impl App {
                 field_idx,
                 cfg,
                 current_value.as_ref(),
+                &self.assigned_values,
                 &self.config.sticky_values,
                 window_size,
             );
@@ -2083,7 +2171,7 @@ impl App {
             return;
         }
         let preview = modal.preview_field_value(&self.config.sticky_values);
-        let spans = compute_field_spans(modal, &self.config.sticky_values);
+        let spans = compute_field_spans(modal, &self.assigned_values, &self.config.sticky_values);
         if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
             s.set_preview_value(preview);
             s.composite_spans = Some(spans);
@@ -2106,7 +2194,7 @@ impl App {
             return;
         }
 
-        let spans = compute_field_spans(modal, &self.config.sticky_values);
+        let spans = compute_field_spans(modal, &self.assigned_values, &self.config.sticky_values);
         if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
             s.set_preview_value(preview_value);
             s.composite_spans = Some(spans);
@@ -2122,6 +2210,7 @@ impl App {
             let window_size = self.modal_window_size();
             let advance = self.modal.as_mut().unwrap().advance_field(
                 value,
+                &self.assigned_values,
                 &mut self.config.sticky_values,
                 window_size,
             );
@@ -2136,6 +2225,11 @@ impl App {
                     self.sync_modal_preview_state(idx);
                 }
                 FieldAdvance::Complete(mut final_value) => {
+                    let modal_assignments = self
+                        .modal
+                        .as_ref()
+                        .map(|modal| modal.assigned_values())
+                        .unwrap_or_default();
                     if let Some(override_text) = self
                         .modal
                         .as_ref()
@@ -2150,6 +2244,9 @@ impl App {
                         s.composite_spans = None;
                         s.set_current_value(final_value);
                         let done = s.advance();
+                        if let Some(key) = self.modal_assignment_source_key() {
+                            self.replace_assignments_for_key(key, modal_assignments);
+                        }
                         self.sync_section_into_editable_note(idx);
                         if done {
                             self.advance_section();
@@ -2176,7 +2273,11 @@ impl App {
             .modal
             .as_mut()
             .unwrap()
-            .super_confirm_field(&mut self.config.sticky_values, window_size);
+            .super_confirm_field(
+                &self.assigned_values,
+                &mut self.config.sticky_values,
+                window_size,
+            );
 
         match advance {
             FieldAdvance::NextList | FieldAdvance::StayOnList => {
@@ -2186,6 +2287,11 @@ impl App {
                 self.fire_modal_transition_if_needed(previous_layout, previous_modal);
             }
             FieldAdvance::Complete(mut final_value) => {
+                let modal_assignments = self
+                    .modal
+                    .as_ref()
+                    .map(|modal| modal.assigned_values())
+                    .unwrap_or_default();
                 if let Some(override_text) = self
                     .modal
                     .as_ref()
@@ -2200,6 +2306,9 @@ impl App {
                     s.composite_spans = None;
                     s.set_current_value(final_value);
                     let done = s.advance();
+                    if let Some(key) = self.modal_assignment_source_key() {
+                        self.replace_assignments_for_key(key, modal_assignments);
+                    }
                     self.sync_section_into_editable_note(idx);
                     if done {
                         self.advance_section();
@@ -2566,7 +2675,9 @@ impl App {
         if self
             .modal
             .as_mut()
-            .is_some_and(|modal| modal.go_back_one_step(&self.config.sticky_values, window_size))
+            .is_some_and(|modal| {
+                modal.go_back_one_step(&self.assigned_values, &self.config.sticky_values, window_size)
+            })
         {
             self.sync_modal_preview_state(idx);
             self.rebuild_modal_unit_layout(false);
@@ -2579,21 +2690,28 @@ impl App {
                 None => return,
             };
             if modal.field_flow.list_idx == 0 {
-                let restored = modal.restore_parent_branch(&self.config.sticky_values, window_size);
+                let restored = modal.restore_parent_branch(
+                    &self.assigned_values,
+                    &self.config.sticky_values,
+                    window_size,
+                );
                 if !restored {
                     self.dismiss_modal();
                 }
                 return;
             }
             let popped = modal.field_flow.values.pop();
+            modal.field_flow.item_ids.pop();
             modal.field_flow.list_idx -= 1;
             let list = &modal.field_flow.lists[modal.field_flow.list_idx];
+            let mut merged_assigned = self.assigned_values.clone();
+            merged_assigned.extend(modal.assigned_values());
             let labels = resolved_item_labels_for_list(
                 list,
                 &modal.field_flow.values,
                 &modal.field_flow.repeat_values,
                 &modal.field_flow.lists,
-                &self.config.sticky_values,
+                crate::modal::ListValueLookup::new(&merged_assigned, &self.config.sticky_values),
             );
             let outputs: Vec<String> = list
                 .items
@@ -2760,9 +2878,10 @@ impl App {
 
 fn compute_field_spans(
     modal: &crate::modal::SearchModal,
+    assigned_values: &std::collections::HashMap<String, String>,
     sticky_values: &std::collections::HashMap<String, String>,
 ) -> Vec<(String, bool)> {
-    compute_field_composition_spans(modal, sticky_values)
+    compute_field_composition_spans(modal, assigned_values, sticky_values)
         .into_iter()
         .map(|span| {
             (
@@ -2775,12 +2894,14 @@ fn compute_field_spans(
 
 pub fn compute_field_composition_spans(
     modal: &crate::modal::SearchModal,
+    assigned_values: &std::collections::HashMap<String, String>,
     sticky_values: &std::collections::HashMap<String, String>,
 ) -> Vec<FieldCompositionSpan> {
     if let Some(root) = modal.nested_stack.first() {
         let resolved = crate::sections::multi_field::resolve_multifield_value(
             &crate::sections::header::HeaderFieldValue::NestedState(Box::new(root.state.clone())),
             &root.field,
+            assigned_values,
             sticky_values,
         );
         return match resolved {
@@ -2810,6 +2931,9 @@ pub fn compute_field_composition_spans(
         }];
     }
     let flow = &modal.field_flow;
+    let mut merged_assigned = assigned_values.clone();
+    merged_assigned.extend(modal.assigned_values());
+    let lookup = ListValueLookup::new(&merged_assigned, sticky_values);
     let Some(format) = &flow.format else {
         if !flow.values.is_empty() {
             return flow
@@ -2870,7 +2994,7 @@ pub fn compute_field_composition_spans(
                             text: value,
                             kind: FieldCompositionSpanKind::Active,
                         });
-                    } else if let Some(value) = fallback_list_value(&flow.lists[i], sticky_values) {
+                    } else if let Some(value) = fallback_list_value(&flow.lists[i], lookup) {
                         spans.push(FieldCompositionSpan {
                             text: value,
                             kind: FieldCompositionSpanKind::Preview,
@@ -2882,7 +3006,7 @@ pub fn compute_field_composition_spans(
                             kind: FieldCompositionSpanKind::Preview,
                         });
                     }
-                } else if let Some(value) = fallback_list_value(&flow.lists[i], sticky_values) {
+                } else if let Some(value) = fallback_list_value(&flow.lists[i], lookup) {
                     spans.push(FieldCompositionSpan {
                         text: value,
                         kind: FieldCompositionSpanKind::Preview,
@@ -2896,7 +3020,7 @@ pub fn compute_field_composition_spans(
                 }
             } else if let Some(list) = flow.format_lists.iter().find(|list| list.id == id) {
                 spans.push(FieldCompositionSpan {
-                    text: fallback_list_value(list, sticky_values).unwrap_or_default(),
+                    text: fallback_list_value(list, lookup).unwrap_or_default(),
                     kind: FieldCompositionSpanKind::Preview,
                 });
             }
@@ -2915,12 +3039,14 @@ pub fn compute_field_composition_spans(
 
 fn compute_field_preview(
     modal: &crate::modal::SearchModal,
+    assigned_values: &std::collections::HashMap<String, String>,
     sticky_values: &std::collections::HashMap<String, String>,
 ) -> String {
     if let Some(root) = modal.nested_stack.first() {
         let resolved = crate::sections::multi_field::resolve_multifield_value(
             &crate::sections::header::HeaderFieldValue::NestedState(Box::new(root.state.clone())),
             &root.field,
+            assigned_values,
             sticky_values,
         );
         return resolved.display_value().unwrap_or_default().to_string();
@@ -2929,6 +3055,9 @@ fn compute_field_preview(
         return modal.collection_preview();
     }
     let flow = &modal.field_flow;
+    let mut merged_assigned = assigned_values.clone();
+    merged_assigned.extend(modal.assigned_values());
+    let lookup = ListValueLookup::new(&merged_assigned, sticky_values);
     let active_value = modal.selected_value().map(str::to_string);
     let Some(format) = &flow.format else {
         if !flow.values.is_empty() {
@@ -2959,10 +3088,10 @@ fn compute_field_preview(
             active_value
                 .clone()
                 .filter(|value| !value.is_empty())
-                .or_else(|| fallback_list_value(list, sticky_values))
+                .or_else(|| fallback_list_value(list, lookup))
                 .unwrap_or_else(|| list.preview.as_deref().unwrap_or("?").to_string())
         } else {
-            fallback_list_value(list, sticky_values)
+            fallback_list_value(list, lookup)
                 .unwrap_or_else(|| list.preview.as_deref().unwrap_or("?").to_string())
         };
         result = result.replace(&placeholder, &value);
@@ -2970,7 +3099,7 @@ fn compute_field_preview(
     for list in &flow.format_lists {
         let placeholder = format!("{{{}}}", list.id);
         if result.contains(&placeholder) {
-            let value = fallback_list_value(list, sticky_values).unwrap_or_default();
+            let value = fallback_list_value(list, lookup).unwrap_or_default();
             result = result.replace(&placeholder, &value);
         }
     }
@@ -2979,25 +3108,9 @@ fn compute_field_preview(
 
 fn fallback_list_value(
     list: &crate::data::HierarchyList,
-    sticky_values: &std::collections::HashMap<String, String>,
+    lookup: ListValueLookup<'_>,
 ) -> Option<String> {
-    if list.sticky {
-        if let Some(value) = sticky_values.get(&list.id) {
-            if !value.is_empty() {
-                return Some(value.clone());
-            }
-        }
-    }
-    if let Some(default) = &list.default {
-        if let Some(item) = list.items.iter().find(|item| {
-            item.id == *default
-                || item.ui_label() == *default
-                || item.output.as_deref() == Some(default.as_str())
-        }) {
-            return Some(item.output().to_string());
-        }
-    }
-    None
+    lookup.fallback_value(list)
 }
 
 fn find_line_containing(text: &str, needle: &str) -> Option<u16> {
@@ -3661,6 +3774,7 @@ mod composition_span_tests {
             output: Some(output.to_string()),
             fields: None,
             branch_fields: Vec::new(),
+            assigns: Vec::new(),
         }
     }
 
@@ -3915,6 +4029,7 @@ mod composition_span_tests {
                         output: Some("Left".to_string()),
                         fields: None,
                         branch_fields: Vec::new(),
+                        assigns: Vec::new(),
                     }],
                 },
                 HierarchyList {
@@ -3933,6 +4048,7 @@ mod composition_span_tests {
                         output: Some("Shoulder".to_string()),
                         fields: None,
                         branch_fields: Vec::new(),
+                        assigns: Vec::new(),
                     }],
                 },
             ],
@@ -3943,11 +4059,12 @@ mod composition_span_tests {
             max_actives: None,
         };
 
+        let assigned_values = HashMap::new();
         let mut sticky_values = HashMap::new();
-        let mut modal = SearchModal::new_field(0, field, None, &sticky_values, 5);
-        let _ = modal.advance_field("Left".to_string(), &mut sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, field, None, &assigned_values, &sticky_values, 5);
+        let _ = modal.advance_field("Left".to_string(), &assigned_values, &mut sticky_values, 5);
 
-        let spans = compute_field_composition_spans(&modal, &sticky_values);
+        let spans = compute_field_composition_spans(&modal, &assigned_values, &sticky_values);
 
         assert_eq!(
             spans
@@ -3988,6 +4105,7 @@ mod composition_span_tests {
                         output: Some("Left".to_string()),
                         fields: None,
                         branch_fields: Vec::new(),
+                        assigns: Vec::new(),
                     }],
                 },
                 HierarchyList {
@@ -4007,6 +4125,7 @@ mod composition_span_tests {
                             output: Some("Shoulder".to_string()),
                             fields: None,
                             branch_fields: Vec::new(),
+                            assigns: Vec::new(),
                         },
                         HierarchyItem {
                             id: "hip".to_string(),
@@ -4015,6 +4134,7 @@ mod composition_span_tests {
                             output: Some("Hip".to_string()),
                             fields: None,
                             branch_fields: Vec::new(),
+                            assigns: Vec::new(),
                         },
                     ],
                 },
@@ -4026,13 +4146,14 @@ mod composition_span_tests {
             max_actives: None,
         };
 
+        let assigned_values = HashMap::new();
         let mut sticky_values = HashMap::new();
-        let mut modal = SearchModal::new_field(0, field, None, &sticky_values, 5);
-        let _ = modal.advance_field("Left".to_string(), &mut sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, field, None, &assigned_values, &sticky_values, 5);
+        let _ = modal.advance_field("Left".to_string(), &assigned_values, &mut sticky_values, 5);
         modal.list_cursor = 1;
         modal.update_scroll();
 
-        let spans = compute_field_composition_spans(&modal, &sticky_values);
+        let spans = compute_field_composition_spans(&modal, &assigned_values, &sticky_values);
 
         assert_eq!(
             spans
@@ -4072,6 +4193,7 @@ mod composition_span_tests {
                     output: Some("Shoulder".to_string()),
                     fields: None,
                     branch_fields: Vec::new(),
+                    assigns: Vec::new(),
                 }],
             }],
             collections: Vec::new(),

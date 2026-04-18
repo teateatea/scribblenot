@@ -410,6 +410,7 @@ fn field_display_value(
     crate::sections::multi_field::render_field_display(
         confirmed_values,
         field,
+        &app.assigned_values,
         &app.config.sticky_values,
     )
 }
@@ -463,6 +464,7 @@ fn render_header_state<'a>(
         let resolved_field = crate::sections::multi_field::resolve_field_values(
             confirmed_values,
             field,
+            &app.assigned_values,
             &app.config.sticky_values,
         );
         let base_color = if idx == state.field_index {
@@ -507,6 +509,7 @@ fn render_header_state<'a>(
                             match crate::sections::multi_field::resolve_multifield_value(
                                 value,
                                 field,
+                                &app.assigned_values,
                                 &app.config.sticky_values,
                             ) {
                                 crate::sections::multi_field::ResolvedMultiFieldValue::Complete(
@@ -532,6 +535,7 @@ fn render_header_state<'a>(
                         crate::sections::multi_field::resolve_field_label(
                             value,
                             field,
+                            &app.assigned_values,
                             &app.config.sticky_values,
                         )
                     })
@@ -539,6 +543,7 @@ fn render_header_state<'a>(
                         crate::sections::multi_field::resolve_field_label(
                             &crate::sections::header::HeaderFieldValue::Text(String::new()),
                             field,
+                            &app.assigned_values,
                             &app.config.sticky_values,
                         )
                     });
@@ -567,6 +572,7 @@ fn render_header_state<'a>(
         let field_label = crate::sections::multi_field::resolve_field_label(
             &confirmed,
             field,
+            &app.assigned_values,
             &app.config.sticky_values,
         );
         let prefix = if idx == state.field_index { ">" } else { " " };
@@ -1012,6 +1018,7 @@ fn match_header_preview_line(app: &App, line: &str) -> Option<HeaderPreviewLineM
                 let resolved = crate::sections::multi_field::resolve_multifield_value(
                     &empty_value,
                     field,
+                    &app.assigned_values,
                     &app.config.sticky_values,
                 );
                 let Some(rendered) = resolved.export_value() else {
@@ -1021,6 +1028,7 @@ fn match_header_preview_line(app: &App, line: &str) -> Option<HeaderPreviewLineM
                     section,
                     field,
                     &empty_value,
+                    &app.assigned_values,
                     &app.config.sticky_values,
                 )
                 .unwrap_or_else(|| rendered.to_string());
@@ -1038,6 +1046,7 @@ fn match_header_preview_line(app: &App, line: &str) -> Option<HeaderPreviewLineM
                 let resolved = crate::sections::multi_field::resolve_multifield_value(
                     value,
                     field,
+                    &app.assigned_values,
                     &app.config.sticky_values,
                 );
                 let Some(rendered) = resolved.export_value() else {
@@ -1047,6 +1056,7 @@ fn match_header_preview_line(app: &App, line: &str) -> Option<HeaderPreviewLineM
                     section,
                     field,
                     value,
+                    &app.assigned_values,
                     &app.config.sticky_values,
                 )
                 .unwrap_or_else(|| rendered.to_string());
@@ -1164,6 +1174,7 @@ fn header_field_preview_color(
             .map(|values| values.as_slice())
             .unwrap_or(&[]),
         field,
+        &app.assigned_values,
         &app.config.sticky_values,
     );
     if section_idx == app.current_idx && field_idx == state.field_index {
@@ -1652,7 +1663,9 @@ fn active_simple_modal_content<'a>(
 ) -> Element<'a, Message> {
     let ui_theme = blended_modal_theme(app, alpha);
     let mut modal_items: Vec<Element<'a, Message>> = Vec::new();
-    if let Some(part_label) = modal.current_part_label(&app.config.sticky_values) {
+    if let Some(part_label) =
+        modal.current_part_label(&app.assigned_values, &app.config.sticky_values)
+    {
         modal_items.push(
             text(part_label)
                 .font(ui_theme.font_modal)
@@ -1757,7 +1770,11 @@ fn entry_composition_panel<'a>(
     modal_width: f32,
 ) -> Option<Element<'a, Message>> {
     let structured_spans =
-        crate::app::compute_field_composition_spans(modal, &app.config.sticky_values);
+        crate::app::compute_field_composition_spans(
+            modal,
+            &app.assigned_values,
+            &app.config.sticky_values,
+        );
     if structured_spans.is_empty() && modal.manual_override.is_none() {
         return None;
     }
@@ -2170,7 +2187,7 @@ fn collection_left_panel<'a>(
         .as_ref()
         .is_some_and(|state| matches!(state.focus, CollectionFocus::Collections));
     let title = modal
-        .current_part_label(&app.config.sticky_values)
+        .current_part_label(&app.assigned_values, &app.config.sticky_values)
         .unwrap_or_else(|| modal.field_name.clone());
     modal_subpanel(
         app,
@@ -2578,6 +2595,7 @@ mod tests {
             output: Some(label.to_string()),
             fields: None,
             branch_fields: Vec::new(),
+            assigns: Vec::new(),
         }
     }
 
@@ -3016,3 +3034,4 @@ mod tests {
         );
     }
 }
+

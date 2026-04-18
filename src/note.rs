@@ -15,6 +15,7 @@ pub enum NoteRenderMode {
 pub fn section_start_line(
     sections: &[SectionConfig],
     states: &[SectionState],
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
     groups: &[SectionGroup],
     boilerplate_texts: &HashMap<String, String>,
@@ -24,6 +25,7 @@ pub fn section_start_line(
         groups,
         sections,
         states,
+        assigned_values,
         sticky_values,
         boilerplate_texts,
         NoteRenderMode::Preview,
@@ -45,6 +47,7 @@ pub fn render_note(
     groups: &[SectionGroup],
     sections: &[SectionConfig],
     states: &[SectionState],
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
     boilerplate_texts: &HashMap<String, String>,
     mode: NoteRenderMode,
@@ -53,6 +56,7 @@ pub fn render_note(
         groups,
         sections,
         states,
+        assigned_values,
         sticky_values,
         boilerplate_texts,
         mode,
@@ -64,6 +68,7 @@ pub fn render_editable_document(
     groups: &[SectionGroup],
     sections: &[SectionConfig],
     states: &[SectionState],
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
     boilerplate_texts: &HashMap<String, String>,
 ) -> String {
@@ -71,6 +76,7 @@ pub fn render_editable_document(
         groups,
         sections,
         states,
+        assigned_values,
         sticky_values,
         boilerplate_texts,
         NoteRenderMode::Preview,
@@ -87,16 +93,18 @@ pub fn managed_heading_for_section(cfg: &SectionConfig) -> Option<String> {
 pub fn render_editable_section_body(
     cfg: &SectionConfig,
     state: &SectionState,
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
     mode: NoteRenderMode,
 ) -> String {
-    render_section_body(cfg, state, sticky_values, mode)
+    render_section_body(cfg, state, assigned_values, sticky_values, mode)
 }
 
 fn render_document(
     groups: &[SectionGroup],
     sections: &[SectionConfig],
     states: &[SectionState],
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
     boilerplate_texts: &HashMap<String, String>,
     mode: NoteRenderMode,
@@ -122,7 +130,7 @@ fn render_document(
         }
 
         for (cfg, state) in group_sections(group, sections, states) {
-            let body = render_section_body(cfg, state, sticky_values, mode.clone());
+            let body = render_section_body(cfg, state, assigned_values, sticky_values, mode.clone());
             if body.trim().is_empty() && is_skipped(state) {
                 continue;
             }
@@ -175,12 +183,13 @@ fn append_managed_section(parts: &mut Vec<String>, cfg: &SectionConfig, body: St
 fn render_section_body(
     cfg: &SectionConfig,
     state: &SectionState,
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
     mode: NoteRenderMode,
 ) -> String {
     match (cfg.section_type.as_str(), state) {
         ("multi_field", SectionState::Header(header)) => {
-            render_multifield(cfg, header, sticky_values)
+            render_multifield(cfg, header, assigned_values, sticky_values)
         }
         ("free_text", SectionState::FreeText(text)) => text.entries.join("\n"),
         ("list_select", SectionState::ListSelect(list)) => {
@@ -209,6 +218,7 @@ fn render_section_body(
 fn render_multifield(
     cfg: &SectionConfig,
     state: &crate::sections::header::HeaderState,
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> String {
     let mut lines = Vec::new();
@@ -220,14 +230,22 @@ fn render_multifield(
             .unwrap_or(&[]);
 
         for value in values {
-            if let Some(rendered) = render_note_line(cfg, field_cfg, value, sticky_values) {
+            if let Some(rendered) =
+                render_note_line(cfg, field_cfg, value, assigned_values, sticky_values)
+            {
                 lines.push(rendered);
             }
         }
 
         if values.is_empty() {
             let empty_value = HeaderFieldValue::Text(String::new());
-            if let Some(rendered) = render_note_line(cfg, field_cfg, &empty_value, sticky_values) {
+            if let Some(rendered) = render_note_line(
+                cfg,
+                field_cfg,
+                &empty_value,
+                assigned_values,
+                sticky_values,
+            ) {
                 lines.push(rendered);
             }
         }
@@ -340,6 +358,7 @@ mod tests {
             &data.sections,
             &states,
             &HashMap::new(),
+            &HashMap::new(),
             &data.boilerplate_texts,
             NoteRenderMode::Preview,
         );
@@ -378,6 +397,7 @@ mod tests {
             &data.sections,
             &states,
             &HashMap::new(),
+            &HashMap::new(),
             &data.boilerplate_texts,
         );
 
@@ -408,6 +428,7 @@ mod tests {
             &data.groups,
             &data.sections,
             &states,
+            &HashMap::new(),
             &HashMap::new(),
             &data.boilerplate_texts,
             NoteRenderMode::Preview,
@@ -452,6 +473,7 @@ mod tests {
             &data.groups,
             &data.sections,
             &states,
+            &HashMap::new(),
             &HashMap::new(),
             &data.boilerplate_texts,
             NoteRenderMode::Preview,
@@ -521,6 +543,7 @@ mod tests {
             &data.sections,
             &states,
             &HashMap::new(),
+            &HashMap::new(),
             &data.boilerplate_texts,
             NoteRenderMode::Preview,
         );
@@ -580,6 +603,7 @@ mod tests {
                             output: Some("- General Swedish Techniques".to_string()),
                             fields: None,
                             branch_fields: Vec::new(),
+                            assigns: Vec::new(),
                         }],
                     }],
                 }],
@@ -595,7 +619,7 @@ mod tests {
         };
         let state = HeaderState::new(cfg.fields.clone().unwrap_or_default());
 
-        let rendered = render_multifield(&cfg, &state, &HashMap::new());
+        let rendered = render_multifield(&cfg, &state, &HashMap::new(), &HashMap::new());
 
         assert!(rendered.starts_with("#### ALL - UPPER MIDDLE & LOW BACK"));
         assert!(!rendered.starts_with("BACK:"));
@@ -633,8 +657,9 @@ mod tests {
             "Standalone summary".to_string(),
         )];
 
-        let rendered = render_multifield(&cfg, &state, &HashMap::new());
+        let rendered = render_multifield(&cfg, &state, &HashMap::new(), &HashMap::new());
 
         assert_eq!(rendered, "Standalone summary");
     }
 }
+

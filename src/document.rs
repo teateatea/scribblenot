@@ -15,10 +15,18 @@ pub fn build_initial_document(
     groups: &[SectionGroup],
     sections: &[SectionConfig],
     states: &[SectionState],
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
     boilerplate_texts: &HashMap<String, String>,
 ) -> String {
-    render_editable_document(groups, sections, states, sticky_values, boilerplate_texts)
+    render_editable_document(
+        groups,
+        sections,
+        states,
+        assigned_values,
+        sticky_values,
+        boilerplate_texts,
+    )
 }
 
 pub fn marker_start(section_id: &str) -> String {
@@ -223,6 +231,7 @@ mod tests {
             &data.groups,
             &data.sections,
             &states_for_real_data(&data),
+            &HashMap::new(),
             &HashMap::new(),
             &data.boilerplate_texts,
         );

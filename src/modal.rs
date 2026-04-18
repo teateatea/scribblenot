@@ -18,7 +18,9 @@ pub struct FieldModal {
     pub format_lists: Vec<HierarchyList>,
     pub list_idx: usize,
     pub values: Vec<String>,
+    pub item_ids: Vec<String>,
     pub repeat_values: Vec<String>,
+    pub repeat_item_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +83,77 @@ pub struct CollectionPreviewNeighbors {
     pub next: Option<CollectionPreviewSnapshot>,
 }
 
+#[derive(Clone, Copy)]
+pub struct ListValueLookup<'a> {
+    pub assigned_values: &'a HashMap<String, String>,
+    pub sticky_values: &'a HashMap<String, String>,
+}
+
+impl<'a> ListValueLookup<'a> {
+    pub fn new(
+        assigned_values: &'a HashMap<String, String>,
+        sticky_values: &'a HashMap<String, String>,
+    ) -> Self {
+        Self {
+            assigned_values,
+            sticky_values,
+        }
+    }
+
+    pub fn fallback_value(self, list: &HierarchyList) -> Option<String> {
+        if let Some(value) = self.assigned_values.get(&list.id) {
+            if !value.is_empty() {
+                return Some(value.clone());
+            }
+        }
+        if list.sticky {
+            if let Some(value) = self.sticky_values.get(&list.id) {
+                if !value.is_empty() {
+                    return Some(value.clone());
+                }
+            }
+        }
+        if let Some(default) = &list.default {
+            if let Some(item) = list.items.iter().find(|item| {
+                item.id == *default
+                    || item.ui_label() == *default
+                    || item.output.as_deref() == Some(default.as_str())
+            }) {
+                let value = item.output().to_string();
+                if !value.is_empty() {
+                    return Some(value);
+                }
+            }
+        }
+        None
+    }
+
+    pub fn list_initial_cursor(self, list: &HierarchyList, outputs: &[String]) -> usize {
+        if let Some(value) = self.assigned_values.get(&list.id) {
+            if let Some(pos) = outputs.iter().position(|output| output == value) {
+                return pos;
+            }
+        }
+        if list.sticky {
+            if let Some(value) = self.sticky_values.get(&list.id) {
+                if let Some(pos) = outputs.iter().position(|output| output == value) {
+                    return pos;
+                }
+            }
+        }
+        if let Some(default) = &list.default {
+            if let Some(pos) = list.items.iter().position(|item| {
+                item.id == *default
+                    || item.ui_label() == *default
+                    || item.output.as_deref() == Some(default.as_str())
+            }) {
+                return pos;
+            }
+        }
+        0
+    }
+}
+
 impl SearchModal {
     fn current_collection_preview_index(&self) -> Option<usize> {
         let state = self.collection_state.as_ref()?;
@@ -104,20 +177,28 @@ impl SearchModal {
             && !self.field_flow.lists.is_empty()
     }
 
-    fn go_back_simple_list(&mut self, sticky_values: &HashMap<String, String>) -> bool {
+    fn go_back_simple_list(
+        &mut self,
+        assigned_values: &HashMap<String, String>,
+        sticky_values: &HashMap<String, String>,
+    ) -> bool {
         if !self.supports_simple_list_teasers() || self.field_flow.list_idx == 0 {
             return false;
         }
 
         let popped = self.field_flow.values.pop();
+        self.field_flow.item_ids.pop();
         self.field_flow.list_idx -= 1;
         let list = &self.field_flow.lists[self.field_flow.list_idx];
+        let mut merged_assigned = assigned_values.clone();
+        merged_assigned.extend(self.assigned_values());
+        let lookup = ListValueLookup::new(&merged_assigned, sticky_values);
         let labels = resolved_item_labels_for_list(
             list,
             &self.field_flow.values,
             &self.field_flow.repeat_values,
             &self.field_flow.lists,
-            sticky_values,
+            lookup,
         );
         let outputs: Vec<String> = list.items.iter().map(item_output).collect();
         let cursor = popped
@@ -133,6 +214,23 @@ impl SearchModal {
         self.focus = ModalFocus::List;
         self.update_filter();
         true
+    }
+
+    pub fn assigned_values(&self) -> HashMap<String, String> {
+        let mut assigned = HashMap::new();
+        if !self.nested_stack.is_empty() {
+            if let Some(root) = self.synced_nested_root_state(&HashMap::new()) {
+                if let Some(frame) = self.nested_stack.first() {
+                    collect_assignments_from_state(&root, &frame.field, &mut assigned);
+                }
+            }
+            return assigned;
+        }
+        for frame in &self.branch_stack {
+            collect_assignments_from_flow(&frame.parent_flow, &mut assigned);
+        }
+        collect_assignments_from_flow(&self.field_flow, &mut assigned);
+        assigned
     }
 
     fn synced_nested_root_state(
@@ -162,6 +260,7 @@ impl SearchModal {
         field_idx: usize,
         field: HeaderFieldConfig,
         current_value: Option<&HeaderFieldValue>,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
         window_size: usize,
     ) -> Self {
@@ -170,6 +269,7 @@ impl SearchModal {
                 field_idx,
                 field,
                 current_value,
+                assigned_values,
                 sticky_values,
                 window_size,
             );
@@ -179,9 +279,9 @@ impl SearchModal {
         }
         let first_list = &field.lists[0];
         let outputs: Vec<String> = first_list.items.iter().map(item_output).collect();
-        let list_cursor = list_initial_cursor(first_list, &outputs, sticky_values);
-        let labels =
-            resolved_item_labels_for_list(first_list, &[], &[], &field.lists, sticky_values);
+        let lookup = ListValueLookup::new(assigned_values, sticky_values);
+        let list_cursor = list_initial_cursor(first_list, &outputs, lookup);
+        let labels = resolved_item_labels_for_list(first_list, &[], &[], &field.lists, lookup);
         let manual_override = current_value
             .and_then(HeaderFieldValue::manual_override_text)
             .map(str::to_string);
@@ -204,7 +304,9 @@ impl SearchModal {
                 lists: field.lists,
                 list_idx: 0,
                 values: Vec::new(),
+                item_ids: Vec::new(),
                 repeat_values: Vec::new(),
+                repeat_item_ids: Vec::new(),
             },
             collection_state: None,
             collection_format: None,
@@ -221,6 +323,7 @@ impl SearchModal {
         field_idx: usize,
         field: HeaderFieldConfig,
         current_value: Option<&HeaderFieldValue>,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
         window_size: usize,
     ) -> Self {
@@ -233,14 +336,20 @@ impl SearchModal {
             _ => HeaderState::new(field.fields.clone()),
         };
         let synthetic_field = synthetic_container_field(&field);
-        let mut modal =
-            Self::new_field(field_idx, synthetic_field, None, sticky_values, window_size);
+        let mut modal = Self::new_field(
+            field_idx,
+            synthetic_field,
+            None,
+            assigned_values,
+            sticky_values,
+            window_size,
+        );
         modal.manual_override = manual_override;
         modal.nested_stack.push(NestedFrame {
             field,
             state: nested_state,
         });
-        modal.refresh_nested_leaf(sticky_values, window_size);
+        modal.refresh_nested_leaf(assigned_values, sticky_values, window_size);
         modal
     }
 
@@ -284,7 +393,9 @@ impl SearchModal {
                 lists: field.lists,
                 list_idx: 0,
                 values: Vec::new(),
+                item_ids: Vec::new(),
                 repeat_values: Vec::new(),
+                repeat_item_ids: Vec::new(),
             },
             collection_state: Some(collection_state),
             collection_format: field.format,
@@ -295,7 +406,12 @@ impl SearchModal {
         }
     }
 
-    fn refresh_nested_leaf(&mut self, sticky_values: &HashMap<String, String>, window_size: usize) {
+    fn refresh_nested_leaf(
+        &mut self,
+        assigned_values: &HashMap<String, String>,
+        sticky_values: &HashMap<String, String>,
+        window_size: usize,
+    ) {
         if self.nested_stack.is_empty() {
             return;
         }
@@ -327,6 +443,7 @@ impl SearchModal {
                 self.load_leaf_field(
                     active_field,
                     current_value.as_ref(),
+                    assigned_values,
                     sticky_values,
                     window_size,
                 );
@@ -388,6 +505,7 @@ impl SearchModal {
     fn complete_nested_value(
         &mut self,
         mut pending_value: HeaderFieldValue,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
         window_size: usize,
     ) -> FieldAdvance {
@@ -406,7 +524,7 @@ impl SearchModal {
 
             if !completed {
                 self.sync_nested_state_chain();
-                self.refresh_nested_leaf(sticky_values, window_size);
+                self.refresh_nested_leaf(assigned_values, sticky_values, window_size);
                 return FieldAdvance::NextList;
             }
 
@@ -419,6 +537,7 @@ impl SearchModal {
         &mut self,
         field: HeaderFieldConfig,
         current_value: Option<&HeaderFieldValue>,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
         window_size: usize,
     ) {
@@ -456,7 +575,9 @@ impl SearchModal {
                 lists: field.lists,
                 list_idx: 0,
                 values: Vec::new(),
+                item_ids: Vec::new(),
                 repeat_values: Vec::new(),
+                repeat_item_ids: Vec::new(),
             };
             self.collection_state = Some(collection_state);
             self.collection_format = field.format;
@@ -468,17 +589,21 @@ impl SearchModal {
         let Some(_first_list) = field.lists.first() else {
             return;
         };
-        let (saved_values, saved_list_idx, saved_repeat_values) = match current_value {
+        let (saved_values, saved_item_ids, saved_list_idx, saved_repeat_values, saved_repeat_item_ids) =
+            match current_value {
             Some(HeaderFieldValue::ListState(value)) => (
                 value.values.clone(),
+                value.item_ids.clone(),
                 value.list_idx.min(field.lists.len().saturating_sub(1)),
                 value.repeat_values.clone(),
+                value.repeat_item_ids.clone(),
             ),
-            _ => (Vec::new(), 0, Vec::new()),
+            _ => (Vec::new(), Vec::new(), 0, Vec::new(), Vec::new()),
         };
         let active_list = &field.lists[saved_list_idx];
         let outputs: Vec<String> = active_list.items.iter().map(item_output).collect();
-        let mut list_cursor = list_initial_cursor(active_list, &outputs, sticky_values);
+        let lookup = ListValueLookup::new(assigned_values, sticky_values);
+        let mut list_cursor = list_initial_cursor(active_list, &outputs, lookup);
         if let Some(value) = current_value.and_then(HeaderFieldValue::as_text) {
             if field.lists.len() == 1 {
                 if let Some(pos) = outputs.iter().position(|output| output == value) {
@@ -491,7 +616,7 @@ impl SearchModal {
             &saved_values,
             &saved_repeat_values,
             &field.lists,
-            sticky_values,
+            lookup,
         );
         let n = labels.len();
         self.field_id = field.id;
@@ -510,7 +635,9 @@ impl SearchModal {
             lists: field.lists,
             list_idx: saved_list_idx,
             values: saved_values,
+            item_ids: saved_item_ids,
             repeat_values: saved_repeat_values,
+            repeat_item_ids: saved_repeat_item_ids,
         };
         self.collection_state = None;
         self.collection_format = None;
@@ -523,15 +650,22 @@ impl SearchModal {
         self.collection_state.is_some()
     }
 
-    pub fn current_part_label(&self, sticky_values: &HashMap<String, String>) -> Option<String> {
+    pub fn current_part_label(
+        &self,
+        assigned_values: &HashMap<String, String>,
+        sticky_values: &HashMap<String, String>,
+    ) -> Option<String> {
         if let Some(state) = &self.collection_state {
             return Some(collection_part_label(self, state));
         }
+        let mut merged_assigned = assigned_values.clone();
+        merged_assigned.extend(self.assigned_values());
+        let lookup = ListValueLookup::new(&merged_assigned, sticky_values);
         self.field_flow
             .lists
             .get(self.field_flow.list_idx)
             .and_then(|list| list.label.as_deref())
-            .map(|label| resolve_display_template(label, &self.field_flow, sticky_values))
+            .map(|label| resolve_display_template(label, &self.field_flow, lookup))
     }
 
     #[allow(dead_code)]
@@ -569,6 +703,7 @@ impl SearchModal {
 
     pub fn list_view_snapshot(
         &self,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
     ) -> Option<ModalListViewSnapshot> {
         if !self.supports_simple_list_teasers() {
@@ -577,7 +712,7 @@ impl SearchModal {
 
         Some(ModalListViewSnapshot {
             title: self
-                .current_part_label(sticky_values)
+                .current_part_label(assigned_values, sticky_values)
                 .unwrap_or_else(|| self.field_name.clone()),
             query: self.query.clone(),
             rows: self.all_entries.clone(),
@@ -591,6 +726,7 @@ impl SearchModal {
     #[allow(dead_code)]
     pub fn peek_prev_list_view(
         &self,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
     ) -> Option<ModalListViewSnapshot> {
         if !self.supports_simple_list_teasers() || self.field_flow.list_idx == 0 {
@@ -598,14 +734,15 @@ impl SearchModal {
         }
 
         let mut preview = self.clone();
-        if !preview.go_back_simple_list(sticky_values) {
+        if !preview.go_back_simple_list(assigned_values, sticky_values) {
             return None;
         }
-        preview.list_view_snapshot(sticky_values)
+        preview.list_view_snapshot(assigned_values, sticky_values)
     }
 
     pub fn peek_prev_list_views(
         &self,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
         limit: usize,
     ) -> Vec<ModalListViewSnapshot> {
@@ -615,8 +752,9 @@ impl SearchModal {
 
         let mut preview = self.clone();
         let mut snapshots = Vec::new();
-        while snapshots.len() < limit && preview.go_back_simple_list(sticky_values) {
-            let Some(snapshot) = preview.list_view_snapshot(sticky_values) else {
+        while snapshots.len() < limit && preview.go_back_simple_list(assigned_values, sticky_values)
+        {
+            let Some(snapshot) = preview.list_view_snapshot(assigned_values, sticky_values) else {
                 break;
             };
             snapshots.push(snapshot);
@@ -627,6 +765,7 @@ impl SearchModal {
     #[allow(dead_code)]
     pub fn peek_next_list_view(
         &self,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
     ) -> Option<ModalListViewSnapshot> {
         if !self.supports_simple_list_teasers() {
@@ -643,14 +782,22 @@ impl SearchModal {
 
         let mut preview = self.clone();
         let mut sticky_preview = sticky_values.clone();
-        match preview.finish_current_list(selected, &mut sticky_preview, preview.window_size) {
-            FieldAdvance::NextList => preview.list_view_snapshot(&sticky_preview),
+        let mut assigned_preview = assigned_values.clone();
+        match preview.finish_current_list(
+            selected,
+            preview.selected_item_id().map(str::to_string),
+            &mut assigned_preview,
+            &mut sticky_preview,
+            preview.window_size,
+        ) {
+            FieldAdvance::NextList => preview.list_view_snapshot(&assigned_preview, &sticky_preview),
             FieldAdvance::Complete(_) | FieldAdvance::StayOnList => None,
         }
     }
 
     pub fn peek_next_list_views(
         &self,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
         limit: usize,
     ) -> Vec<ModalListViewSnapshot> {
@@ -659,6 +806,7 @@ impl SearchModal {
         }
 
         let mut preview = self.clone();
+        let mut assigned_preview = assigned_values.clone();
         let mut sticky_preview = sticky_values.clone();
         let mut snapshots = Vec::new();
         while snapshots.len() < limit {
@@ -676,9 +824,17 @@ impl SearchModal {
                 break;
             }
 
-            match preview.finish_current_list(selected, &mut sticky_preview, preview.window_size) {
+            match preview.finish_current_list(
+                selected,
+                preview.selected_item_id().map(str::to_string),
+                &mut assigned_preview,
+                &mut sticky_preview,
+                preview.window_size,
+            ) {
                 FieldAdvance::NextList => {
-                    let Some(snapshot) = preview.list_view_snapshot(&sticky_preview) else {
+                    let Some(snapshot) =
+                        preview.list_view_snapshot(&assigned_preview, &sticky_preview)
+                    else {
                         break;
                     };
                     snapshots.push(snapshot);
@@ -691,17 +847,18 @@ impl SearchModal {
 
     pub fn simple_modal_sequence(
         &self,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
     ) -> Option<SimpleModalSequence> {
-        let current_snapshot = self.list_view_snapshot(sticky_values)?;
+        let current_snapshot = self.list_view_snapshot(assigned_values, sticky_values)?;
         let prev_limit = self.field_flow.list_idx;
-        let prev_snapshots = self.peek_prev_list_views(sticky_values, prev_limit);
+        let prev_snapshots = self.peek_prev_list_views(assigned_values, sticky_values, prev_limit);
         let next_limit = self
             .field_flow
             .lists
             .len()
             .saturating_sub(self.field_flow.list_idx + 1);
-        let next_snapshots = self.peek_next_list_views(sticky_values, next_limit);
+        let next_snapshots = self.peek_next_list_views(assigned_values, sticky_values, next_limit);
         let active_sequence_index = prev_snapshots.len();
         let mut snapshots = prev_snapshots.into_iter().rev().collect::<Vec<_>>();
         snapshots.push(current_snapshot);
@@ -714,12 +871,13 @@ impl SearchModal {
 
     pub fn simple_modal_unit_layout(
         &self,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
         viewport_width: Option<f32>,
         spacer_width: f32,
         stub_width: f32,
     ) -> Option<SimpleModalUnitLayout> {
-        let sequence = self.simple_modal_sequence(sticky_values)?;
+        let sequence = self.simple_modal_sequence(assigned_values, sticky_values)?;
         build_simple_modal_unit_layout(sequence, viewport_width, spacer_width, stub_width)
     }
 
@@ -776,6 +934,16 @@ impl SearchModal {
             .map(String::as_str)
     }
 
+    pub fn selected_item_id(&self) -> Option<&str> {
+        if self.collection_state.is_some() {
+            return None;
+        }
+        self.filtered
+            .get(self.list_cursor)
+            .and_then(|&i| self.field_flow.lists.get(self.field_flow.list_idx)?.items.get(i))
+            .map(|item| item.id.as_str())
+    }
+
     pub fn should_finish_repeating_from_empty_search(&self) -> bool {
         if !self.query.trim().is_empty() {
             return false;
@@ -803,6 +971,7 @@ impl SearchModal {
 
     pub fn restore_parent_branch(
         &mut self,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
         window_size: usize,
     ) -> bool {
@@ -813,7 +982,7 @@ impl SearchModal {
             return false;
         };
         self.field_flow = frame.parent_flow;
-        self.reload_current_list(sticky_values, window_size);
+        self.reload_current_list(assigned_values, sticky_values, window_size);
         true
     }
 
@@ -827,18 +996,22 @@ impl SearchModal {
         let _ = sticky_values;
         HeaderFieldValue::ListState(ListFieldValue {
             values: self.field_flow.values.clone(),
+            item_ids: self.field_flow.item_ids.clone(),
             list_idx: self.field_flow.list_idx,
             repeat_values: self.field_flow.repeat_values.clone(),
+            repeat_item_ids: self.field_flow.repeat_item_ids.clone(),
         })
     }
 
     fn advance_nested_field(
         &mut self,
         value: String,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &mut HashMap<String, String>,
         window_size: usize,
     ) -> FieldAdvance {
-        let advance = self.advance_active_leaf_field(value, sticky_values, window_size);
+        let advance =
+            self.advance_active_leaf_field(value, assigned_values, sticky_values, window_size);
         match advance {
             FieldAdvance::NextList | FieldAdvance::StayOnList => {
                 let preview = self.preview_active_leaf_value(sticky_values);
@@ -849,17 +1022,19 @@ impl SearchModal {
                 advance
             }
             FieldAdvance::Complete(final_value) => {
-                self.complete_nested_value(final_value, sticky_values, window_size)
+                self.complete_nested_value(final_value, assigned_values, sticky_values, window_size)
             }
         }
     }
 
     fn super_confirm_nested_field(
         &mut self,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &mut HashMap<String, String>,
         window_size: usize,
     ) -> FieldAdvance {
-        let advance = self.super_confirm_active_leaf_field(sticky_values, window_size);
+        let advance =
+            self.super_confirm_active_leaf_field(assigned_values, sticky_values, window_size);
         match advance {
             FieldAdvance::NextList | FieldAdvance::StayOnList => {
                 let preview = self.preview_active_leaf_value(sticky_values);
@@ -870,13 +1045,14 @@ impl SearchModal {
                 advance
             }
             FieldAdvance::Complete(final_value) => {
-                self.complete_nested_value(final_value, sticky_values, window_size)
+                self.complete_nested_value(final_value, assigned_values, sticky_values, window_size)
             }
         }
     }
 
     pub fn go_back_one_step(
         &mut self,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
         window_size: usize,
     ) -> bool {
@@ -891,7 +1067,7 @@ impl SearchModal {
             self.sync_nested_state_chain();
             return true;
         }
-        if self.restore_parent_branch(sticky_values, window_size) {
+        if self.restore_parent_branch(assigned_values, sticky_values, window_size) {
             let preview = self.preview_active_leaf_value(sticky_values);
             if let Some(frame) = self.nested_stack.last_mut() {
                 frame.state.set_preview_value(preview);
@@ -901,14 +1077,18 @@ impl SearchModal {
         }
         if self.field_flow.list_idx > 0 {
             let popped = self.field_flow.values.pop();
+            self.field_flow.item_ids.pop();
             self.field_flow.list_idx -= 1;
             let list = &self.field_flow.lists[self.field_flow.list_idx];
+            let mut merged_assigned = assigned_values.clone();
+            merged_assigned.extend(self.assigned_values());
+            let lookup = ListValueLookup::new(&merged_assigned, sticky_values);
             let labels = resolved_item_labels_for_list(
                 list,
                 &self.field_flow.values,
                 &self.field_flow.repeat_values,
                 &self.field_flow.lists,
-                sticky_values,
+                lookup,
             );
             let outputs: Vec<String> = list.items.iter().map(item_output).collect();
             let cursor = popped
@@ -937,7 +1117,7 @@ impl SearchModal {
             };
             if frame.state.go_back() {
                 self.sync_nested_state_chain();
-                self.refresh_nested_leaf(sticky_values, window_size);
+                self.refresh_nested_leaf(assigned_values, sticky_values, window_size);
                 return true;
             }
             if self.nested_stack.len() == 1 {
@@ -950,18 +1130,20 @@ impl SearchModal {
     pub fn advance_field(
         &mut self,
         value: String,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &mut HashMap<String, String>,
         window_size: usize,
     ) -> FieldAdvance {
         if !self.nested_stack.is_empty() {
-            return self.advance_nested_field(value, sticky_values, window_size);
+            return self.advance_nested_field(value, assigned_values, sticky_values, window_size);
         }
-        self.advance_active_leaf_field(value, sticky_values, window_size)
+        self.advance_active_leaf_field(value, assigned_values, sticky_values, window_size)
     }
 
     fn advance_active_leaf_field(
         &mut self,
         value: String,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &mut HashMap<String, String>,
         window_size: usize,
     ) -> FieldAdvance {
@@ -970,24 +1152,48 @@ impl SearchModal {
         }
         let list = &self.field_flow.lists[self.field_flow.list_idx];
         if let Some((output_format, branch_fields)) = branch_for_value(list, &value) {
-            return self.start_branch(output_format, branch_fields, sticky_values, window_size);
+            return self.start_branch(
+                output_format,
+                branch_fields,
+                assigned_values,
+                sticky_values,
+                window_size,
+            );
         }
         if effective_joiner_style(list).is_some() {
             if value.trim().is_empty() {
                 return self
-                    .finish_repeating_current_list(Some(value), sticky_values, window_size)
+                    .finish_repeating_current_list(
+                        Some(value),
+                        self.selected_item_id().map(str::to_string),
+                        assigned_values,
+                        sticky_values,
+                        window_size,
+                    )
                     .unwrap_or(FieldAdvance::StayOnList);
             }
             if list.sticky {
                 sticky_values.insert(list.id.clone(), value.clone());
             }
             self.field_flow.repeat_values.push(value);
+            if let Some(item_id) = self.selected_item_id() {
+                self.field_flow.repeat_item_ids.push(item_id.to_string());
+            }
+            let mut merged_assigned = assigned_values.clone();
+            merged_assigned.extend(self.assigned_values());
+            let lookup = ListValueLookup::new(&merged_assigned, sticky_values);
             if list
                 .max_entries
                 .is_some_and(|limit| self.field_flow.repeat_values.len() >= limit)
             {
                 return self
-                    .finish_repeating_current_list(None, sticky_values, window_size)
+                    .finish_repeating_current_list(
+                        None,
+                        None,
+                        assigned_values,
+                        sticky_values,
+                        window_size,
+                    )
                     .unwrap_or(FieldAdvance::StayOnList);
             }
             self.all_entries = resolved_item_labels_for_list(
@@ -995,30 +1201,38 @@ impl SearchModal {
                 &self.field_flow.values,
                 &self.field_flow.repeat_values,
                 &self.field_flow.lists,
-                sticky_values,
+                lookup,
             );
             self.query = String::new();
             self.focus = modal_start_focus(list);
             self.update_filter();
             return FieldAdvance::StayOnList;
         }
-        let advance = self.finish_current_list(value, sticky_values, window_size);
-        self.resolve_branch_advance(advance, sticky_values, window_size)
+        let advance = self.finish_current_list(
+            value,
+            self.selected_item_id().map(str::to_string),
+            assigned_values,
+            sticky_values,
+            window_size,
+        );
+        self.resolve_branch_advance(advance, assigned_values, sticky_values, window_size)
     }
 
     pub fn super_confirm_field(
         &mut self,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &mut HashMap<String, String>,
         window_size: usize,
     ) -> FieldAdvance {
         if !self.nested_stack.is_empty() {
-            return self.super_confirm_nested_field(sticky_values, window_size);
+            return self.super_confirm_nested_field(assigned_values, sticky_values, window_size);
         }
-        self.super_confirm_active_leaf_field(sticky_values, window_size)
+        self.super_confirm_active_leaf_field(assigned_values, sticky_values, window_size)
     }
 
     fn super_confirm_active_leaf_field(
         &mut self,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &mut HashMap<String, String>,
         window_size: usize,
     ) -> FieldAdvance {
@@ -1027,33 +1241,63 @@ impl SearchModal {
         }
         let selected = self.selected_value().map(str::to_string);
         if let Some(advance) =
-            self.finish_repeating_current_list(selected, sticky_values, window_size)
+            self.finish_repeating_current_list(
+                selected,
+                self.selected_item_id().map(str::to_string),
+                assigned_values,
+                sticky_values,
+                window_size,
+            )
         {
             return advance;
         } else {
+            let lookup = ListValueLookup::new(assigned_values, sticky_values);
             let value = self
                 .selected_value()
                 .map(str::to_string)
-                .or_else(|| current_list_fallback_value(self, sticky_values))
+                .or_else(|| current_list_fallback_value(self, lookup))
                 .unwrap_or_default();
             if let Some((output_format, branch_fields)) =
                 branch_for_value(&self.field_flow.lists[self.field_flow.list_idx], &value)
             {
-                return self.start_branch(output_format, branch_fields, sticky_values, window_size);
+                return self.start_branch(
+                    output_format,
+                    branch_fields,
+                    assigned_values,
+                    sticky_values,
+                    window_size,
+                );
             }
-            let advance = self.finish_current_list(value, sticky_values, window_size);
-            let advance = self.resolve_branch_advance(advance, sticky_values, window_size);
+            let advance = self.finish_current_list(
+                value,
+                self.selected_item_id()
+                    .map(str::to_string)
+                    .or_else(|| current_list_fallback_item_id(self, lookup)),
+                assigned_values,
+                sticky_values,
+                window_size,
+            );
+            let advance =
+                self.resolve_branch_advance(advance, assigned_values, sticky_values, window_size);
             if matches!(advance, FieldAdvance::Complete(_)) {
                 return advance;
             }
         }
 
         while self.field_flow.list_idx < self.field_flow.lists.len() {
-            let Some(value) = current_list_fallback_value(self, sticky_values) else {
+            let lookup = ListValueLookup::new(assigned_values, sticky_values);
+            let Some(value) = current_list_fallback_value(self, lookup) else {
                 break;
             };
-            let advance = self.finish_current_list(value, sticky_values, window_size);
-            let advance = self.resolve_branch_advance(advance, sticky_values, window_size);
+            let advance = self.finish_current_list(
+                value,
+                current_list_fallback_item_id(self, lookup),
+                assigned_values,
+                sticky_values,
+                window_size,
+            );
+            let advance =
+                self.resolve_branch_advance(advance, assigned_values, sticky_values, window_size);
             if matches!(advance, FieldAdvance::Complete(_)) {
                 return advance;
             }
@@ -1064,6 +1308,8 @@ impl SearchModal {
     fn finish_repeating_current_list(
         &mut self,
         selected: Option<String>,
+        selected_item_id: Option<String>,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &mut HashMap<String, String>,
         window_size: usize,
     ) -> Option<FieldAdvance> {
@@ -1074,11 +1320,19 @@ impl SearchModal {
             return None;
         };
         let mut values = self.field_flow.repeat_values.clone();
+        let mut item_ids = self.field_flow.repeat_item_ids.clone();
         if let Some(value) = selected {
             values.push(value);
+            if let Some(item_id) = selected_item_id {
+                item_ids.push(item_id);
+            }
         } else if values.is_empty() {
-            if let Some(value) = current_list_fallback_value(self, sticky_values) {
+            let lookup = ListValueLookup::new(assigned_values, sticky_values);
+            if let Some(value) = current_list_fallback_value(self, lookup) {
                 values.push(value);
+                if let Some(item_id) = current_list_fallback_item_id(self, lookup) {
+                    item_ids.push(item_id);
+                }
             }
         }
         if list.sticky {
@@ -1088,13 +1342,27 @@ impl SearchModal {
         }
         let joined = join_repeat_values(&values, style);
         self.field_flow.repeat_values.clear();
-        let advance = self.finish_current_list(joined, sticky_values, window_size);
-        Some(self.resolve_branch_advance(advance, sticky_values, window_size))
+        self.field_flow.repeat_item_ids.clear();
+        let advance = self.finish_current_list(
+            joined,
+            item_ids.last().cloned(),
+            assigned_values,
+            sticky_values,
+            window_size,
+        );
+        Some(self.resolve_branch_advance(
+            advance,
+            assigned_values,
+            sticky_values,
+            window_size,
+        ))
     }
 
     fn finish_current_list(
         &mut self,
         value: String,
+        item_id: Option<String>,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &mut HashMap<String, String>,
         window_size: usize,
     ) -> FieldAdvance {
@@ -1103,27 +1371,36 @@ impl SearchModal {
             sticky_values.insert(list.id.clone(), value.clone());
         }
         self.field_flow.values.push(value);
+        self.field_flow
+            .item_ids
+            .push(item_id.unwrap_or_default());
         self.field_flow.list_idx += 1;
 
         if self.field_flow.list_idx >= self.field_flow.lists.len() {
+            let mut merged_assigned = assigned_values.clone();
+            merged_assigned.extend(self.assigned_values());
+            let lookup = ListValueLookup::new(&merged_assigned, sticky_values);
             return FieldAdvance::Complete(HeaderFieldValue::Text(format_field_value(
                 &self.field_flow,
-                sticky_values,
+                lookup,
             )));
         }
 
         let next_list = &self.field_flow.lists[self.field_flow.list_idx];
         let next_outputs: Vec<String> = next_list.items.iter().map(item_output).collect();
+        let mut merged_assigned = assigned_values.clone();
+        merged_assigned.extend(self.assigned_values());
+        let lookup = ListValueLookup::new(&merged_assigned, sticky_values);
         let next_labels = resolved_item_labels_for_list(
             next_list,
             &self.field_flow.values,
             &[],
             &self.field_flow.lists,
-            sticky_values,
+            lookup,
         );
         let next_focus = modal_start_focus(next_list);
         self.query = String::new();
-        self.list_cursor = list_initial_cursor(next_list, &next_outputs, sticky_values);
+        self.list_cursor = list_initial_cursor(next_list, &next_outputs, lookup);
         self.sticky_cursor = self.list_cursor;
         self.window_size = window_size;
         self.all_entries = next_labels;
@@ -1134,21 +1411,29 @@ impl SearchModal {
         FieldAdvance::NextList
     }
 
-    fn reload_current_list(&mut self, sticky_values: &HashMap<String, String>, window_size: usize) {
+    fn reload_current_list(
+        &mut self,
+        assigned_values: &HashMap<String, String>,
+        sticky_values: &HashMap<String, String>,
+        window_size: usize,
+    ) {
         let Some(list) = self.field_flow.lists.get(self.field_flow.list_idx) else {
             return;
         };
         let next_focus = modal_start_focus(list);
         let outputs: Vec<String> = list.items.iter().map(item_output).collect();
+        let mut merged_assigned = assigned_values.clone();
+        merged_assigned.extend(self.assigned_values());
+        let lookup = ListValueLookup::new(&merged_assigned, sticky_values);
         let labels = resolved_item_labels_for_list(
             list,
             &self.field_flow.values,
             &self.field_flow.repeat_values,
             &self.field_flow.lists,
-            sticky_values,
+            lookup,
         );
         self.query = String::new();
-        self.list_cursor = list_initial_cursor(list, &outputs, sticky_values);
+        self.list_cursor = list_initial_cursor(list, &outputs, lookup);
         self.sticky_cursor = self.list_cursor;
         self.window_size = window_size;
         self.all_entries = labels;
@@ -1162,6 +1447,7 @@ impl SearchModal {
         &mut self,
         output_format: String,
         branch_fields: Vec<HeaderFieldConfig>,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
         window_size: usize,
     ) -> FieldAdvance {
@@ -1176,13 +1462,14 @@ impl SearchModal {
             field_idx: 0,
             values: Vec::new(),
         });
-        self.load_field_flow(first_field, sticky_values, window_size);
+        self.load_field_flow(first_field, assigned_values, sticky_values, window_size);
         FieldAdvance::NextList
     }
 
     fn load_field_flow(
         &mut self,
         field: HeaderFieldConfig,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
         window_size: usize,
     ) {
@@ -1190,8 +1477,14 @@ impl SearchModal {
             let output_format = composite_output_format(&field);
             let branch_fields = field.fields.clone();
             let synthetic_field = synthetic_container_field(&field);
-            self.load_field_flow(synthetic_field, sticky_values, window_size);
-            let _ = self.start_branch(output_format, branch_fields, sticky_values, window_size);
+            self.load_field_flow(synthetic_field, assigned_values, sticky_values, window_size);
+            let _ = self.start_branch(
+                output_format,
+                branch_fields,
+                assigned_values,
+                sticky_values,
+                window_size,
+            );
             return;
         }
         if !field.collections.is_empty() && field.lists.is_empty() {
@@ -1213,7 +1506,9 @@ impl SearchModal {
                 lists: field.lists,
                 list_idx: 0,
                 values: Vec::new(),
+                item_ids: Vec::new(),
                 repeat_values: Vec::new(),
+                repeat_item_ids: Vec::new(),
             };
             self.collection_state = Some(CollectionState::new_with_limits(
                 field.collections,
@@ -1228,9 +1523,9 @@ impl SearchModal {
             return;
         };
         let outputs: Vec<String> = first_list.items.iter().map(item_output).collect();
-        let list_cursor = list_initial_cursor(first_list, &outputs, sticky_values);
-        let labels =
-            resolved_item_labels_for_list(first_list, &[], &[], &field.lists, sticky_values);
+        let lookup = ListValueLookup::new(assigned_values, sticky_values);
+        let list_cursor = list_initial_cursor(first_list, &outputs, lookup);
+        let labels = resolved_item_labels_for_list(first_list, &[], &[], &field.lists, lookup);
         let n = labels.len();
         self.field_id = field.id;
         self.field_name = field.name;
@@ -1248,7 +1543,9 @@ impl SearchModal {
             lists: field.lists,
             list_idx: 0,
             values: Vec::new(),
+            item_ids: Vec::new(),
             repeat_values: Vec::new(),
+            repeat_item_ids: Vec::new(),
         };
         self.collection_state = None;
         self.collection_format = None;
@@ -1259,6 +1556,7 @@ impl SearchModal {
     fn resolve_branch_advance(
         &mut self,
         mut advance: FieldAdvance,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &mut HashMap<String, String>,
         window_size: usize,
     ) -> FieldAdvance {
@@ -1268,6 +1566,7 @@ impl SearchModal {
             }
             advance = self.complete_branch_field(
                 value.as_text().unwrap_or_default().to_string(),
+                assigned_values,
                 sticky_values,
                 window_size,
             );
@@ -1278,6 +1577,7 @@ impl SearchModal {
     fn complete_branch_field(
         &mut self,
         value: String,
+        assigned_values: &HashMap<String, String>,
         sticky_values: &mut HashMap<String, String>,
         window_size: usize,
     ) -> FieldAdvance {
@@ -1294,14 +1594,14 @@ impl SearchModal {
         if frame.field_idx + 1 < frame.branch_fields.len() {
             frame.field_idx += 1;
             let next_field = frame.branch_fields[frame.field_idx].clone();
-            self.load_field_flow(next_field, sticky_values, window_size);
+            self.load_field_flow(next_field, assigned_values, sticky_values, window_size);
             return FieldAdvance::NextList;
         }
 
         let frame = self.branch_stack.pop().unwrap();
         let branch_value = format_branch_output(&frame.output_format, &frame.values);
         self.field_flow = frame.parent_flow;
-        self.advance_field(branch_value, sticky_values, window_size)
+        self.advance_field(branch_value, assigned_values, sticky_values, window_size)
     }
 
     pub fn collection_navigate_up(&mut self) {
@@ -1392,6 +1692,74 @@ impl SearchModal {
     }
 }
 
+fn collect_assignments_from_flow(flow: &FieldModal, assigned: &mut HashMap<String, String>) {
+    for (idx, item_id) in flow.item_ids.iter().enumerate() {
+        if let Some(list) = flow.lists.get(idx) {
+            apply_item_assignments(list, item_id, assigned);
+        }
+    }
+    if let Some(list) = flow.lists.get(flow.list_idx) {
+        for item_id in &flow.repeat_item_ids {
+            apply_item_assignments(list, item_id, assigned);
+        }
+    }
+}
+
+fn collect_assignments_from_state(
+    state: &HeaderState,
+    cfg: &HeaderFieldConfig,
+    assigned: &mut HashMap<String, String>,
+) {
+    for (idx, child_cfg) in cfg.fields.iter().enumerate() {
+        let values = state
+            .repeated_values
+            .get(idx)
+            .map(|values| values.as_slice())
+            .unwrap_or(&[]);
+        for value in values {
+            collect_assignments_from_value(value, child_cfg, assigned);
+        }
+    }
+}
+
+fn collect_assignments_from_value(
+    value: &HeaderFieldValue,
+    cfg: &HeaderFieldConfig,
+    assigned: &mut HashMap<String, String>,
+) {
+    match value.source_value() {
+        HeaderFieldValue::ListState(value) => {
+            for (idx, item_id) in value.item_ids.iter().enumerate() {
+                if let Some(list) = cfg.lists.get(idx) {
+                    apply_item_assignments(list, item_id, assigned);
+                }
+            }
+            if let Some(list) = cfg.lists.get(value.list_idx) {
+                for item_id in &value.repeat_item_ids {
+                    apply_item_assignments(list, item_id, assigned);
+                }
+            }
+        }
+        HeaderFieldValue::NestedState(state) => collect_assignments_from_state(state, cfg, assigned),
+        _ => {}
+    }
+}
+
+fn apply_item_assignments(
+    list: &HierarchyList,
+    item_id: &str,
+    assigned: &mut HashMap<String, String>,
+) {
+    let Some(item) = list.items.iter().find(|item| item.id == item_id) else {
+        return;
+    };
+    for assign in &item.assigns {
+        if !assign.output.is_empty() {
+            assigned.insert(assign.list_id.clone(), assign.output.clone());
+        }
+    }
+}
+
 fn branch_for_value(list: &HierarchyList, value: &str) -> Option<(String, Vec<HeaderFieldConfig>)> {
     list.items
         .iter()
@@ -1443,6 +1811,13 @@ fn format_branch_output(output_format: &str, values: &[(String, String)]) -> Str
     result
 }
 
+fn item_id_for_output(list: &HierarchyList, value: &str) -> Option<String> {
+    list.items
+        .iter()
+        .find(|item| item_output(item) == value)
+        .map(|item| item.id.clone())
+}
+
 fn modal_start_focus(list: &HierarchyList) -> ModalFocus {
     match list.modal_start {
         ModalStart::Search => ModalFocus::SearchBar,
@@ -1455,7 +1830,7 @@ pub fn resolved_item_labels_for_list(
     values: &[String],
     repeat_values: &[String],
     lists: &[HierarchyList],
-    sticky_values: &HashMap<String, String>,
+    lookup: ListValueLookup<'_>,
 ) -> Vec<String> {
     let flow = FieldModal {
         format: None,
@@ -1463,15 +1838,17 @@ pub fn resolved_item_labels_for_list(
         format_lists: Vec::new(),
         list_idx: values.len(),
         values: values.to_vec(),
+        item_ids: Vec::new(),
         repeat_values: repeat_values.to_vec(),
+        repeat_item_ids: Vec::new(),
     };
     list.items
         .iter()
-        .map(|item| resolve_display_template(item.ui_label(), &flow, sticky_values))
+        .map(|item| resolve_display_template(item.ui_label(), &flow, lookup))
         .collect()
 }
 
-pub fn format_field_value(flow: &FieldModal, sticky_values: &HashMap<String, String>) -> String {
+pub fn format_field_value(flow: &FieldModal, lookup: ListValueLookup<'_>) -> String {
     if let Some(format) = &flow.format {
         let mut result = format.clone();
         for (idx, value) in flow.values.iter().enumerate() {
@@ -1484,7 +1861,7 @@ pub fn format_field_value(flow: &FieldModal, sticky_values: &HashMap<String, Str
             if !result.contains(&placeholder) {
                 continue;
             }
-            let value = fallback_list_value(list, sticky_values).unwrap_or_default();
+            let value = lookup.fallback_value(list).unwrap_or_default();
             result = result.replace(&placeholder, &value);
         }
         result
@@ -1502,19 +1879,28 @@ pub fn format_field_value(flow: &FieldModal, sticky_values: &HashMap<String, Str
 
 fn current_list_fallback_value(
     modal: &SearchModal,
-    sticky_values: &HashMap<String, String>,
+    lookup: ListValueLookup<'_>,
 ) -> Option<String> {
     modal
         .field_flow
         .lists
         .get(modal.field_flow.list_idx)
-        .and_then(|list| fallback_list_value(list, sticky_values))
+        .and_then(|list| lookup.fallback_value(list))
+}
+
+fn current_list_fallback_item_id(
+    modal: &SearchModal,
+    lookup: ListValueLookup<'_>,
+) -> Option<String> {
+    let list = modal.field_flow.lists.get(modal.field_flow.list_idx)?;
+    let value = lookup.fallback_value(list)?;
+    item_id_for_output(list, &value)
 }
 
 fn resolve_display_template(
     template: &str,
     flow: &FieldModal,
-    sticky_values: &HashMap<String, String>,
+    lookup: ListValueLookup<'_>,
 ) -> String {
     let mut result = String::new();
     let mut chars = template.chars().peekable();
@@ -1534,7 +1920,7 @@ fn resolve_display_template(
 
         if id.is_empty() {
             result.push_str("{}");
-        } else if let Some(value) = display_template_value(&id, flow, sticky_values) {
+        } else if let Some(value) = display_template_value(&id, flow, lookup) {
             result.push_str(&value);
         } else {
             result.push('{');
@@ -1548,7 +1934,7 @@ fn resolve_display_template(
 fn display_template_value(
     id: &str,
     flow: &FieldModal,
-    sticky_values: &HashMap<String, String>,
+    lookup: ListValueLookup<'_>,
 ) -> Option<String> {
     if let Some(idx) = flow.lists.iter().position(|list| list.id == id) {
         if let Some(value) = flow.values.get(idx) {
@@ -1558,60 +1944,21 @@ fn display_template_value(
             return joined_repeating_value(&flow.lists[idx], &flow.repeat_values)
                 .or_else(|| Some(flow.repeat_values.join(", ")));
         }
-        return fallback_list_value(&flow.lists[idx], sticky_values);
+        return lookup.fallback_value(&flow.lists[idx]);
     }
 
     flow.format_lists
         .iter()
         .find(|list| list.id == id)
-        .and_then(|list| fallback_list_value(list, sticky_values))
+        .and_then(|list| lookup.fallback_value(list))
 }
 
 fn list_initial_cursor(
     list: &HierarchyList,
     outputs: &[String],
-    sticky_values: &HashMap<String, String>,
+    lookup: ListValueLookup<'_>,
 ) -> usize {
-    if list.sticky {
-        if let Some(value) = sticky_values.get(&list.id) {
-            if let Some(pos) = outputs.iter().position(|output| output == value) {
-                return pos;
-            }
-        }
-    }
-    if let Some(default) = &list.default {
-        if let Some(pos) = list.items.iter().position(|item| {
-            item.id == *default
-                || item.ui_label() == *default
-                || item.output.as_deref() == Some(default.as_str())
-        }) {
-            return pos;
-        }
-    }
-    0
-}
-
-fn fallback_list_value(
-    list: &HierarchyList,
-    sticky_values: &HashMap<String, String>,
-) -> Option<String> {
-    if list.sticky {
-        if let Some(value) = sticky_values.get(&list.id) {
-            if !value.is_empty() {
-                return Some(value.clone());
-            }
-        }
-    }
-    if let Some(default) = &list.default {
-        if let Some(item) = list.items.iter().find(|item| {
-            item.id == *default
-                || item.ui_label() == *default
-                || item.output.as_deref() == Some(default.as_str())
-        }) {
-            return Some(item.output().to_string());
-        }
-    }
-    None
+    lookup.list_initial_cursor(list, outputs)
 }
 
 fn collection_labels(collections: &[ResolvedCollectionConfig]) -> Vec<String> {
@@ -1896,6 +2243,7 @@ fn synthetic_list_for_field(field: &HeaderFieldConfig) -> HierarchyList {
             output: Some(composite_output_format(field)),
             fields: None,
             branch_fields: field.fields.clone(),
+            assigns: Vec::new(),
         }],
     }
 }
@@ -1988,6 +2336,7 @@ mod modal_filter_tests {
                     output: None,
                     fields: None,
                     branch_fields: Vec::new(),
+                    assigns: Vec::new(),
                 }],
             }],
             collections: Vec::new(),
@@ -2004,6 +2353,7 @@ mod modal_filter_tests {
             0,
             test_field(Some(JoinerStyle::Comma), ModalStart::Search),
             None,
+            &HashMap::new(),
             &HashMap::new(),
             5,
         );
@@ -2037,6 +2387,7 @@ mod modal_filter_tests {
                             output: Some("Left ".to_string()),
                             fields: None,
                             branch_fields: Vec::new(),
+                            assigns: Vec::new(),
                         },
                         HierarchyItem {
                             id: "right".to_string(),
@@ -2045,6 +2396,7 @@ mod modal_filter_tests {
                             output: Some("Right ".to_string()),
                             fields: None,
                             branch_fields: Vec::new(),
+                            assigns: Vec::new(),
                         },
                     ],
                 },
@@ -2065,6 +2417,7 @@ mod modal_filter_tests {
                             output: Some("Shoulder".to_string()),
                             fields: None,
                             branch_fields: Vec::new(),
+                            assigns: Vec::new(),
                         },
                         HierarchyItem {
                             id: "neck".to_string(),
@@ -2073,6 +2426,7 @@ mod modal_filter_tests {
                             output: Some("Neck".to_string()),
                             fields: None,
                             branch_fields: Vec::new(),
+                            assigns: Vec::new(),
                         },
                     ],
                 },
@@ -2092,6 +2446,7 @@ mod modal_filter_tests {
                         output: Some("Medium".to_string()),
                         fields: None,
                         branch_fields: Vec::new(),
+                        assigns: Vec::new(),
                     }],
                 },
             ],
@@ -2102,14 +2457,14 @@ mod modal_filter_tests {
             max_actives: None,
         };
         let mut sticky_values = HashMap::new();
-        let mut modal = SearchModal::new_field(0, field, None, &sticky_values, 5);
-        let _ = modal.advance_field("Left ".to_string(), &mut sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, field, None, &HashMap::new(), &sticky_values, 5);
+        let _ = modal.advance_field("Left ".to_string(), &HashMap::new(), &mut sticky_values, 5);
 
         let prev = modal
-            .peek_prev_list_view(&sticky_values)
+            .peek_prev_list_view(&HashMap::new(), &sticky_values)
             .expect("previous list teaser should exist");
         let next = modal
-            .peek_next_list_view(&sticky_values)
+            .peek_next_list_view(&HashMap::new(), &sticky_values)
             .expect("next list teaser should exist");
 
         assert_eq!(prev.title, "Side");
@@ -2146,6 +2501,7 @@ mod modal_filter_tests {
                             output: Some("Left ".to_string()),
                             fields: None,
                             branch_fields: Vec::new(),
+                            assigns: Vec::new(),
                         },
                         HierarchyItem {
                             id: "right".to_string(),
@@ -2154,6 +2510,7 @@ mod modal_filter_tests {
                             output: Some("Right ".to_string()),
                             fields: None,
                             branch_fields: Vec::new(),
+                            assigns: Vec::new(),
                         },
                     ],
                 },
@@ -2174,6 +2531,7 @@ mod modal_filter_tests {
                             output: Some("Shoulder".to_string()),
                             fields: None,
                             branch_fields: Vec::new(),
+                            assigns: Vec::new(),
                         },
                         HierarchyItem {
                             id: "neck".to_string(),
@@ -2182,6 +2540,7 @@ mod modal_filter_tests {
                             output: Some("Neck".to_string()),
                             fields: None,
                             branch_fields: Vec::new(),
+                            assigns: Vec::new(),
                         },
                     ],
                 },
@@ -2201,6 +2560,7 @@ mod modal_filter_tests {
                         output: Some("Medium".to_string()),
                         fields: None,
                         branch_fields: Vec::new(),
+                        assigns: Vec::new(),
                     }],
                 },
                 HierarchyList {
@@ -2219,6 +2579,7 @@ mod modal_filter_tests {
                         output: Some("Slow".to_string()),
                         fields: None,
                         branch_fields: Vec::new(),
+                        assigns: Vec::new(),
                     }],
                 },
             ],
@@ -2229,12 +2590,12 @@ mod modal_filter_tests {
             max_actives: None,
         };
         let mut sticky_values = HashMap::new();
-        let mut modal = SearchModal::new_field(0, field, None, &sticky_values, 5);
-        let _ = modal.advance_field("Left ".to_string(), &mut sticky_values, 5);
-        let _ = modal.advance_field("Shoulder".to_string(), &mut sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, field, None, &HashMap::new(), &sticky_values, 5);
+        let _ = modal.advance_field("Left ".to_string(), &HashMap::new(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Shoulder".to_string(), &HashMap::new(), &mut sticky_values, 5);
 
-        let previous = modal.peek_prev_list_views(&sticky_values, 3);
-        let next = modal.peek_next_list_views(&sticky_values, 3);
+        let previous = modal.peek_prev_list_views(&HashMap::new(), &sticky_values, 3);
+        let next = modal.peek_next_list_views(&HashMap::new(), &sticky_values, 3);
 
         assert_eq!(
             previous
@@ -2260,13 +2621,14 @@ mod modal_filter_tests {
             0,
             test_field(None, ModalStart::Search),
             None,
+            &HashMap::new(),
             &sticky_values,
             5,
         );
         filtered_modal.query = "One".to_string();
         filtered_modal.update_filter();
-        assert!(filtered_modal.peek_prev_list_view(&sticky_values).is_none());
-        assert!(filtered_modal.peek_next_list_view(&sticky_values).is_none());
+        assert!(filtered_modal.peek_prev_list_view(&HashMap::new(), &sticky_values).is_none());
+        assert!(filtered_modal.peek_next_list_view(&HashMap::new(), &sticky_values).is_none());
 
         let nested = SearchModal::new_field(
             0,
@@ -2284,11 +2646,12 @@ mod modal_filter_tests {
                 max_actives: None,
             },
             None,
+            &HashMap::new(),
             &sticky_values,
             5,
         );
-        assert!(nested.peek_prev_list_view(&sticky_values).is_none());
-        assert!(nested.peek_next_list_view(&sticky_values).is_none());
+        assert!(nested.peek_prev_list_view(&HashMap::new(), &sticky_values).is_none());
+        assert!(nested.peek_next_list_view(&HashMap::new(), &sticky_values).is_none());
 
         let mut branch_item = HierarchyItem {
             id: "branch".to_string(),
@@ -2297,6 +2660,7 @@ mod modal_filter_tests {
             output: Some("{child}".to_string()),
             fields: None,
             branch_fields: vec![test_field(None, ModalStart::List)],
+            assigns: Vec::new(),
         };
         branch_item.branch_fields[0].id = "child".to_string();
         let branch_field = HeaderFieldConfig {
@@ -2322,8 +2686,8 @@ mod modal_filter_tests {
             max_entries: None,
             max_actives: None,
         };
-        let branch_modal = SearchModal::new_field(0, branch_field, None, &sticky_values, 5);
-        assert!(branch_modal.peek_next_list_view(&sticky_values).is_none());
+        let branch_modal = SearchModal::new_field(0, branch_field, None, &HashMap::new(), &sticky_values, 5);
+        assert!(branch_modal.peek_next_list_view(&HashMap::new(), &sticky_values).is_none());
     }
 
     #[test]
@@ -2359,6 +2723,7 @@ mod modal_filter_tests {
                             output: Some("Upper Traps".to_string()),
                             fields: None,
                             branch_fields: Vec::new(),
+                            assigns: Vec::new(),
                         }],
                     }],
                 },
@@ -2384,6 +2749,7 @@ mod modal_filter_tests {
                             output: Some("Erectors".to_string()),
                             fields: None,
                             branch_fields: Vec::new(),
+                            assigns: Vec::new(),
                         }],
                     }],
                 },
@@ -2409,6 +2775,7 @@ mod modal_filter_tests {
                             output: Some("Glute Med".to_string()),
                             fields: None,
                             branch_fields: Vec::new(),
+                            assigns: Vec::new(),
                         }],
                     }],
                 },
@@ -2419,7 +2786,7 @@ mod modal_filter_tests {
             max_actives: None,
         };
 
-        let mut modal = SearchModal::new_field(0, field, None, &sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, field, None, &HashMap::new(), &sticky_values, 5);
         let state = modal.collection_state.as_mut().expect("collection modal");
         state.collection_cursor = 1;
         state.enter_collection();
@@ -2454,6 +2821,7 @@ mod modal_filter_tests {
             test_field(Some(JoinerStyle::Comma), ModalStart::Search),
             None,
             &HashMap::new(),
+            &HashMap::new(),
             5,
         );
         modal.field_flow.repeat_values.push("One".to_string());
@@ -2468,6 +2836,7 @@ mod modal_filter_tests {
             test_field(None, ModalStart::Search),
             None,
             &HashMap::new(),
+            &HashMap::new(),
             5,
         );
 
@@ -2480,6 +2849,7 @@ mod modal_filter_tests {
             0,
             test_field(Some(JoinerStyle::Comma), ModalStart::Search),
             None,
+            &HashMap::new(),
             &HashMap::new(),
             5,
         );
@@ -2494,13 +2864,13 @@ mod modal_filter_tests {
         let mut field = test_field(Some(JoinerStyle::Comma), ModalStart::List);
         field.lists[0].max_entries = Some(2);
         let mut sticky_values = HashMap::new();
-        let mut modal = SearchModal::new_field(0, field, None, &sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, field, None, &HashMap::new(), &sticky_values, 5);
 
-        let advance = modal.advance_field("One".to_string(), &mut sticky_values, 5);
+        let advance = modal.advance_field("One".to_string(), &HashMap::new(), &mut sticky_values, 5);
         assert!(matches!(advance, FieldAdvance::StayOnList));
         assert_eq!(modal.field_flow.repeat_values, vec!["One".to_string()]);
 
-        let advance = modal.advance_field("One".to_string(), &mut sticky_values, 5);
+        let advance = modal.advance_field("One".to_string(), &HashMap::new(), &mut sticky_values, 5);
         assert!(matches!(
             advance,
             FieldAdvance::Complete(HeaderFieldValue::Text(value)) if value == "One"
@@ -2531,6 +2901,7 @@ mod modal_filter_tests {
                     output: Some("left ".to_string()),
                     fields: None,
                     branch_fields: Vec::new(),
+                    assigns: Vec::new(),
                 }],
             }],
             collections: Vec::new(),
@@ -2562,6 +2933,7 @@ mod modal_filter_tests {
                         output: Some("shoulder".to_string()),
                         fields: None,
                         branch_fields: Vec::new(),
+                        assigns: Vec::new(),
                     },
                     HierarchyItem {
                         id: "head".to_string(),
@@ -2570,6 +2942,7 @@ mod modal_filter_tests {
                         output: Some("head".to_string()),
                         fields: None,
                         branch_fields: Vec::new(),
+                        assigns: Vec::new(),
                     },
                 ],
             }],
@@ -2595,11 +2968,11 @@ mod modal_filter_tests {
 
         let mut sticky_values = HashMap::new();
         let mut modal =
-            SearchModal::new_field(0, requested_region.clone(), None, &sticky_values, 5);
+            SearchModal::new_field(0, requested_region.clone(), None, &HashMap::new(), &sticky_values, 5);
 
-        let advance = modal.advance_field("left ".to_string(), &mut sticky_values, 5);
+        let advance = modal.advance_field("left ".to_string(), &HashMap::new(), &mut sticky_values, 5);
         assert!(matches!(advance, FieldAdvance::NextList));
-        let advance = modal.advance_field("shoulder".to_string(), &mut sticky_values, 5);
+        let advance = modal.advance_field("shoulder".to_string(), &HashMap::new(), &mut sticky_values, 5);
         assert!(matches!(
             advance,
             FieldAdvance::Complete(HeaderFieldValue::NestedState(_))
@@ -2610,6 +2983,7 @@ mod modal_filter_tests {
         let rendered = crate::sections::multi_field::resolve_multifield_value(
             &HeaderFieldValue::NestedState(state),
             &requested_region,
+            &HashMap::new(),
             &HashMap::new(),
         );
         assert!(matches!(
@@ -2638,6 +3012,7 @@ mod modal_filter_tests {
                 output: Some("Treatment massage".to_string()),
                 fields: None,
                 branch_fields: Vec::new(),
+                assigns: Vec::new(),
             }],
         };
         let appointment_type_field = HeaderFieldConfig {
@@ -2680,6 +3055,7 @@ mod modal_filter_tests {
                         output: Some("shoulder".to_string()),
                         fields: None,
                         branch_fields: Vec::new(),
+                        assigns: Vec::new(),
                     }],
                 }],
                 collections: Vec::new(),
@@ -2709,12 +3085,12 @@ mod modal_filter_tests {
             max_actives: None,
         };
 
-        let modal = SearchModal::new_field(0, request, None, &HashMap::new(), 5);
+        let modal = SearchModal::new_field(0, request, None, &HashMap::new(), &HashMap::new(), 5);
 
         assert_eq!(modal.field_id, "appointment_type");
         assert_eq!(modal.all_entries, vec!["Treatment massage".to_string()]);
         assert_eq!(
-            modal.current_part_label(&HashMap::new()).as_deref(),
+            modal.current_part_label(&HashMap::new(), &HashMap::new()).as_deref(),
             Some("Appointment Type")
         );
     }
@@ -2737,6 +3113,7 @@ mod modal_filter_tests {
                 output: Some("2026".to_string()),
                 fields: None,
                 branch_fields: Vec::new(),
+                assigns: Vec::new(),
             }],
         };
         let appointment_type = HeaderFieldConfig {
@@ -2761,6 +3138,7 @@ mod modal_filter_tests {
                     output: Some("Treatment massage".to_string()),
                     fields: None,
                     branch_fields: Vec::new(),
+                    assigns: Vec::new(),
                 }],
             }],
             collections: Vec::new(),
@@ -2783,9 +3161,9 @@ mod modal_filter_tests {
             max_actives: None,
         };
         let mut sticky_values = HashMap::from([("year".to_string(), "2026".to_string())]);
-        let mut modal = SearchModal::new_field(0, request.clone(), None, &sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, request.clone(), None, &HashMap::new(), &sticky_values, 5);
 
-        let advance = modal.advance_field("Treatment massage".to_string(), &mut sticky_values, 5);
+        let advance = modal.advance_field("Treatment massage".to_string(), &HashMap::new(), &mut sticky_values, 5);
 
         let FieldAdvance::Complete(HeaderFieldValue::NestedState(state)) = advance else {
             panic!("nested parent field should complete into nested state");
@@ -2793,6 +3171,7 @@ mod modal_filter_tests {
         let rendered = crate::sections::multi_field::resolve_multifield_value(
             &HeaderFieldValue::NestedState(state),
             &request,
+            &HashMap::new(),
             &sticky_values,
         );
         assert!(matches!(
@@ -2825,6 +3204,7 @@ mod modal_filter_tests {
                     output: Some("Treatment massage".to_string()),
                     fields: None,
                     branch_fields: Vec::new(),
+                    assigns: Vec::new(),
                 }],
             }],
             collections: Vec::new(),
@@ -2855,6 +3235,7 @@ mod modal_filter_tests {
                     output: Some("Shoulder".to_string()),
                     fields: None,
                     branch_fields: Vec::new(),
+                    assigns: Vec::new(),
                 }],
             }],
             collections: Vec::new(),
@@ -2885,6 +3266,7 @@ mod modal_filter_tests {
                     output: Some("Left ".to_string()),
                     fields: None,
                     branch_fields: Vec::new(),
+                    assigns: Vec::new(),
                 }],
             }],
             collections: Vec::new(),
@@ -2966,23 +3348,23 @@ mod modal_filter_tests {
     fn nested_repeating_child_reopens_at_next_region_entry() {
         let request = request_field_with_repeating_regions();
         let mut sticky_values = HashMap::new();
-        let mut modal = SearchModal::new_field(0, request.clone(), None, &sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, request.clone(), None, &HashMap::new(), &sticky_values, 5);
 
         assert_eq!(modal.field_id, "appointment_type");
-        let advance = modal.advance_field("Treatment massage".to_string(), &mut sticky_values, 5);
+        let advance = modal.advance_field("Treatment massage".to_string(), &HashMap::new(), &mut sticky_values, 5);
         assert!(matches!(advance, FieldAdvance::NextList));
         assert_eq!(modal.field_id, "region");
 
-        let advance = modal.advance_field("Shoulder".to_string(), &mut sticky_values, 5);
+        let advance = modal.advance_field("Shoulder".to_string(), &HashMap::new(), &mut sticky_values, 5);
         assert!(matches!(advance, FieldAdvance::NextList));
         assert_eq!(modal.field_id, "place");
 
-        let advance = modal.advance_field("Left ".to_string(), &mut sticky_values, 5);
+        let advance = modal.advance_field("Left ".to_string(), &HashMap::new(), &mut sticky_values, 5);
         assert!(matches!(advance, FieldAdvance::NextList));
         assert_eq!(modal.field_id, "region");
 
         let saved = modal.preview_field_value(&sticky_values);
-        let reopened = SearchModal::new_field(0, request, Some(&saved), &sticky_values, 5);
+        let reopened = SearchModal::new_field(0, request, Some(&saved), &HashMap::new(), &sticky_values, 5);
         assert_eq!(reopened.field_id, "region");
     }
 
@@ -2990,19 +3372,20 @@ mod modal_filter_tests {
     fn nested_partial_leaf_progress_survives_dismiss_and_reopen() {
         let request = request_field_with_repeating_regions();
         let mut sticky_values = HashMap::new();
-        let mut modal = SearchModal::new_field(0, request.clone(), None, &sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, request.clone(), None, &HashMap::new(), &sticky_values, 5);
 
-        let _ = modal.advance_field("Treatment massage".to_string(), &mut sticky_values, 5);
-        let _ = modal.advance_field("Shoulder".to_string(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Treatment massage".to_string(), &HashMap::new(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Shoulder".to_string(), &HashMap::new(), &mut sticky_values, 5);
         assert_eq!(modal.field_id, "place");
 
         let saved = modal.preview_field_value(&sticky_values);
-        let reopened = SearchModal::new_field(0, request.clone(), Some(&saved), &sticky_values, 5);
+        let reopened = SearchModal::new_field(0, request.clone(), Some(&saved), &HashMap::new(), &sticky_values, 5);
         assert_eq!(reopened.field_id, "place");
 
         let rendered = crate::sections::multi_field::resolve_multifield_value(
             &saved,
             &request,
+            &HashMap::new(),
             &sticky_values,
         );
         assert!(matches!(
@@ -3016,13 +3399,13 @@ mod modal_filter_tests {
     fn nested_back_from_place_returns_to_region() {
         let request = request_field_with_repeating_regions();
         let mut sticky_values = HashMap::new();
-        let mut modal = SearchModal::new_field(0, request, None, &sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, request, None, &HashMap::new(), &sticky_values, 5);
 
-        let _ = modal.advance_field("Treatment massage".to_string(), &mut sticky_values, 5);
-        let _ = modal.advance_field("Shoulder".to_string(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Treatment massage".to_string(), &HashMap::new(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Shoulder".to_string(), &HashMap::new(), &mut sticky_values, 5);
         assert_eq!(modal.field_id, "place");
 
-        assert!(modal.go_back_one_step(&sticky_values, 5));
+        assert!(modal.go_back_one_step(&HashMap::new(), &sticky_values, 5));
         assert_eq!(modal.field_id, "region");
     }
 
@@ -3030,15 +3413,15 @@ mod modal_filter_tests {
     fn empty_nested_repeat_entry_ends_cycle_without_adding_blank_value() {
         let request = request_field_with_repeating_regions();
         let mut sticky_values = HashMap::new();
-        let mut modal = SearchModal::new_field(0, request.clone(), None, &sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, request.clone(), None, &HashMap::new(), &sticky_values, 5);
 
-        let _ = modal.advance_field("Treatment massage".to_string(), &mut sticky_values, 5);
-        let _ = modal.advance_field("Shoulder".to_string(), &mut sticky_values, 5);
-        let _ = modal.advance_field("Left ".to_string(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Treatment massage".to_string(), &HashMap::new(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Shoulder".to_string(), &HashMap::new(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Left ".to_string(), &HashMap::new(), &mut sticky_values, 5);
 
         assert_eq!(modal.field_id, "region");
-        let _ = modal.advance_field(String::new(), &mut sticky_values, 5);
-        let advance = modal.advance_field(String::new(), &mut sticky_values, 5);
+        let _ = modal.advance_field(String::new(), &HashMap::new(), &mut sticky_values, 5);
+        let advance = modal.advance_field(String::new(), &HashMap::new(), &mut sticky_values, 5);
 
         let FieldAdvance::Complete(HeaderFieldValue::NestedState(state)) = advance else {
             panic!("request should complete after empty nested repeat terminator");
@@ -3046,6 +3429,7 @@ mod modal_filter_tests {
         let rendered = crate::sections::multi_field::resolve_multifield_value(
             &HeaderFieldValue::NestedState(state),
             &request,
+            &HashMap::new(),
             &sticky_values,
         );
         let display = rendered.display_value().unwrap_or_default().to_string();
@@ -3058,10 +3442,11 @@ mod modal_filter_tests {
     fn real_appointment_requested_field_ends_repeat_before_hitting_max_entries() {
         let request = real_appointment_requested_field();
         let mut sticky_values = HashMap::new();
-        let mut modal = SearchModal::new_field(0, request.clone(), None, &sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, request.clone(), None, &HashMap::new(), &sticky_values, 5);
 
         let _ = modal.advance_field(
             "Relaxation massage, focusing on ".to_string(),
+            &HashMap::new(),
             &mut sticky_values,
             5,
         );
@@ -3073,8 +3458,8 @@ mod modal_filter_tests {
             Some(1),
             "request root should advance to requested_regions after appointment type"
         );
-        let _ = modal.advance_field("Shoulder".to_string(), &mut sticky_values, 5);
-        let _ = modal.advance_field("Left ".to_string(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Shoulder".to_string(), &HashMap::new(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Left ".to_string(), &HashMap::new(), &mut sticky_values, 5);
         assert_eq!(
             modal
                 .nested_stack
@@ -3084,8 +3469,8 @@ mod modal_filter_tests {
             "request root should still be on requested_regions while adding repeats"
         );
 
-        let _ = modal.advance_field(String::new(), &mut sticky_values, 5);
-        let advance = modal.advance_field(String::new(), &mut sticky_values, 5);
+        let _ = modal.advance_field(String::new(), &HashMap::new(), &mut sticky_values, 5);
+        let advance = modal.advance_field(String::new(), &HashMap::new(), &mut sticky_values, 5);
 
         assert!(
             matches!(advance, FieldAdvance::Complete(_)),
@@ -3097,26 +3482,28 @@ mod modal_filter_tests {
     fn real_appointment_requested_field_reopens_partial_region_at_place() {
         let request = real_appointment_requested_field();
         let mut sticky_values = HashMap::new();
-        let mut modal = SearchModal::new_field(0, request.clone(), None, &sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, request.clone(), None, &HashMap::new(), &sticky_values, 5);
 
         let _ = modal.advance_field(
             "Relaxation massage, focusing on ".to_string(),
+            &HashMap::new(),
             &mut sticky_values,
             5,
         );
-        let _ = modal.advance_field("Shoulder".to_string(), &mut sticky_values, 5);
+        let _ = modal.advance_field("Shoulder".to_string(), &HashMap::new(), &mut sticky_values, 5);
 
         let saved = modal.preview_field_value(&sticky_values);
-        let reopened = SearchModal::new_field(0, request.clone(), Some(&saved), &sticky_values, 5);
+        let reopened = SearchModal::new_field(0, request.clone(), Some(&saved), &HashMap::new(), &sticky_values, 5);
 
         assert_eq!(
-            reopened.current_part_label(&sticky_values).as_deref(),
+            reopened.current_part_label(&HashMap::new(), &sticky_values).as_deref(),
             Some("place Shoulder")
         );
 
         let rendered = crate::sections::multi_field::resolve_multifield_value(
             &saved,
             &request,
+            &HashMap::new(),
             &sticky_values,
         );
         assert!(matches!(
@@ -3178,6 +3565,108 @@ mod repeat_join_tests {
 }
 
 #[cfg(test)]
+mod assignment_tests {
+    use super::*;
+    use crate::data::{HeaderFieldConfig, HierarchyItem, HierarchyList, ItemAssignment, ModalStart};
+
+    fn item(id: &str, label: &str, output: &str, assigns: Vec<ItemAssignment>) -> HierarchyItem {
+        HierarchyItem {
+            id: id.to_string(),
+            label: Some(label.to_string()),
+            default_enabled: true,
+            output: Some(output.to_string()),
+            fields: None,
+            branch_fields: Vec::new(),
+            assigns,
+        }
+    }
+
+    #[test]
+    fn selected_item_assigns_format_list_value_for_rendering() {
+        let field = HeaderFieldConfig {
+            id: "appointment_time".to_string(),
+            name: "Appointment Time".to_string(),
+            format: Some("{start_hour}{am_pm}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "start_hour".to_string(),
+                label: Some("Start Hour".to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![
+                    item(
+                        "hour_9",
+                        "9",
+                        "9",
+                        vec![ItemAssignment {
+                            list_id: "am_pm".to_string(),
+                            item_id: "am_item".to_string(),
+                            output: "AM".to_string(),
+                        }],
+                    ),
+                    item(
+                        "hour_12",
+                        "12",
+                        "12",
+                        vec![ItemAssignment {
+                            list_id: "am_pm".to_string(),
+                            item_id: "pm_item".to_string(),
+                            output: "PM".to_string(),
+                        }],
+                    ),
+                ],
+            }],
+            collections: Vec::new(),
+            format_lists: vec![HierarchyList {
+                id: "am_pm".to_string(),
+                label: Some("AM/PM".to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![
+                    item("am_item", "AM", "AM", Vec::new()),
+                    item("pm_item", "PM", "PM", Vec::new()),
+                ],
+            }],
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+
+        let mut sticky_values = HashMap::new();
+        let mut modal = SearchModal::new_field(0, field.clone(), None, &HashMap::new(), &sticky_values, 5);
+
+        let advance = modal.advance_field("9".to_string(), &HashMap::new(), &mut sticky_values, 5);
+        let assigned = modal.assigned_values();
+
+        assert_eq!(assigned.get("am_pm").map(String::as_str), Some("AM"));
+
+        let FieldAdvance::Complete(value) = advance else {
+            panic!("single-list field should complete after selecting a start hour");
+        };
+        let rendered = crate::sections::multi_field::resolve_multifield_value(
+            &value,
+            &field,
+            &assigned,
+            &sticky_values,
+        );
+
+        assert!(matches!(
+            rendered,
+            crate::sections::multi_field::ResolvedMultiFieldValue::Complete(value) if value == "9AM"
+        ));
+    }
+}
+
+#[cfg(test)]
 mod branch_field_tests {
     use super::*;
     use crate::data::{HeaderFieldConfig, HierarchyItem, HierarchyList, ModalStart};
@@ -3190,6 +3679,7 @@ mod branch_field_tests {
             output: output.map(str::to_string),
             fields: None,
             branch_fields: Vec::new(),
+            assigns: Vec::new(),
         }
     }
 
@@ -3242,12 +3732,12 @@ mod branch_field_tests {
         };
         let parent_field = single_list_field("muscle_field", parent_list);
         let mut sticky_values = HashMap::new();
-        let mut modal = SearchModal::new_field(0, parent_field, None, &sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, parent_field, None, &HashMap::new(), &sticky_values, 5);
 
-        let advance = modal.advance_field("{ests_mm_field}".to_string(), &mut sticky_values, 5);
+        let advance = modal.advance_field("{ests_mm_field}".to_string(), &HashMap::new(), &mut sticky_values, 5);
         assert!(matches!(advance, FieldAdvance::NextList));
 
-        let advance = modal.advance_field("T1-T12".to_string(), &mut sticky_values, 5);
+        let advance = modal.advance_field("T1-T12".to_string(), &HashMap::new(), &mut sticky_values, 5);
 
         assert!(matches!(advance, FieldAdvance::StayOnList));
         assert_eq!(modal.field_flow.list_idx, 0);
@@ -3269,6 +3759,7 @@ mod collection_field_tests {
             output: Some(output.to_string()),
             fields: None,
             branch_fields: Vec::new(),
+            assigns: Vec::new(),
         }
     }
 
@@ -3313,7 +3804,7 @@ mod collection_field_tests {
             max_actives: None,
         };
 
-        let modal = SearchModal::new_field(0, field, None, &HashMap::new(), 5);
+        let modal = SearchModal::new_field(0, field, None, &HashMap::new(), &HashMap::new(), 5);
 
         assert!(modal.is_collection_mode());
         assert_eq!(modal.all_entries, vec!["Neck".to_string()]);
@@ -3400,6 +3891,7 @@ mod collection_field_tests {
             field,
             Some(&crate::sections::header::HeaderFieldValue::ExplicitEmpty),
             &HashMap::new(),
+            &HashMap::new(),
             5,
         );
 
@@ -3424,3 +3916,5 @@ mod collection_field_tests {
         assert_eq!(lines[1], "[x] Two");
     }
 }
+
+

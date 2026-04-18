@@ -1,6 +1,7 @@
 use crate::data::{HeaderFieldConfig, HierarchyList, JoinerStyle, SectionConfig};
 use crate::modal::{
     active_collection_ids, decode_collection_display_value, format_collection_field_value,
+    ListValueLookup,
 };
 use crate::sections::collection::CollectionState;
 use crate::sections::header::{HeaderFieldValue, HeaderState};
@@ -49,14 +50,16 @@ impl ResolvedMultiFieldValue {
 pub fn resolve_multifield_value(
     confirmed: &HeaderFieldValue,
     cfg: &HeaderFieldConfig,
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> ResolvedMultiFieldValue {
-    resolve_field_values(std::slice::from_ref(confirmed), cfg, sticky_values)
+    resolve_field_values(std::slice::from_ref(confirmed), cfg, assigned_values, sticky_values)
 }
 
 pub fn resolve_field_values(
     confirmed_values: &[HeaderFieldValue],
     cfg: &HeaderFieldConfig,
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> ResolvedMultiFieldValue {
     let has_explicit_empty = confirmed_values
@@ -68,26 +71,33 @@ pub fn resolve_field_values(
         .collect();
 
     if cfg.max_entries.is_some() {
-        return resolve_repeating_values(&concrete, has_explicit_empty, cfg, sticky_values);
+        return resolve_repeating_values(
+            &concrete,
+            has_explicit_empty,
+            cfg,
+            assigned_values,
+            sticky_values,
+        );
     }
 
     if let Some(value) = concrete.first() {
-        return resolve_single_value(value, cfg, sticky_values);
+        return resolve_single_value(value, cfg, assigned_values, sticky_values);
     }
 
     if has_explicit_empty {
         ResolvedMultiFieldValue::Empty
     } else {
-        resolve_unconfirmed_value(cfg, sticky_values)
+        resolve_unconfirmed_value(cfg, assigned_values, sticky_values)
     }
 }
 
 pub fn render_field_display(
     confirmed_values: &[HeaderFieldValue],
     cfg: &HeaderFieldConfig,
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> String {
-    match resolve_field_values(confirmed_values, cfg, sticky_values) {
+    match resolve_field_values(confirmed_values, cfg, assigned_values, sticky_values) {
         ResolvedMultiFieldValue::Empty => "[empty]".to_string(),
         ResolvedMultiFieldValue::Partial(value) | ResolvedMultiFieldValue::Complete(value) => value,
     }
@@ -102,14 +112,15 @@ pub fn render_note_line(
     section: &SectionConfig,
     field: &HeaderFieldConfig,
     value: &HeaderFieldValue,
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> Option<String> {
-    let resolved = resolve_multifield_value(value, field, sticky_values);
+    let resolved = resolve_multifield_value(value, field, assigned_values, sticky_values);
     let rendered = resolved.export_value()?;
     if renders_without_field_label(section, field) {
         Some(rendered.to_string())
     } else {
-        let label = resolve_field_label(value, field, sticky_values);
+        let label = resolve_field_label(value, field, assigned_values, sticky_values);
         Some(format!("{label}: {rendered}"))
     }
 }
@@ -132,6 +143,7 @@ fn display_template(cfg: &HeaderFieldConfig, prefer_preview: bool) -> String {
 pub fn resolve_field_label(
     confirmed: &HeaderFieldValue,
     cfg: &HeaderFieldConfig,
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> String {
     let confirmed = confirmed.source_value();
@@ -151,31 +163,39 @@ pub fn resolve_field_label(
             .map(|(idx, child)| {
                 let value = nested_state
                     .and_then(|state| state.repeated_values.get(idx))
-                    .map(|values| resolve_field_values(values, child, sticky_values))
-                    .unwrap_or_else(|| resolve_field_values(&[], child, sticky_values))
+                    .map(|values| resolve_field_values(values, child, assigned_values, sticky_values))
+                    .unwrap_or_else(|| resolve_field_values(&[], child, assigned_values, sticky_values))
                     .display_value()
                     .map(str::to_string)
                     .or_else(|| child.preview.clone());
                 (child.id.clone(), value)
             })
             .collect::<Vec<_>>();
-        return render_template(&cfg.name, &placeholders, &cfg.format_lists, sticky_values);
+        return render_template(
+            &cfg.name,
+            &placeholders,
+            &cfg.format_lists,
+            assigned_values,
+            sticky_values,
+        );
     }
 
     let mut placeholders = Vec::new();
     for list in &cfg.lists {
         let value = if cfg.lists.len() == 1 {
             match confirmed {
-                HeaderFieldValue::ListState(value) => resolve_list_state(value, cfg, sticky_values)
+                HeaderFieldValue::ListState(value) => {
+                    resolve_list_state(value, cfg, assigned_values, sticky_values)
+                }
                     .display_value()
                     .map(str::to_string),
                 value if value.as_text().is_some_and(|text| !text.is_empty()) => {
                     value.as_text().map(ToOwned::to_owned)
                 }
-                _ => resolve_list_value(list, sticky_values),
+                _ => resolve_list_value(list, assigned_values, sticky_values),
             }
         } else {
-            resolve_list_value(list, sticky_values)
+            resolve_list_value(list, assigned_values, sticky_values)
         }
         .or_else(|| list.preview.clone())
         .or_else(|| Some(format!("{{{}}}", list.id)));
@@ -207,20 +227,27 @@ pub fn resolve_field_label(
         placeholders.push((collection.id.clone(), value));
     }
 
-    render_template(&cfg.name, &placeholders, &cfg.format_lists, sticky_values)
+    render_template(
+        &cfg.name,
+        &placeholders,
+        &cfg.format_lists,
+        assigned_values,
+        sticky_values,
+    )
 }
 
 fn resolve_repeating_values(
     concrete: &[&HeaderFieldValue],
     has_explicit_empty: bool,
     cfg: &HeaderFieldConfig,
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> ResolvedMultiFieldValue {
     let mut values = Vec::new();
     let mut saw_partial = false;
 
     for value in concrete {
-        match resolve_single_value(value, cfg, sticky_values) {
+        match resolve_single_value(value, cfg, assigned_values, sticky_values) {
             ResolvedMultiFieldValue::Complete(value) => values.push(value),
             ResolvedMultiFieldValue::Partial(value) => {
                 if !value.is_empty() {
@@ -236,7 +263,7 @@ fn resolve_repeating_values(
         if has_explicit_empty {
             return ResolvedMultiFieldValue::Empty;
         }
-        return resolve_unconfirmed_value(cfg, sticky_values);
+        return resolve_unconfirmed_value(cfg, assigned_values, sticky_values);
     }
 
     let combined = if let Some(style) = cfg.joiner_style.as_ref() {
@@ -257,6 +284,7 @@ fn resolve_repeating_values(
 fn resolve_single_value(
     confirmed: &HeaderFieldValue,
     cfg: &HeaderFieldConfig,
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> ResolvedMultiFieldValue {
     match confirmed {
@@ -280,18 +308,19 @@ fn resolve_single_value(
             ResolvedMultiFieldValue::Complete(value.as_text().unwrap().to_string())
         }
         HeaderFieldValue::ListState(value) if !cfg.lists.is_empty() => {
-            resolve_list_state(value, cfg, sticky_values)
+            resolve_list_state(value, cfg, assigned_values, sticky_values)
         }
         HeaderFieldValue::NestedState(state) if !cfg.fields.is_empty() => {
-            resolve_nested_state(state, cfg, sticky_values)
+            resolve_nested_state(state, cfg, assigned_values, sticky_values)
         }
-        _ => resolve_unconfirmed_value(cfg, sticky_values),
+        _ => resolve_unconfirmed_value(cfg, assigned_values, sticky_values),
     }
 }
 
 fn resolve_list_state(
     value: &crate::sections::header::ListFieldValue,
     cfg: &HeaderFieldConfig,
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> ResolvedMultiFieldValue {
     let mut placeholders = Vec::new();
@@ -312,7 +341,7 @@ fn resolve_list_state(
         }
         .or_else(|| {
             if value.values.is_empty() && value.repeat_values.is_empty() {
-                resolve_list_value(list, sticky_values)
+                resolve_list_value(list, assigned_values, sticky_values)
             } else {
                 None
             }
@@ -331,7 +360,7 @@ fn resolve_list_state(
         let resolved_for_completion = value.values.get(idx).is_some_and(|saved| !saved.is_empty())
             || (value.values.is_empty()
                 && value.repeat_values.is_empty()
-                && resolve_list_value(list, sticky_values).is_some());
+                && resolve_list_value(list, assigned_values, sticky_values).is_some());
         if !resolved_for_completion {
             all_complete = false;
         }
@@ -339,11 +368,17 @@ fn resolve_list_state(
     }
 
     if !any_display {
-        return resolve_unconfirmed_value(cfg, sticky_values);
+        return resolve_unconfirmed_value(cfg, assigned_values, sticky_values);
     }
 
     let template = display_template(cfg, false);
-    let rendered = render_template(&template, &placeholders, &cfg.format_lists, sticky_values);
+    let rendered = render_template(
+        &template,
+        &placeholders,
+        &cfg.format_lists,
+        assigned_values,
+        sticky_values,
+    );
 
     if all_complete && value.list_idx >= cfg.lists.len() {
         ResolvedMultiFieldValue::Complete(rendered)
@@ -375,6 +410,7 @@ fn joined_repeating_value(
 fn resolve_nested_state(
     state: &HeaderState,
     cfg: &HeaderFieldConfig,
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> ResolvedMultiFieldValue {
     let mut placeholders: Vec<(String, Option<String>)> = Vec::new();
@@ -387,7 +423,7 @@ fn resolve_nested_state(
             .get(idx)
             .map(|values| values.as_slice())
             .unwrap_or(&[]);
-        let resolved = resolve_field_values(values, child, sticky_values);
+        let resolved = resolve_field_values(values, child, assigned_values, sticky_values);
         let display = resolved
             .display_value()
             .map(str::to_string)
@@ -409,7 +445,13 @@ fn resolve_nested_state(
             return ResolvedMultiFieldValue::Empty;
         }
         let template = display_template(cfg, true);
-        let rendered = render_template(&template, &placeholders, &cfg.format_lists, sticky_values);
+        let rendered = render_template(
+            &template,
+            &placeholders,
+            &cfg.format_lists,
+            assigned_values,
+            sticky_values,
+        );
         return if rendered.is_empty() {
             ResolvedMultiFieldValue::Empty
         } else {
@@ -418,7 +460,13 @@ fn resolve_nested_state(
     }
 
     let template = display_template(cfg, false);
-    let rendered = render_template(&template, &placeholders, &cfg.format_lists, sticky_values);
+    let rendered = render_template(
+        &template,
+        &placeholders,
+        &cfg.format_lists,
+        assigned_values,
+        sticky_values,
+    );
 
     if all_complete {
         ResolvedMultiFieldValue::Complete(rendered)
@@ -429,10 +477,16 @@ fn resolve_nested_state(
 
 fn resolve_unconfirmed_value(
     cfg: &HeaderFieldConfig,
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> ResolvedMultiFieldValue {
     if !cfg.fields.is_empty() {
-        return resolve_nested_state(&HeaderState::new(cfg.fields.clone()), cfg, sticky_values);
+        return resolve_nested_state(
+            &HeaderState::new(cfg.fields.clone()),
+            cfg,
+            assigned_values,
+            sticky_values,
+        );
     }
 
     if cfg.lists.is_empty() && cfg.collections.is_empty() {
@@ -459,7 +513,7 @@ fn resolve_unconfirmed_value(
     let mut real_count = 0usize;
     let mut any_display = false;
     for list in &cfg.lists {
-        let value = resolve_list_value(list, sticky_values)
+        let value = resolve_list_value(list, assigned_values, sticky_values)
             .map(|value| {
                 real_count += 1;
                 value
@@ -488,6 +542,7 @@ fn resolve_unconfirmed_value(
             &template,
             &blank_placeholders,
             &cfg.format_lists,
+            assigned_values,
             sticky_values,
         );
         return if rendered.is_empty() {
@@ -498,7 +553,13 @@ fn resolve_unconfirmed_value(
     }
 
     let template = display_template(cfg, false);
-    let rendered = render_template(&template, &placeholders, &cfg.format_lists, sticky_values);
+    let rendered = render_template(
+        &template,
+        &placeholders,
+        &cfg.format_lists,
+        assigned_values,
+        sticky_values,
+    );
     if real_count == cfg.lists.len() && !cfg.lists.is_empty() {
         ResolvedMultiFieldValue::Complete(rendered)
     } else {
@@ -510,6 +571,7 @@ fn render_template(
     template: &str,
     placeholders: &[(String, Option<String>)],
     format_lists: &[HierarchyList],
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> String {
     let mut result = template.to_string();
@@ -522,7 +584,7 @@ fn render_template(
         if !result.contains(&placeholder) {
             continue;
         }
-        let replacement = resolve_list_value(list, sticky_values)
+        let replacement = resolve_list_value(list, assigned_values, sticky_values)
             .or_else(|| list.preview.clone())
             .unwrap_or_default();
         result = result.replace(&placeholder, &replacement);
@@ -532,31 +594,10 @@ fn render_template(
 
 fn resolve_list_value(
     list: &HierarchyList,
+    assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> Option<String> {
-    if list.sticky {
-        if let Some(value) = sticky_values.get(&list.id) {
-            if !value.is_empty() {
-                return Some(value.clone());
-            }
-        }
-    }
-
-    if let Some(default) = &list.default {
-        if let Some(item) = list.items.iter().find(|item| {
-            item.id == *default
-                || item.ui_label() == *default
-                || item.output.as_deref() == Some(default.as_str())
-        }) {
-            let value = item.output().to_string();
-            if value.is_empty() {
-                return None;
-            }
-            return Some(value);
-        }
-    }
-
-    None
+    ListValueLookup::new(assigned_values, sticky_values).fallback_value(list)
 }
 
 fn join_repeat_values(values: &[String], style: &JoinerStyle) -> String {
@@ -633,6 +674,7 @@ mod tests {
             &crate::sections::header::HeaderFieldValue::ExplicitEmpty,
             &cfg,
             &HashMap::new(),
+            &HashMap::new(),
         );
 
         assert!(matches!(resolved, ResolvedMultiFieldValue::Empty));
@@ -662,6 +704,7 @@ mod tests {
                     output: Some(String::new()),
                     fields: None,
                     branch_fields: Vec::new(),
+                    assigns: Vec::new(),
                 }],
             }],
             collections: Vec::new(),
@@ -687,6 +730,7 @@ mod tests {
         let resolved = resolve_multifield_value(
             &crate::sections::header::HeaderFieldValue::Text(String::new()),
             &cfg,
+            &HashMap::new(),
             &HashMap::new(),
         );
 
@@ -717,6 +761,7 @@ mod tests {
                     output: Some(String::new()),
                     fields: None,
                     branch_fields: Vec::new(),
+                    assigns: Vec::new(),
                 }],
             }],
             collections: Vec::new(),
@@ -747,6 +792,7 @@ mod tests {
                     output: Some("Shoulder".to_string()),
                     fields: None,
                     branch_fields: Vec::new(),
+                    assigns: Vec::new(),
                 }],
             }],
             collections: Vec::new(),
@@ -772,6 +818,7 @@ mod tests {
         let resolved = resolve_multifield_value(
             &crate::sections::header::HeaderFieldValue::Text(String::new()),
             &cfg,
+            &HashMap::new(),
             &HashMap::new(),
         );
 
@@ -806,6 +853,7 @@ mod tests {
             },
             &cfg,
             &HashMap::new(),
+            &HashMap::new(),
         );
 
         assert!(matches!(
@@ -839,6 +887,7 @@ mod tests {
             },
             &cfg,
             &HashMap::new(),
+            &HashMap::new(),
         );
 
         assert!(matches!(resolved, ResolvedMultiFieldValue::Empty));
@@ -868,6 +917,7 @@ mod tests {
                     output: Some("Shoulder".to_string()),
                     fields: None,
                     branch_fields: Vec::new(),
+                    assigns: Vec::new(),
                 }],
             }],
             collections: Vec::new(),
@@ -881,14 +931,17 @@ mod tests {
             source: Box::new(crate::sections::header::HeaderFieldValue::ListState(
                 crate::sections::header::ListFieldValue {
                     values: vec!["Shoulder".to_string()],
+                    item_ids: vec!["shoulder".to_string()],
                     list_idx: 0,
                     repeat_values: Vec::new(),
+                    repeat_item_ids: Vec::new(),
                 },
             )),
         };
 
-        let label = resolve_field_label(&value, &cfg, &HashMap::new());
+        let label = resolve_field_label(&value, &cfg, &HashMap::new(), &HashMap::new());
 
         assert_eq!(label, "Requested Shoulder");
     }
 }
+

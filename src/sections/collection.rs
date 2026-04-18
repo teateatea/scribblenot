@@ -261,6 +261,7 @@ mod tests {
             output: Some(label.to_string()),
             fields: None,
             branch_fields: Vec::new(),
+            assigns: Vec::new(),
         }
     }
 
