@@ -1,5 +1,5 @@
 use crate::app::SectionState;
-use crate::data::{SectionConfig, SectionGroup};
+use crate::data::{RuntimeTemplate, SectionConfig};
 use crate::sections::header::HeaderFieldValue;
 use crate::sections::multi_field::render_note_line;
 use std::collections::HashMap;
@@ -13,16 +13,16 @@ pub enum NoteRenderMode {
 
 #[allow(dead_code)]
 pub fn section_start_line(
+    template: &RuntimeTemplate,
     sections: &[SectionConfig],
     states: &[SectionState],
     assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
-    groups: &[SectionGroup],
     boilerplate_texts: &HashMap<String, String>,
     section_id: &str,
 ) -> u16 {
     let note = render_note(
-        groups,
+        template,
         sections,
         states,
         assigned_values,
@@ -44,7 +44,7 @@ pub fn section_start_line(
 
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn render_note(
-    groups: &[SectionGroup],
+    template: &RuntimeTemplate,
     sections: &[SectionConfig],
     states: &[SectionState],
     assigned_values: &HashMap<String, String>,
@@ -53,7 +53,7 @@ pub fn render_note(
     mode: NoteRenderMode,
 ) -> String {
     render_document(
-        groups,
+        template,
         sections,
         states,
         assigned_values,
@@ -65,7 +65,7 @@ pub fn render_note(
 }
 
 pub fn render_editable_document(
-    groups: &[SectionGroup],
+    template: &RuntimeTemplate,
     sections: &[SectionConfig],
     states: &[SectionState],
     assigned_values: &HashMap<String, String>,
@@ -73,7 +73,7 @@ pub fn render_editable_document(
     boilerplate_texts: &HashMap<String, String>,
 ) -> String {
     render_document(
-        groups,
+        template,
         sections,
         states,
         assigned_values,
@@ -101,7 +101,7 @@ pub fn render_editable_section_body(
 }
 
 fn render_document(
-    groups: &[SectionGroup],
+    template: &RuntimeTemplate,
     sections: &[SectionConfig],
     states: &[SectionState],
     assigned_values: &HashMap<String, String>,
@@ -111,8 +111,9 @@ fn render_document(
     editable: bool,
 ) -> String {
     let mut parts = Vec::new();
+    let state_lookup = section_state_lookup(sections, states);
 
-    for (group_idx, group) in groups.iter().enumerate() {
+    for (group_idx, group) in template.children.iter().enumerate() {
         if group_idx > 0 {
             parts.push("\n\n\n_______________".to_string());
         }
@@ -129,7 +130,11 @@ fn render_document(
             }
         }
 
-        for (cfg, state) in group_sections(group, sections, states) {
+        for node in &group.children {
+            let config = node.config();
+            let Some((cfg, state)) = state_lookup.get(config.id.as_str()).copied() else {
+                continue;
+            };
             let body = render_section_body(cfg, state, assigned_values, sticky_values, mode.clone());
             if body.trim().is_empty() && is_skipped(state) {
                 continue;
@@ -153,20 +158,14 @@ fn render_document(
     parts.join("")
 }
 
-fn group_sections<'a>(
-    group: &'a SectionGroup,
+fn section_state_lookup<'a>(
     sections: &'a [SectionConfig],
     states: &'a [SectionState],
-) -> Vec<(&'a SectionConfig, &'a SectionState)> {
-    group
-        .sections
+) -> HashMap<&'a str, (&'a SectionConfig, &'a SectionState)> {
+    sections
         .iter()
-        .filter_map(|group_section| {
-            sections
-                .iter()
-                .zip(states.iter())
-                .find(|(section, _)| section.id == group_section.id)
-        })
+        .zip(states.iter())
+        .map(|(section, state)| (section.id.as_str(), (section, state)))
         .collect()
 }
 
@@ -272,7 +271,8 @@ fn is_skipped(state: &SectionState) -> bool {
 mod tests {
     use super::*;
     use crate::data::{
-        AppData, HeaderFieldConfig, ResolvedCollectionConfig, RuntimeNodeKind, SectionConfig,
+        AppData, GroupNoteMeta, HeaderFieldConfig, ResolvedCollectionConfig, RuntimeGroup,
+        RuntimeNode, RuntimeNodeKind, RuntimeTemplate, SectionConfig,
     };
     use crate::sections::collection::CollectionState;
     use crate::sections::free_text::FreeTextState;
@@ -354,7 +354,7 @@ mod tests {
         let states = states_for_real_data(&data);
 
         let note = render_note(
-            &data.groups,
+            &data.template,
             &data.sections,
             &states,
             &HashMap::new(),
@@ -387,13 +387,93 @@ mod tests {
     }
 
     #[test]
+    fn render_note_uses_runtime_template_order_not_sections_slice_order() {
+        let first = SectionConfig {
+            id: "first".to_string(),
+            name: "First".to_string(),
+            map_label: "FIRST".to_string(),
+            section_type: "free_text".to_string(),
+            show_field_labels: true,
+            data_file: None,
+            fields: None,
+            lists: Vec::new(),
+            note_label: Some("#### FIRST".to_string()),
+            group_id: "group_a".to_string(),
+            node_kind: RuntimeNodeKind::Section,
+        };
+        let second = SectionConfig {
+            id: "second".to_string(),
+            name: "Second".to_string(),
+            map_label: "SECOND".to_string(),
+            section_type: "free_text".to_string(),
+            show_field_labels: true,
+            data_file: None,
+            fields: None,
+            lists: Vec::new(),
+            note_label: Some("#### SECOND".to_string()),
+            group_id: "group_a".to_string(),
+            node_kind: RuntimeNodeKind::Section,
+        };
+        let template = RuntimeTemplate {
+            id: "test".to_string(),
+            children: vec![RuntimeGroup {
+                id: "group_a".to_string(),
+                nav_label: "GROUP A".to_string(),
+                note: GroupNoteMeta {
+                    note_label: Some("## GROUP A".to_string()),
+                    boilerplate_refs: Vec::new(),
+                },
+                children: vec![
+                    RuntimeNode::Section(first.clone()),
+                    RuntimeNode::Section(second.clone()),
+                ],
+            }],
+        };
+        let sections = vec![second.clone(), first.clone()];
+        let states = vec![
+            SectionState::FreeText(FreeTextState {
+                entries: vec!["second body".to_string()],
+                edit_buf: String::new(),
+                mode: crate::sections::free_text::FreeTextMode::Browsing,
+                cursor: 0,
+                completed: true,
+                skipped: false,
+            }),
+            SectionState::FreeText(FreeTextState {
+                entries: vec!["first body".to_string()],
+                edit_buf: String::new(),
+                mode: crate::sections::free_text::FreeTextMode::Browsing,
+                cursor: 0,
+                completed: true,
+                skipped: false,
+            }),
+        ];
+
+        let note = render_note(
+            &template,
+            &sections,
+            &states,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            NoteRenderMode::Preview,
+        );
+
+        let first_heading = note.find("#### FIRST").expect("first heading should render");
+        let second_heading = note.find("#### SECOND").expect("second heading should render");
+        assert!(first_heading < second_heading);
+        assert!(note.contains("first body"));
+        assert!(note.contains("second body"));
+    }
+
+    #[test]
     fn real_data_render_places_group_headings_before_authored_section_headings() {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data");
         let data = AppData::load(dir).expect("real data loads");
         let states = states_for_real_data(&data);
 
         let note = render_editable_document(
-            &data.groups,
+            &data.template,
             &data.sections,
             &states,
             &HashMap::new(),
@@ -425,7 +505,7 @@ mod tests {
         let states = states_for_real_data(&data);
 
         let note = render_note(
-            &data.groups,
+            &data.template,
             &data.sections,
             &states,
             &HashMap::new(),
@@ -470,7 +550,7 @@ mod tests {
         );
 
         let note = render_note(
-            &data.groups,
+            &data.template,
             &data.sections,
             &states,
             &HashMap::new(),
@@ -539,7 +619,7 @@ mod tests {
         );
 
         let rendered = render_note(
-            &data.groups,
+            &data.template,
             &data.sections,
             &states,
             &HashMap::new(),

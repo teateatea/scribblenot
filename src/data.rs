@@ -562,6 +562,22 @@ pub enum RuntimeNode {
     Collection(SectionConfig),
 }
 
+impl RuntimeNode {
+    pub fn config(&self) -> &SectionConfig {
+        match self {
+            Self::Section(config) | Self::Collection(config) => config,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NavigationEntry {
+    pub node_id: String,
+    pub group_id: String,
+    pub group_index: usize,
+    pub node_kind: RuntimeNodeKind,
+}
+
 #[derive(Debug, Clone)]
 pub struct RuntimeHierarchy {
     pub template: RuntimeTemplate,
@@ -571,6 +587,22 @@ pub struct RuntimeHierarchy {
     pub checklist_data: HashMap<String, Vec<String>>,
     pub collection_data: HashMap<String, Vec<ResolvedCollectionConfig>>,
     pub boilerplate_texts: HashMap<String, String>,
+}
+
+pub fn runtime_navigation(template: &RuntimeTemplate) -> Vec<NavigationEntry> {
+    let mut entries = Vec::new();
+    for (group_index, group) in template.children.iter().enumerate() {
+        for node in &group.children {
+            let config = node.config();
+            entries.push(NavigationEntry {
+                node_id: config.id.clone(),
+                group_id: group.id.clone(),
+                group_index,
+                node_kind: config.node_kind,
+            });
+        }
+    }
+    entries
 }
 
 pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, String> {
@@ -2143,6 +2175,41 @@ mod tests {
             .map(|section| section.id.as_str())
             .collect();
         assert_eq!(ids, vec!["a", "c", "b"]);
+    }
+
+    #[test]
+    fn runtime_navigation_matches_authored_tree_order_and_groups() {
+        let file = parse(concat!(
+            "template:\n  id: template\n  contains:\n    - group: first\n    - group: second\n",
+            "groups:\n",
+            "  - id: first\n    contains:\n      - section: a\n      - collection: c\n",
+            "  - id: second\n    contains:\n      - section: b\n",
+            "sections:\n",
+            "  - id: a\n    contains: []\n",
+            "  - id: b\n    contains: []\n",
+            "collections:\n",
+            "  - id: c\n    contains:\n      - list: list_one\n",
+            "lists:\n  - id: list_one\n    items: []\n",
+        ));
+        validate_merged_hierarchy(&file).expect("valid merged hierarchy");
+        let runtime = hierarchy_to_runtime(file).expect("runtime build succeeds");
+
+        let navigation = runtime_navigation(&runtime.template);
+        let entries: Vec<(&str, &str, usize)> = navigation
+            .iter()
+            .map(|entry| {
+                (
+                    entry.node_id.as_str(),
+                    entry.group_id.as_str(),
+                    entry.group_index,
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            entries,
+            vec![("a", "first", 0), ("c", "first", 0), ("b", "second", 1)]
+        );
     }
 
     #[test]

@@ -49,8 +49,7 @@ fn map_pane(app: &App) -> Element<'_, Message> {
     };
     let map_labels = app.map_hint_labels(active_map_group);
 
-    let mut flat_idx = 0usize;
-    for (group_idx, group) in app.data.groups.iter().enumerate() {
+    for (group_idx, group) in app.data.template.children.iter().enumerate() {
         let group_color = app.ui_theme.text;
         items.push(
             text(group.nav_label.clone())
@@ -64,7 +63,14 @@ fn map_pane(app: &App) -> Element<'_, Message> {
         } else {
             app.map_hint_labels(Some(group_idx)).sections
         };
-        for (group_section_idx, sec) in group.sections.iter().enumerate() {
+        let group_indices: Vec<usize> = app
+            .navigation
+            .iter()
+            .enumerate()
+            .filter_map(|(flat_idx, entry)| (entry.group_index == group_idx).then_some(flat_idx))
+            .collect();
+        for (group_section_idx, flat_idx) in group_indices.into_iter().enumerate() {
+            let sec = &app.sections[flat_idx];
             let mut label = sec.map_label.clone();
             if app.section_is_skipped(flat_idx) {
                 label.push_str(" [skip]");
@@ -103,7 +109,6 @@ fn map_pane(app: &App) -> Element<'_, Message> {
                 label_color,
                 app,
             ));
-            flat_idx += 1;
         }
     }
 
@@ -1141,7 +1146,7 @@ fn preview_line_color(app: &App, line: &str, group_idx: Option<usize>) -> Color 
 }
 
 fn preview_group_for_line(app: &App, line: &str) -> Option<usize> {
-    for (idx, group) in app.data.groups.iter().enumerate() {
+    for (idx, group) in app.data.template.children.iter().enumerate() {
         let heading = group.note.note_label.as_deref();
         if heading == Some(line) {
             return Some(idx);
