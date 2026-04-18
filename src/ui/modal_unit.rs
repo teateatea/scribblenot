@@ -300,6 +300,122 @@ pub(super) fn build_connected_transition_rendered_unit(
     RenderedModalUnit { cards }
 }
 
+pub(super) fn build_modal_open_rendered_unit(
+    stub_width: f32,
+    layout: &SimpleModalUnitLayout,
+    arrival: &crate::app::ModalArrivalLayer,
+    alpha: f32,
+) -> RenderedModalUnit {
+    let geometry = &arrival.geometry;
+    let mut cards = Vec::new();
+
+    if geometry.shows_stubs {
+        if let Some(kind) = geometry.leading_stub_kind {
+            push_strip_stub(
+                &mut cards,
+                ModalUnitSide::Left,
+                kind,
+                stub_width,
+                alpha,
+            );
+        }
+    }
+
+    for (sequence_idx, width) in geometry
+        .modal_index_range
+        .clone()
+        .zip(geometry.modal_widths.iter().copied())
+    {
+        let Some(snapshot) = layout.sequence.snapshots.get(sequence_idx).cloned() else {
+            continue;
+        };
+        let kind = if sequence_idx == layout.sequence.active_sequence_index {
+            ModalUnitCardKind::Active { snapshot }
+        } else {
+            ModalUnitCardKind::Preview { snapshot }
+        };
+        cards.push(ModalUnitCardData { kind, width, alpha });
+    }
+
+    if geometry.shows_stubs {
+        if let Some(kind) = geometry.trailing_stub_kind {
+            push_strip_stub(
+                &mut cards,
+                ModalUnitSide::Right,
+                kind,
+                stub_width,
+                alpha,
+            );
+        }
+    }
+
+    RenderedModalUnit { cards }
+}
+
+pub(super) fn build_modal_close_rendered_unit(
+    stub_width: f32,
+    departure: &crate::app::ModalDepartureLayer,
+    alpha: f32,
+) -> RenderedModalUnit {
+    let geometry = &departure.geometry;
+    let mut cards = Vec::new();
+
+    if geometry.shows_stubs {
+        if let Some(kind) = geometry.leading_stub_kind {
+            push_strip_stub(
+                &mut cards,
+                ModalUnitSide::Left,
+                kind,
+                stub_width,
+                alpha,
+            );
+        }
+    }
+
+    for (snapshot, width) in departure
+        .content
+        .modals
+        .iter()
+        .cloned()
+        .zip(geometry.modal_widths.iter().copied())
+    {
+        cards.push(ModalUnitCardData {
+            kind: ModalUnitCardKind::Preview { snapshot },
+            width,
+            alpha,
+        });
+    }
+
+    if geometry.shows_stubs {
+        if let Some(kind) = geometry.trailing_stub_kind {
+            push_strip_stub(
+                &mut cards,
+                ModalUnitSide::Right,
+                kind,
+                stub_width,
+                alpha,
+            );
+        }
+    }
+
+    RenderedModalUnit { cards }
+}
+
+pub(super) fn modal_open_shift(progress: f32, slide_distance: f32) -> f32 {
+    slide_distance * (1.0 - progress)
+}
+
+pub(super) fn modal_close_shift(
+    direction: crate::app::FocusDirection,
+    progress: f32,
+    slide_distance: f32,
+) -> f32 {
+    match direction {
+        crate::app::FocusDirection::Forward => -slide_distance * progress,
+        crate::app::FocusDirection::Backward => slide_distance * progress,
+    }
+}
+
 // LESSON 6: Centering math for the modal strip. Returns (outer_width, left_pad, right_pad) to position the strip inside an oversized container. The container is wider than the viewport (the "runway") so the strip can slide without being clipped. A positive shift moves the strip right; left_pad and right_pad tip in opposite directions to achieve that.
 pub(super) fn modal_unit_runway_layout(
     viewport_width: f32,

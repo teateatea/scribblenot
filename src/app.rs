@@ -429,6 +429,19 @@ impl App {
         }
     }
 
+    fn clear_live_modal_state_preserving_transitions(&mut self) {
+        self.modal = None;
+        self.modal_mouse_mode = false;
+        self.modal_restore_snapshot = None;
+        self.modal_composition_editing = false;
+        self.hint_buffer.clear();
+        self.modal_unit_layout = None;
+        self.active_unit_index = 0;
+        self.prev_prepared_unit = None;
+        self.next_prepared_unit = None;
+    }
+
+    #[allow(dead_code)] // retained as the hard-stop teardown path for non-animated callers
     pub fn close_modal(&mut self) {
         self.modal = None;
         self.modal_mouse_mode = false;
@@ -490,11 +503,8 @@ impl App {
                 state.composite_spans = snapshot.original_spans;
             }
         }
-        self.modal = None;
-        self.modal_mouse_mode = false;
-        self.settle_modal_transitions();
-        self.modal_composition_editing = false;
-        self.hint_buffer.clear();
+        self.fire_modal_exit_transition_if_possible();
+        self.clear_live_modal_state_preserving_transitions();
     }
 
     pub fn set_modal_query(&mut self, new_text: String) {
@@ -824,6 +834,8 @@ impl App {
         // arrival completes (insert here).
         self.modal_transitions.retain(|entry| match entry {
             ModalTransitionLayer::ConnectedTransition { arrival, .. } => !arrival.is_finished(),
+            ModalTransitionLayer::ModalOpen { arrival, .. } => !arrival.is_finished(),
+            ModalTransitionLayer::ModalClose { departure, .. } => !departure.is_finished(),
         });
         if self
             .copy_flash_until
@@ -1685,6 +1697,7 @@ impl App {
             });
             // Full reset: build layout for the newly opened modal and clear any stale transitions.
             self.rebuild_modal_unit_layout(true);
+            self.fire_modal_open_transition_if_possible();
         }
     }
 
@@ -2250,7 +2263,8 @@ impl App {
                             self.advance_section();
                         }
                     }
-                    self.close_modal();
+                    self.fire_modal_confirm_transition_if_possible();
+                    self.clear_live_modal_state_preserving_transitions();
                     let _ = self.config.save(&self.data_dir);
                 }
             }
@@ -2312,7 +2326,8 @@ impl App {
                         self.advance_section();
                     }
                 }
-                self.close_modal();
+                self.fire_modal_confirm_transition_if_possible();
+                self.clear_live_modal_state_preserving_transitions();
                 let _ = self.config.save(&self.data_dir);
             }
         }
@@ -2753,6 +2768,102 @@ impl App {
         }
         self.rebuild_modal_unit_layout(false);
         self.fire_modal_transition_if_needed(previous_layout, previous_modal);
+    }
+
+    fn modal_lifecycle_slide_distance(&self, geometry: &UnitGeometry) -> f32 {
+        let unit_width = unit_display_width(geometry, self.ui_theme.modal_stub_width);
+        let viewport_width = self.viewport_size.map(|size| size.width).unwrap_or(unit_width);
+        (viewport_width + unit_width) * 0.5 + self.modal_spacer_width()
+    }
+
+    fn fire_modal_open_transition_if_possible(&mut self) {
+        let effective_spacer_width = self.modal_spacer_width();
+        let duration_ms = self.ui_theme.modal_transition_duration.max(1) as u64;
+        let easing = self.ui_theme.modal_transition_easing;
+        let arriving_unit_index = self.active_unit_index;
+
+        let arrival_geometry = {
+            let Some(layout) = self.modal_unit_layout.as_ref() else {
+                return;
+            };
+            let Some(modal) = self.modal.as_ref() else {
+                return;
+            };
+            UnitGeometry::from_layout(layout, arriving_unit_index, modal, effective_spacer_width)
+        };
+
+        let Some(arrival_geometry) = arrival_geometry else {
+            return;
+        };
+
+        let slide_distance = self.modal_lifecycle_slide_distance(&arrival_geometry);
+        let arrival = ModalArrivalLayer {
+            unit_index: arriving_unit_index,
+            geometry: arrival_geometry,
+            focus_direction: FocusDirection::Forward,
+            started_at: Instant::now(),
+            duration_ms,
+            easing,
+        };
+
+        self.modal_transitions.push(ModalTransitionLayer::ModalOpen {
+            arrival,
+            slide_distance,
+        });
+    }
+
+    fn fire_modal_close_transition_if_possible(&mut self, focus_direction: FocusDirection) {
+        let effective_spacer_width = self.modal_spacer_width();
+        let duration_ms = self.ui_theme.modal_transition_duration.max(1) as u64;
+        let easing = self.ui_theme.modal_transition_easing;
+        let departing_unit_index = self.active_unit_index;
+
+        let (departure_geometry, departure_content) = {
+            let Some(layout) = self.modal_unit_layout.as_ref() else {
+                return;
+            };
+            let Some(modal) = self.modal.as_ref() else {
+                return;
+            };
+            (
+                UnitGeometry::from_layout(
+                    layout,
+                    departing_unit_index,
+                    modal,
+                    effective_spacer_width,
+                ),
+                UnitContentSnapshot::from_layout(layout, departing_unit_index),
+            )
+        };
+
+        let (Some(departure_geometry), Some(departure_content)) =
+            (departure_geometry, departure_content)
+        else {
+            return;
+        };
+
+        let slide_distance = self.modal_lifecycle_slide_distance(&departure_geometry);
+        let departure = ModalDepartureLayer {
+            content: departure_content,
+            geometry: departure_geometry,
+            focus_direction,
+            started_at: Instant::now(),
+            duration_ms,
+            easing,
+        };
+
+        self.modal_transitions.push(ModalTransitionLayer::ModalClose {
+            departure,
+            slide_distance,
+        });
+    }
+
+    fn fire_modal_exit_transition_if_possible(&mut self) {
+        self.fire_modal_close_transition_if_possible(FocusDirection::Backward);
+    }
+
+    fn fire_modal_confirm_transition_if_possible(&mut self) {
+        self.fire_modal_close_transition_if_possible(FocusDirection::Forward);
     }
 
     /// Evaluate whether focus crossed a unit boundary after a modal mutation and, if so,
@@ -3758,7 +3869,8 @@ mod tests {
 #[cfg(test)]
 mod composition_span_tests {
     use super::{
-        compute_field_composition_spans, App, AppKey, FieldCompositionSpanKind, Focus, SectionState,
+        compute_field_composition_spans, App, AppKey, FieldCompositionSpanKind, Focus,
+        FocusDirection, ModalTransitionLayer, SectionState,
     };
     use crate::config::Config;
     use crate::data::{
@@ -4164,6 +4276,66 @@ mod composition_span_tests {
             !state.in_items(),
             "nav_left should return to the collection list"
         );
+    }
+
+    #[test]
+    fn opening_simple_modal_starts_open_transition() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+
+        app.open_header_modal();
+
+        assert!(app.modal.is_some(), "modal should remain live during open");
+        match app.modal_transitions.last() {
+            Some(ModalTransitionLayer::ModalOpen { arrival, .. }) => {
+                assert_eq!(arrival.focus_direction, FocusDirection::Forward);
+            }
+            other => panic!("expected modal open transition, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dismissing_simple_modal_retains_close_transition_after_live_modal_clears() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+        app.open_header_modal();
+
+        app.dismiss_modal();
+
+        assert!(app.modal.is_none(), "live modal should be cleared immediately");
+        match app.modal_transitions.last() {
+            Some(ModalTransitionLayer::ModalClose { departure, .. }) => {
+                assert_eq!(departure.focus_direction, FocusDirection::Backward);
+            }
+            other => panic!("expected modal close transition, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn confirming_simple_modal_starts_confirm_close_transition() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+        app.open_header_modal();
+
+        app.confirm_modal_value("Shoulder".to_string());
+
+        assert!(app.modal.is_none(), "live modal should be cleared after confirm");
+        match app.modal_transitions.last() {
+            Some(ModalTransitionLayer::ModalClose { departure, .. }) => {
+                assert_eq!(departure.focus_direction, FocusDirection::Forward);
+            }
+            other => panic!("expected confirm close transition, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_simple_modal_close_falls_back_to_instant_behavior() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+
+        app.open_header_modal();
+        app.set_modal_query("sho".to_string());
+        assert!(app.modal_unit_layout.is_none());
+
+        app.dismiss_modal();
+        assert!(app.modal.is_none());
+        assert!(app.modal_transitions.is_empty());
     }
 
     #[test]

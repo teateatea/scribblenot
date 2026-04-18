@@ -224,11 +224,16 @@ impl ModalDepartureLayer {
     pub fn eased_progress(&self) -> f32 {
         self.easing.apply(self.progress())
     }
+
+    pub fn is_finished(&self) -> bool {
+        self.progress() >= 1.0
+    }
 }
 
 // LESSON 7: The envelope that pairs arrival + departure + slide_distance into one animation entry.
 // The renderer pulls one of these off the list and draws both layers from it.
 /// A single animation entry.
+#[derive(Debug, Clone)]
 pub enum ModalTransitionLayer {
     /// Normal transition: dep and arr form one rigid strip with a shared transition stub.
     /// Both layers share the same x_offset, driven by the arrival's progress.
@@ -236,6 +241,14 @@ pub enum ModalTransitionLayer {
     /// at transition start and stored here so render is independent of live viewport values.
     ConnectedTransition {
         arrival: ModalArrivalLayer,
+        departure: ModalDepartureLayer,
+        slide_distance: f32,
+    },
+    ModalOpen {
+        arrival: ModalArrivalLayer,
+        slide_distance: f32,
+    },
+    ModalClose {
         departure: ModalDepartureLayer,
         slide_distance: f32,
     },
