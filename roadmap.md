@@ -6,7 +6,7 @@ This file tracks improvement ideas, technical debt, reliability upgrades, securi
 It is not a commitment list. It is a place to keep useful ideas from getting lost.
 
 ## Tracker
-- Next suggestion number: 32
+- Next suggestion number: 33
 - Rule: never reuse or renumber old suggestion IDs, even if an item is completed or removed later.
 - Status values: `open`, `planned`, `in-progress`, `blocked`, `done`, `dropped`
 
@@ -73,6 +73,7 @@ Priority rule of thumb:
 28. [open] [Roadmap] {GPT-5 Codex}: Establish semantic stub authority for modal edges. Why it matters: stub meaning is currently inferred from preview-sequence availability rather than real modal behavior, which will keep causing correctness drift as repeat, nested, branch, and other modal flows get more complex. Suggested next step: implement `operations/plans/PLAN-modal-stub-option-2-semantic-authority.md` so `>`, `+`, and `-` come from explicit edge semantics instead of teaser availability alone.
 29. [planned] [Roadmap] {GPT-5 Codex}: Add explicit single-character `hotkey:` support for hinted entities so authored sections, header fields, and list items can reserve mnemonic labels instead of relying only on generated hints. Why it matters: the current hint system is fully generated, which makes high-frequency actions harder to memorize and blocks stable mnemonic workflows. Suggested next step: implement `operations/plans/PLAN-explicit-hotkeys-for-sections-fields-items.md`, with validation for duplicate local hotkeys, command-binding collisions, shorthand-item limitations, and text-entry precedence.
 31. [planned] [Roadmap] {GPT-5 Codex}: Scope item `assigns` per confirmed field slot instead of flattening them into one global map. Why it matters: the narrow stale-state fixes make current modal editing safer, but confirmed rendering still merges assigned format-list outputs across fields and repeats, so one slot can silently overwrite another. Suggested next step: implement `operations/plans/PLAN-assignment-slot-scoping.md`, preserving assignment provenance with the confirmed slot and adding repeat-slot plus cross-field regression coverage.
+32. [open] [Roadmap] {GPT-5 Codex}: Investigate active modal row border width mismatch versus inactive modal and search-bar width. Why it matters: the active modal's confirmed-row border still renders narrower than the inactive modal rows, which causes visible jitter and inconsistent alignment during navigation. Suggested next step: audit the Iced width and child-layout chain around the active row container and button path in `src/ui/mod.rs`, then capture a focused visual regression check or screenshot fixture once the layout model is understood.
 
 ## Later
 10. [planned] [Roadmap] {GPT-5 Codex}: Product flexibility pass: make note headings and boilerplate data-driven so changing the clinical template does not require Rust edits.

@@ -153,7 +153,7 @@ copy_note: [c]
 | `swap_panes` | Toggle pane layout |
 | `help` | Show help overlay |
 | `quit` | Quit app |
-| `nav_left` / `nav_right` | Move left or right in the current context: pane movement, modal movement, or wizard modal entry |
+| `nav_left` / `nav_right` | Move left or right in the current context: pane movement, modal browsing between field parts, or wizard modal entry |
 | `super_confirm` | Confirm using defaults or sticky fallbacks where possible |
 | `copy_note` | Copy exported note |
 | `hints` | Hint key pool used to generate quick-select labels |
@@ -164,6 +164,13 @@ Modal search-bar exception:
 
 - In modal search bars, raw arrow keys still perform navigation.
 - Character aliases such as `n`, `e`, `h`, and `i` stay as typed text there.
+
+Modal reopen behavior:
+
+- Reopening a confirmed list-based field restores the modal cursors from the last confirmed structured choices when that state is available.
+- In reopened list modals, the originally confirmed row stays highlighted while the live cursor can move away from it.
+- `nav_left` and `nav_right` browse between modal parts without committing intermediate rows. At the terminal confirm edge, `nav_right` commits each part from its explicitly confirmed choice when available, otherwise it falls back to that modal's current cursor position.
+- Confirmed list items gain the thin confirmation border as soon as each list part is confirmed, including during first-pass modal entry and when revisiting a completed field.
 
 - Single characters: `a`, `1`, `/`
 - Special keys: `up`, `down`, `left`, `right`, `enter`, `esc`, `space`, `backspace`, `tab`
