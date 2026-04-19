@@ -2846,6 +2846,7 @@ impl App {
         let departure = ModalDepartureLayer {
             content: departure_content,
             geometry: departure_geometry,
+            modal: self.modal.as_ref().cloned(),
             focus_direction,
             started_at: Instant::now(),
             duration_ms,
@@ -2958,6 +2959,7 @@ impl App {
         let departure = ModalDepartureLayer {
             content: dep_content,
             geometry: dep_geometry,
+            modal: Some(previous_modal),
             focus_direction,
             started_at: now,
             duration_ms,
@@ -4304,6 +4306,7 @@ mod composition_span_tests {
         match app.modal_transitions.last() {
             Some(ModalTransitionLayer::ModalClose { departure, .. }) => {
                 assert_eq!(departure.focus_direction, FocusDirection::Backward);
+                assert!(departure.modal.is_some(), "close layer should retain modal snapshot");
             }
             other => panic!("expected modal close transition, got {other:?}"),
         }
@@ -4320,6 +4323,7 @@ mod composition_span_tests {
         match app.modal_transitions.last() {
             Some(ModalTransitionLayer::ModalClose { departure, .. }) => {
                 assert_eq!(departure.focus_direction, FocusDirection::Forward);
+                assert!(departure.modal.is_some(), "close layer should retain modal snapshot");
             }
             other => panic!("expected confirm close transition, got {other:?}"),
         }

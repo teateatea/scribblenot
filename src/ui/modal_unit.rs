@@ -15,7 +15,7 @@ use crate::Message;
 use iced::advanced::widget::Widget as AdvWidget;
 use iced::advanced::{layout, renderer, widget as adv_widget};
 use iced::mouse;
-use iced::widget::{container, row, Space};
+use iced::widget::{container, row};
 use iced::{Element, Length, Point, Rectangle, Size};
 
 // LESSON 1: The card vocabulary. Every card in the modal strip is described by one of these types before anything is painted.
@@ -417,6 +417,7 @@ pub(super) fn modal_close_shift(
 }
 
 // LESSON 6: Centering math for the modal strip. Returns (outer_width, left_pad, right_pad) to position the strip inside an oversized container. The container is wider than the viewport (the "runway") so the strip can slide without being clipped. A positive shift moves the strip right; left_pad and right_pad tip in opposite directions to achieve that.
+#[cfg(test)]
 pub(super) fn modal_unit_runway_layout(
     viewport_width: f32,
     row_width: f32,
@@ -532,24 +533,16 @@ pub(super) fn render_modal_unit<'a>(
         .viewport_size
         .map(|size| size.width)
         .unwrap_or(row_width);
-    let (outer_width, left_pad, right_pad) =
-        modal_unit_runway_layout(viewport_width, row_width, shift);
+    let inner_left = (viewport_width - row_width) * 0.5 + shift;
 
-    container(
-        container(
-            row![
-                Space::with_width(Length::Fixed(left_pad)),
-                row(cards)
-                    .spacing(spacer_width)
-                    .align_y(iced::alignment::Vertical::Center),
-                Space::with_width(Length::Fixed(right_pad))
-            ]
+    ClipTranslate::new(
+        inner_left,
+        viewport_width,
+        modal_height,
+        row(cards)
+            .spacing(spacer_width)
             .align_y(iced::alignment::Vertical::Center),
-        )
-        .width(Length::Fixed(outer_width)),
     )
-    .width(Length::Fill)
-    .center_x(Length::Fill)
     .into()
 }
 

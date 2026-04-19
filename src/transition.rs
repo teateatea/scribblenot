@@ -208,6 +208,7 @@ impl ModalArrivalLayer {
 pub struct ModalDepartureLayer {
     pub content: UnitContentSnapshot,
     pub geometry: UnitGeometry,
+    pub modal: Option<SearchModal>,
     pub focus_direction: FocusDirection,
     pub started_at: Instant,
     pub duration_ms: u64,

@@ -1773,6 +1773,7 @@ fn entry_composition_panel<'a>(
     app: &'a App,
     modal: &'a crate::modal::SearchModal,
     modal_width: f32,
+    composition_editing: bool,
 ) -> Option<Element<'a, Message>> {
     let structured_spans =
         crate::app::compute_field_composition_spans(
@@ -1826,7 +1827,7 @@ fn entry_composition_panel<'a>(
         0.15,
     );
     let border_color = blend_color(app.ui_theme.modal_input_border, app.ui_theme.text, 0.25);
-    let helper_text = if app.modal_composition_editing {
+    let helper_text = if composition_editing {
         "Manual edit mode | Enter or Esc exits | Ctrl+R resets"
     } else if modal.manual_override.is_some() {
         "Manual override active | Ctrl+E edits | Ctrl+R resets"
@@ -1836,7 +1837,7 @@ fn entry_composition_panel<'a>(
     let helper_color = blend_color(app.ui_theme.modal_muted_text, app.ui_theme.text, 0.2);
     let input_theme = app.ui_theme.clone();
 
-    let main_content: Element<'a, Message> = if app.modal_composition_editing {
+    let main_content: Element<'a, Message> = if composition_editing {
         let current_text = modal.manual_override.as_deref().unwrap_or_default();
         text_input("Edit current field", current_text)
             .on_input(Message::ModalCompositionChanged)
@@ -1915,6 +1916,15 @@ fn simple_modal_unit_root_width(layout: &SimpleModalUnitLayout) -> Option<f32> {
         .map(|snapshot| modal_list_view_dimensions(snapshot).0)
 }
 
+fn retained_close_root_width(departure: &crate::app::ModalDepartureLayer) -> Option<f32> {
+    let active_list_idx = departure.modal.as_ref()?.field_flow.list_idx;
+    if !departure.geometry.modal_index_range.contains(&active_list_idx) {
+        return None;
+    }
+    let relative_idx = active_list_idx - departure.geometry.modal_index_range.start;
+    departure.geometry.modal_widths.get(relative_idx).copied()
+}
+
 fn collection_neighbor_previews_supported(app: &App) -> bool {
     app.viewport_size
         .map(|size| size.height >= 760.0)
@@ -1963,7 +1973,9 @@ fn modal_overlay<'a>(
         modal_dimensions_for_content(app, modal, show_collection_preview)
     } else if let Some((departure, _)) = retained_close {
         (
-            transition_unit_display_width(&departure.geometry, app.ui_theme.modal_stub_width),
+            retained_close_root_width(departure).unwrap_or_else(|| {
+                transition_unit_display_width(&departure.geometry, app.ui_theme.modal_stub_width)
+            }),
             320.0,
         )
     } else {
@@ -2136,9 +2148,14 @@ fn modal_overlay<'a>(
         Space::with_width(Length::Shrink).into()
     };
 
+    let retained_composition_modal = retained_close
+        .and_then(|(departure, _)| departure.modal.as_ref())
+        .filter(|modal| !modal.is_collection_mode());
     let composition_panel = if let Some(modal) = modal.filter(|modal| !modal.is_collection_mode())
     {
-        entry_composition_panel(app, modal, modal_width)
+        entry_composition_panel(app, modal, modal_width, app.modal_composition_editing)
+    } else if let Some(modal) = retained_composition_modal {
+        entry_composition_panel(app, modal, modal_width, false)
     } else {
         None
     };
@@ -2646,8 +2663,10 @@ mod tests {
     use super::{
         build_connected_transition_rendered_unit, build_modal_close_rendered_unit,
         build_modal_open_rendered_unit, collection_preview_metrics, modal_close_shift,
-        modal_open_shift, modal_unit_runway_layout, should_render_modal_overlay,
-        transition_unit_display_width, ModalUnitCardKind, ModalUnitSide,
+        modal_open_shift, modal_unit_runway_layout, retained_close_root_width,
+        retained_modal_close_transition, should_render_modal_overlay,
+        simple_modal_unit_root_width, transition_unit_display_width, ModalUnitCardKind,
+        ModalUnitSide,
     };
     use crate::app::{
         App, FocusDirection, ModalArrivalLayer, ModalDepartureLayer, ModalTransitionEasing,
@@ -2764,6 +2783,7 @@ mod tests {
                 first_list_id: "dep-a".to_string(),
                 last_list_id: "dep-b".to_string(),
             },
+            modal: None,
             focus_direction: direction,
             started_at: Instant::now(),
             duration_ms: 220,
@@ -3062,6 +3082,24 @@ mod tests {
             Some(ModalTransitionLayer::ModalClose { .. })
         ));
         assert!(should_render_modal_overlay(&app));
+    }
+
+    #[test]
+    fn retained_close_root_width_matches_live_active_modal_width() {
+        let mut app = overlay_test_app();
+        app.handle_key(crate::app::AppKey::Enter);
+
+        let live_width = app
+            .modal_unit_layout
+            .as_ref()
+            .and_then(simple_modal_unit_root_width)
+            .expect("simple modal layout should provide active root width");
+
+        app.dismiss_modal();
+
+        let (departure, _) =
+            retained_modal_close_transition(&app).expect("close transition should be retained");
+        assert_eq!(retained_close_root_width(departure), Some(live_width));
     }
 
     // Helpers shared by the geometry tests below.
