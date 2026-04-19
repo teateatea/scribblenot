@@ -49,8 +49,7 @@ fn map_pane(app: &App) -> Element<'_, Message> {
     };
     let map_labels = app.map_hint_labels(active_map_group);
 
-    let mut flat_idx = 0usize;
-    for (group_idx, group) in app.data.groups.iter().enumerate() {
+    for (group_idx, group) in app.data.template.children.iter().enumerate() {
         let group_color = app.ui_theme.text;
         items.push(
             text(group.nav_label.clone())
@@ -64,7 +63,14 @@ fn map_pane(app: &App) -> Element<'_, Message> {
         } else {
             app.map_hint_labels(Some(group_idx)).sections
         };
-        for (group_section_idx, sec) in group.sections.iter().enumerate() {
+        let group_indices: Vec<usize> = app
+            .navigation
+            .iter()
+            .enumerate()
+            .filter_map(|(flat_idx, entry)| (entry.group_index == group_idx).then_some(flat_idx))
+            .collect();
+        for (group_section_idx, flat_idx) in group_indices.into_iter().enumerate() {
+            let sec = &app.sections[flat_idx];
             let mut label = sec.map_label.clone();
             if app.section_is_skipped(flat_idx) {
                 label.push_str(" [skip]");
@@ -103,7 +109,6 @@ fn map_pane(app: &App) -> Element<'_, Message> {
                 label_color,
                 app,
             ));
-            flat_idx += 1;
         }
     }
 
@@ -1206,7 +1211,7 @@ fn preview_line_color(app: &App, line: &str, group_idx: Option<usize>) -> Color 
 }
 
 fn preview_group_for_line(app: &App, line: &str) -> Option<usize> {
-    for (idx, group) in app.data.groups.iter().enumerate() {
+    for (idx, group) in app.data.template.children.iter().enumerate() {
         let heading = group.note.note_label.as_deref();
         if heading == Some(line) {
             return Some(idx);
@@ -1861,6 +1866,7 @@ fn entry_composition_panel<'a>(
     app: &'a App,
     modal: &'a crate::modal::SearchModal,
     modal_width: f32,
+    composition_editing: bool,
 ) -> Option<Element<'a, Message>> {
     let structured_spans = crate::app::compute_field_composition_spans(
         modal,
@@ -1913,7 +1919,7 @@ fn entry_composition_panel<'a>(
         0.15,
     );
     let border_color = blend_color(app.ui_theme.modal_input_border, app.ui_theme.text, 0.25);
-    let helper_text = if app.modal_composition_editing {
+    let helper_text = if composition_editing {
         "Manual edit mode | Enter or Esc exits | Ctrl+R resets"
     } else if modal.manual_override.is_some() {
         "Manual override active | Ctrl+E edits | Ctrl+R resets"
@@ -1923,7 +1929,7 @@ fn entry_composition_panel<'a>(
     let helper_color = blend_color(app.ui_theme.modal_muted_text, app.ui_theme.text, 0.2);
     let input_theme = app.ui_theme.clone();
 
-    let main_content: Element<'a, Message> = if app.modal_composition_editing {
+    let main_content: Element<'a, Message> = if composition_editing {
         let current_text = modal.manual_override.as_deref().unwrap_or_default();
         text_input("Edit current field", current_text)
             .on_input(Message::ModalCompositionChanged)
@@ -2002,36 +2008,77 @@ fn simple_modal_unit_root_width(layout: &SimpleModalUnitLayout) -> Option<f32> {
         .map(|snapshot| modal_list_view_dimensions(snapshot).0)
 }
 
+fn retained_close_root_width(departure: &crate::app::ModalDepartureLayer) -> Option<f32> {
+    let active_list_idx = departure.modal.as_ref()?.field_flow.list_idx;
+    if !departure.geometry.modal_index_range.contains(&active_list_idx) {
+        return None;
+    }
+    let relative_idx = active_list_idx - departure.geometry.modal_index_range.start;
+    departure.geometry.modal_widths.get(relative_idx).copied()
+}
+
 fn collection_neighbor_previews_supported(app: &App) -> bool {
     app.viewport_size
         .map(|size| size.height >= 760.0)
         .unwrap_or(true)
 }
 
-/// Build the modal overlay when a search modal is active.
-fn modal_overlay<'a>(app: &'a App, modal: &'a crate::modal::SearchModal) -> Element<'a, Message> {
+fn retained_modal_close_transition(
+    app: &App,
+) -> Option<(&crate::app::ModalDepartureLayer, f32)> {
+    match app.modal_transitions.last() {
+        Some(crate::app::ModalTransitionLayer::ModalClose {
+            departure,
+            slide_distance,
+        }) => Some((departure, *slide_distance)),
+        _ => None,
+    }
+}
+
+fn should_render_modal_overlay(app: &App) -> bool {
+    app.modal.is_some() || retained_modal_close_transition(app).is_some()
+}
+
+/// Build the modal overlay when a search modal is active, or when a retained close
+/// transition still needs to paint after the live modal session has ended.
+fn modal_overlay<'a>(
+    app: &'a App,
+    modal: Option<&'a crate::modal::SearchModal>,
+) -> Element<'a, Message> {
     const COLLECTION_MODAL_MIN_HEIGHT: f32 = 220.0;
     const COLLECTION_MODAL_MAX_HEIGHT: f32 = 460.0;
     const COLLECTION_MODAL_CHROME_HEIGHT: f32 = 96.0;
     const COLLECTION_MODAL_ROW_HEIGHT: f32 = 28.0;
 
-    let show_collection_preview =
-        modal.is_collection_mode() && collection_modal_supports_preview(app);
+    let retained_close = retained_modal_close_transition(app);
+    let show_collection_preview = modal
+        .filter(|modal| modal.is_collection_mode())
+        .is_some_and(|_| collection_modal_supports_preview(app));
 
     let simple_unit_layout: Option<&crate::modal_layout::SimpleModalUnitLayout> =
-        if !modal.is_collection_mode() {
+        if modal.is_some_and(|modal| !modal.is_collection_mode()) {
             app.modal_unit_layout.as_ref()
         } else {
             None
         };
-    let (mut modal_width, fallback_height) =
-        modal_dimensions_for_content(app, modal, show_collection_preview);
+    let (mut modal_width, fallback_height) = if let Some(modal) = modal {
+        modal_dimensions_for_content(app, modal, show_collection_preview)
+    } else if let Some((departure, _)) = retained_close {
+        (
+            retained_close_root_width(departure).unwrap_or_else(|| {
+                transition_unit_display_width(&departure.geometry, app.ui_theme.modal_stub_width)
+            }),
+            320.0,
+        )
+    } else {
+        (0.0, 320.0)
+    };
     if let Some(layout) = simple_unit_layout {
         if let Some(unit_width) = simple_modal_unit_root_width(layout) {
             modal_width = unit_width;
         }
     }
-    let modal_height = if modal.is_collection_mode() {
+    let modal_height = if let Some(modal) = modal.filter(|modal| modal.is_collection_mode()) {
         let collection_count = modal
             .collection_state
             .as_ref()
@@ -2053,7 +2100,7 @@ fn modal_overlay<'a>(app: &'a App, modal: &'a crate::modal::SearchModal) -> Elem
         modal_height_for_viewport(app.viewport_size.map(|size| size.height), fallback_height)
     };
     let top_offset = modal_top_offset(app);
-    let active_modal = if modal.is_collection_mode() {
+    let active_modal = if let Some(modal) = modal.filter(|modal| modal.is_collection_mode()) {
         let content = if show_collection_preview {
             collection_modal_split_panes(app, modal)
         } else {
@@ -2080,55 +2127,88 @@ fn modal_overlay<'a>(app: &'a App, modal: &'a crate::modal::SearchModal) -> Elem
         Space::with_width(Length::Shrink).into()
     };
 
-    let modal_stream: Element<'a, Message> = if !modal.is_collection_mode() {
-        if let Some(current_layout) = app.modal_unit_layout.as_ref() {
-            if let Some(current_unit) = current_layout.units.get(app.active_unit_index) {
-                let mut layers = Stack::new();
+    let modal_stream: Element<'a, Message> = if let Some(modal) = modal {
+        if !modal.is_collection_mode() {
+            if let Some(current_layout) = app.modal_unit_layout.as_ref() {
+                if let Some(current_unit) = current_layout.units.get(app.active_unit_index) {
+                    let mut layers = Stack::new();
 
-                if let Some(crate::app::ModalTransitionLayer::ConnectedTransition {
-                    arrival,
-                    departure,
-                    slide_distance,
-                }) = app.modal_transitions.last()
-                {
-                    let p = arrival.eased_progress();
-                    let slide = *slide_distance;
-                    let connected_rendered = build_connected_transition_rendered_unit(
-                        app.ui_theme.modal_stub_width,
-                        current_layout,
-                        arrival,
-                        departure,
-                        p,
-                    );
-                    layers = layers.push(render_connected_transition(
-                        app,
-                        &connected_rendered,
-                        departure,
-                        Some(modal),
-                        modal_height,
-                        p,
-                        slide,
-                        true,
-                    ));
+                    match app.modal_transitions.last() {
+                        Some(crate::app::ModalTransitionLayer::ConnectedTransition {
+                            arrival,
+                            departure,
+                            slide_distance,
+                        }) => {
+                            let p = arrival.eased_progress();
+                            let connected_rendered = build_connected_transition_rendered_unit(
+                                app.ui_theme.modal_stub_width,
+                                current_layout,
+                                arrival,
+                                departure,
+                                p,
+                            );
+                            layers = layers.push(render_connected_transition(
+                                app,
+                                &connected_rendered,
+                                departure,
+                                Some(modal),
+                                modal_height,
+                                p,
+                                *slide_distance,
+                                true,
+                            ));
+                        }
+                        Some(crate::app::ModalTransitionLayer::ModalOpen {
+                            arrival,
+                            slide_distance,
+                        }) => {
+                            let p = arrival.eased_progress();
+                            let rendered = build_modal_open_rendered_unit(
+                                app.ui_theme.modal_stub_width,
+                                current_layout,
+                                arrival,
+                                p,
+                            );
+                            layers = layers.push(render_modal_unit(
+                                app,
+                                &rendered,
+                                Some(modal),
+                                modal_height,
+                                modal_open_shift(p, *slide_distance),
+                                true,
+                            ));
+                        }
+                        _ => {
+                            let rendered_current = build_rendered_modal_unit(
+                                app,
+                                current_layout,
+                                current_unit,
+                                default_stub_mode(ModalUnitSide::Left),
+                                default_stub_mode(ModalUnitSide::Right),
+                            );
+                            layers = layers.push(render_modal_unit(
+                                app,
+                                &rendered_current,
+                                Some(modal),
+                                modal_height,
+                                0.0,
+                                true,
+                            ));
+                        }
+                    }
+                    layers.width(Length::Fill).into()
                 } else {
-                    // No active transition: render the current unit at rest.
-                    let rendered_current = build_rendered_modal_unit(
+                    modal_card(
                         app,
-                        current_layout,
-                        current_unit,
-                        default_stub_mode(ModalUnitSide::Left),
-                        default_stub_mode(ModalUnitSide::Right),
-                    );
-                    layers = layers.push(render_modal_unit(
-                        app,
-                        &rendered_current,
-                        Some(modal),
-                        modal_height,
-                        0.0,
+                        active_simple_modal_content(app, modal, 1.0),
+                        ModalRenderMode::Interactive,
+                        ModalCardRole::Active,
                         true,
-                    ));
+                        modal_width,
+                        modal_height,
+                        1.0,
+                    )
                 }
-                layers.width(Length::Fill).into()
             } else {
                 modal_card(
                     app,
@@ -2142,25 +2222,34 @@ fn modal_overlay<'a>(app: &'a App, modal: &'a crate::modal::SearchModal) -> Elem
                 )
             }
         } else {
-            modal_card(
-                app,
-                active_simple_modal_content(app, modal, 1.0),
-                ModalRenderMode::Interactive,
-                ModalCardRole::Active,
-                true,
-                modal_width,
-                modal_height,
-                1.0,
-            )
+            active_modal
         }
+    } else if let Some((departure, slide_distance)) = retained_close {
+        let p = departure.eased_progress();
+        let rendered =
+            build_modal_close_rendered_unit(app.ui_theme.modal_stub_width, departure, 1.0 - p);
+        render_modal_unit(
+            app,
+            &rendered,
+            None,
+            modal_height,
+            modal_close_shift(departure.focus_direction, p, slide_distance),
+            false,
+        )
     } else {
-        active_modal
+        Space::with_width(Length::Shrink).into()
     };
 
-    let composition_panel = if modal.is_collection_mode() {
-        None
+    let retained_composition_modal = retained_close
+        .and_then(|(departure, _)| departure.modal.as_ref())
+        .filter(|modal| !modal.is_collection_mode());
+    let composition_panel = if let Some(modal) = modal.filter(|modal| !modal.is_collection_mode())
+    {
+        entry_composition_panel(app, modal, modal_width, app.modal_composition_editing)
+    } else if let Some(modal) = retained_composition_modal {
+        entry_composition_panel(app, modal, modal_width, false)
     } else {
-        entry_composition_panel(app, modal, modal_width)
+        None
     };
     let base = main_layout(app);
     Stack::new()
@@ -2656,8 +2745,8 @@ fn modal_top_offset(app: &App) -> f32 {
 
 /// Public entry point called from main.rs view().
 pub fn view(app: &App) -> Element<'_, Message> {
-    if let Some(ref modal) = app.modal {
-        modal_overlay(app, modal)
+    if should_render_modal_overlay(app) {
+        modal_overlay(app, app.modal.as_ref())
     } else {
         main_layout(app)
     }
@@ -2666,20 +2755,31 @@ pub fn view(app: &App) -> Element<'_, Message> {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_connected_transition_rendered_unit, collection_preview_metrics,
-        modal_unit_runway_layout, transition_unit_display_width, ModalUnitCardKind, ModalUnitSide,
+        build_connected_transition_rendered_unit, build_modal_close_rendered_unit,
+        build_modal_open_rendered_unit, collection_preview_metrics, modal_close_shift,
+        modal_open_shift, modal_unit_runway_layout, retained_close_root_width,
+        retained_modal_close_transition, should_render_modal_overlay,
+        simple_modal_unit_root_width, transition_unit_display_width, ModalUnitCardKind,
+        ModalUnitSide,
     };
     use crate::app::{
-        FocusDirection, ModalArrivalLayer, ModalDepartureLayer, ModalTransitionEasing,
+        App, FocusDirection, ModalArrivalLayer, ModalDepartureLayer, ModalTransitionEasing,
+        ModalTransitionLayer,
         UnitContentSnapshot, UnitGeometry,
     };
-    use crate::data::{HierarchyItem, HierarchyList, ModalStart, ResolvedCollectionConfig};
+    use crate::config::Config;
+    use crate::data::{
+        AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem, HierarchyList, KeyBindings,
+        ModalStart, ResolvedCollectionConfig, RuntimeGroup, RuntimeNode, RuntimeNodeKind,
+        RuntimeTemplate, SectionConfig, SectionGroup,
+    };
     use crate::modal_layout::{
         ModalFocus, ModalListViewSnapshot, ModalStubKind, SimpleModalSequence,
         SimpleModalUnitLayout,
     };
     use crate::sections::collection::CollectionEntry;
     use std::time::Instant;
+    use std::{collections::HashMap, path::PathBuf};
 
     fn item(id: &str, label: &str) -> HierarchyItem {
         HierarchyItem {
@@ -2779,6 +2879,7 @@ mod tests {
                 first_list_id: "dep-a".to_string(),
                 last_list_id: "dep-b".to_string(),
             },
+            modal: None,
             focus_direction: direction,
             started_at: Instant::now(),
             duration_ms: 220,
@@ -2804,6 +2905,72 @@ mod tests {
             easing: ModalTransitionEasing::Linear,
         };
         (layout, arrival, departure)
+    }
+
+    fn overlay_test_app() -> App {
+        let field = HeaderFieldConfig {
+            id: "region".to_string(),
+            name: "Region".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "region".to_string(),
+                label: Some("Region".to_string()),
+                preview: Some("Region".to_string()),
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![item("shoulder", "Shoulder"), item("hip", "Hip")],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let section = SectionConfig {
+            id: "request_section".to_string(),
+            name: "Request".to_string(),
+            map_label: "Request".to_string(),
+            section_type: "multi_field".to_string(),
+            show_field_labels: true,
+            data_file: None,
+            fields: Some(vec![field.clone()]),
+            lists: Vec::new(),
+            note_label: None,
+            group_id: "intake".to_string(),
+            node_kind: RuntimeNodeKind::Section,
+        };
+        let group = SectionGroup {
+            id: "intake".to_string(),
+            num: None,
+            nav_label: "Intake".to_string(),
+            sections: vec![section.clone()],
+            note: GroupNoteMeta::default(),
+        };
+        let data = AppData {
+            template: RuntimeTemplate {
+                id: "test".to_string(),
+                children: vec![RuntimeGroup {
+                    id: "intake".to_string(),
+                    nav_label: "Intake".to_string(),
+                    note: GroupNoteMeta::default(),
+                    children: vec![RuntimeNode::Section(section.clone())],
+                }],
+            },
+            groups: vec![group],
+            sections: vec![section],
+            list_data: HashMap::new(),
+            checklist_data: HashMap::new(),
+            collection_data: HashMap::new(),
+            boilerplate_texts: HashMap::new(),
+            keybindings: KeyBindings::default(),
+        };
+
+        App::new(data, Config::default(), PathBuf::new())
     }
 
     #[test]
@@ -2936,6 +3103,99 @@ mod tests {
         assert_eq!(active_cards.len(), 1);
         assert_eq!(active_cards[0].width, 320.0);
         assert_eq!(active_cards[0].alpha, 0.6);
+    }
+
+    #[test]
+    fn modal_open_shift_starts_right_and_settles_to_rest() {
+        assert_eq!(modal_open_shift(0.0, 240.0), 240.0);
+        assert_eq!(modal_open_shift(0.5, 240.0), 120.0);
+        assert_eq!(modal_open_shift(1.0, 240.0), 0.0);
+    }
+
+    #[test]
+    fn modal_close_shift_uses_exit_and_confirm_directions() {
+        assert_eq!(
+            modal_close_shift(FocusDirection::Backward, 0.5, 240.0),
+            120.0
+        );
+        assert_eq!(
+            modal_close_shift(FocusDirection::Forward, 0.5, 240.0),
+            -120.0
+        );
+    }
+
+    #[test]
+    fn modal_open_rendered_unit_fades_owned_stubs_with_the_unit() {
+        let (layout, arrival, _) = connected_transition_fixture(FocusDirection::Forward);
+        let rendered = build_modal_open_rendered_unit(120.0, &layout, &arrival, 0.4);
+
+        let stub_alphas = rendered
+            .cards
+            .iter()
+            .filter_map(|card| match card.kind {
+                ModalUnitCardKind::Stub { .. } => Some(card.alpha),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(stub_alphas, vec![0.4, 0.4]);
+        assert!(rendered
+            .cards
+            .iter()
+            .any(|card| matches!(card.kind, ModalUnitCardKind::Active { .. }) && card.alpha == 0.4));
+    }
+
+    #[test]
+    fn modal_close_rendered_unit_fades_owned_stubs_with_the_unit() {
+        let (_, _, departure) = connected_transition_fixture(FocusDirection::Forward);
+        let rendered = build_modal_close_rendered_unit(120.0, &departure, 0.3);
+
+        let stub_alphas = rendered
+            .cards
+            .iter()
+            .filter_map(|card| match card.kind {
+                ModalUnitCardKind::Stub { .. } => Some(card.alpha),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(stub_alphas, vec![0.3, 0.3]);
+        assert!(rendered.cards.iter().all(|card| {
+            !matches!(card.kind, ModalUnitCardKind::Active { .. }) || card.alpha == 0.3
+        }));
+    }
+
+    #[test]
+    fn retained_close_transition_keeps_overlay_visible_after_modal_clears() {
+        let mut app = overlay_test_app();
+
+        app.handle_key(crate::app::AppKey::Enter);
+        app.dismiss_modal();
+
+        assert!(app.modal.is_none());
+        assert!(matches!(
+            app.modal_transitions.last(),
+            Some(ModalTransitionLayer::ModalClose { .. })
+        ));
+        assert!(should_render_modal_overlay(&app));
+    }
+
+    #[test]
+    fn retained_close_root_width_matches_live_active_modal_width() {
+        let mut app = overlay_test_app();
+        app.handle_key(crate::app::AppKey::Enter);
+
+        let live_width = app
+            .modal_unit_layout
+            .as_ref()
+            .and_then(simple_modal_unit_root_width)
+            .expect("simple modal layout should provide active root width");
+
+        app.dismiss_modal();
+
+        let (departure, _) =
+            retained_modal_close_transition(&app).expect("close transition should be retained");
+        assert_eq!(retained_close_root_width(departure), Some(live_width));
     }
 
     // Helpers shared by the geometry tests below.

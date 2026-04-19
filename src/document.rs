@@ -1,5 +1,5 @@
 use crate::app::SectionState;
-use crate::data::{SectionConfig, SectionGroup};
+use crate::data::{RuntimeTemplate, SectionConfig};
 use crate::note::{managed_heading_for_section, render_editable_document};
 use std::collections::HashMap;
 
@@ -12,7 +12,7 @@ pub struct SectionAnchorSpec {
 }
 
 pub fn build_initial_document(
-    groups: &[SectionGroup],
+    template: &RuntimeTemplate,
     sections: &[SectionConfig],
     states: &[SectionState],
     assigned_values: &HashMap<String, String>,
@@ -20,7 +20,7 @@ pub fn build_initial_document(
     boilerplate_texts: &HashMap<String, String>,
 ) -> String {
     render_editable_document(
-        groups,
+        template,
         sections,
         states,
         assigned_values,
@@ -228,7 +228,7 @@ mod tests {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data");
         let data = AppData::load(dir).expect("real data loads");
         let document = build_initial_document(
-            &data.groups,
+            &data.template,
             &data.sections,
             &states_for_real_data(&data),
             &HashMap::new(),

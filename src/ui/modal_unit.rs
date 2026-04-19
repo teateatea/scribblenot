@@ -15,7 +15,7 @@ use crate::Message;
 use iced::advanced::widget::Widget as AdvWidget;
 use iced::advanced::{layout, renderer, widget as adv_widget};
 use iced::mouse;
-use iced::widget::{container, row, Space};
+use iced::widget::{container, row};
 use iced::{Element, Length, Point, Rectangle, Size};
 
 // LESSON 1: The card vocabulary. Every card in the modal strip is described by one of these types before anything is painted.
@@ -300,7 +300,124 @@ pub(super) fn build_connected_transition_rendered_unit(
     RenderedModalUnit { cards }
 }
 
+pub(super) fn build_modal_open_rendered_unit(
+    stub_width: f32,
+    layout: &SimpleModalUnitLayout,
+    arrival: &crate::app::ModalArrivalLayer,
+    alpha: f32,
+) -> RenderedModalUnit {
+    let geometry = &arrival.geometry;
+    let mut cards = Vec::new();
+
+    if geometry.shows_stubs {
+        if let Some(kind) = geometry.leading_stub_kind {
+            push_strip_stub(
+                &mut cards,
+                ModalUnitSide::Left,
+                kind,
+                stub_width,
+                alpha,
+            );
+        }
+    }
+
+    for (sequence_idx, width) in geometry
+        .modal_index_range
+        .clone()
+        .zip(geometry.modal_widths.iter().copied())
+    {
+        let Some(snapshot) = layout.sequence.snapshots.get(sequence_idx).cloned() else {
+            continue;
+        };
+        let kind = if sequence_idx == layout.sequence.active_sequence_index {
+            ModalUnitCardKind::Active { snapshot }
+        } else {
+            ModalUnitCardKind::Preview { snapshot }
+        };
+        cards.push(ModalUnitCardData { kind, width, alpha });
+    }
+
+    if geometry.shows_stubs {
+        if let Some(kind) = geometry.trailing_stub_kind {
+            push_strip_stub(
+                &mut cards,
+                ModalUnitSide::Right,
+                kind,
+                stub_width,
+                alpha,
+            );
+        }
+    }
+
+    RenderedModalUnit { cards }
+}
+
+pub(super) fn build_modal_close_rendered_unit(
+    stub_width: f32,
+    departure: &crate::app::ModalDepartureLayer,
+    alpha: f32,
+) -> RenderedModalUnit {
+    let geometry = &departure.geometry;
+    let mut cards = Vec::new();
+
+    if geometry.shows_stubs {
+        if let Some(kind) = geometry.leading_stub_kind {
+            push_strip_stub(
+                &mut cards,
+                ModalUnitSide::Left,
+                kind,
+                stub_width,
+                alpha,
+            );
+        }
+    }
+
+    for (snapshot, width) in departure
+        .content
+        .modals
+        .iter()
+        .cloned()
+        .zip(geometry.modal_widths.iter().copied())
+    {
+        cards.push(ModalUnitCardData {
+            kind: ModalUnitCardKind::Preview { snapshot },
+            width,
+            alpha,
+        });
+    }
+
+    if geometry.shows_stubs {
+        if let Some(kind) = geometry.trailing_stub_kind {
+            push_strip_stub(
+                &mut cards,
+                ModalUnitSide::Right,
+                kind,
+                stub_width,
+                alpha,
+            );
+        }
+    }
+
+    RenderedModalUnit { cards }
+}
+
+pub(super) fn modal_open_shift(progress: f32, slide_distance: f32) -> f32 {
+    slide_distance * (1.0 - progress)
+}
+
+pub(super) fn modal_close_shift(
+    direction: crate::app::FocusDirection,
+    progress: f32,
+    slide_distance: f32,
+) -> f32 {
+    match direction {
+        crate::app::FocusDirection::Forward => -slide_distance * progress,
+        crate::app::FocusDirection::Backward => slide_distance * progress,
+    }
+}
+
 // LESSON 6: Centering math for the modal strip. Returns (outer_width, left_pad, right_pad) to position the strip inside an oversized container. The container is wider than the viewport (the "runway") so the strip can slide without being clipped. A positive shift moves the strip right; left_pad and right_pad tip in opposite directions to achieve that.
+#[cfg(test)]
 pub(super) fn modal_unit_runway_layout(
     viewport_width: f32,
     row_width: f32,
@@ -416,24 +533,16 @@ pub(super) fn render_modal_unit<'a>(
         .viewport_size
         .map(|size| size.width)
         .unwrap_or(row_width);
-    let (outer_width, left_pad, right_pad) =
-        modal_unit_runway_layout(viewport_width, row_width, shift);
+    let inner_left = (viewport_width - row_width) * 0.5 + shift;
 
-    container(
-        container(
-            row![
-                Space::with_width(Length::Fixed(left_pad)),
-                row(cards)
-                    .spacing(spacer_width)
-                    .align_y(iced::alignment::Vertical::Center),
-                Space::with_width(Length::Fixed(right_pad))
-            ]
+    ClipTranslate::new(
+        inner_left,
+        viewport_width,
+        modal_height,
+        row(cards)
+            .spacing(spacer_width)
             .align_y(iced::alignment::Vertical::Center),
-        )
-        .width(Length::Fixed(outer_width)),
     )
-    .width(Length::Fill)
-    .center_x(Length::Fill)
     .into()
 }
 

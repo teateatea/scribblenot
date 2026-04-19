@@ -2,7 +2,7 @@
 // and are re-exported here so callers can use crate::app::* as before.
 
 use crate::config::Config;
-use crate::data::{AppData, SectionConfig};
+use crate::data::{runtime_navigation, AppData, NavigationEntry, SectionConfig};
 use crate::document::build_initial_document;
 use crate::modal::{
     joined_repeating_value, resolved_item_labels_for_list, FieldAdvance, ListValueLookup,
@@ -163,6 +163,7 @@ struct AssignmentSourceKey {
 }
 
 pub struct App {
+    pub navigation: Vec<NavigationEntry>,
     pub sections: Vec<SectionConfig>,
     pub section_states: Vec<SectionState>,
     pub current_idx: usize,
@@ -249,10 +250,11 @@ pub struct WizardHintLabels {
 impl App {
     pub fn new(data: AppData, config: Config, data_dir: PathBuf) -> Self {
         let sections = data.sections.clone();
+        let navigation = runtime_navigation(&data.template);
         let section_states = Self::init_states(&sections, &data);
         let pane_swapped = config.is_swapped();
         let editable_note = build_initial_document(
-            &data.groups,
+            &data.template,
             &sections,
             &section_states,
             &HashMap::new(),
@@ -269,6 +271,7 @@ impl App {
                 crate::theme::AppTheme::default()
             });
         Self {
+            navigation,
             sections,
             section_states,
             current_idx: 0,
@@ -426,6 +429,19 @@ impl App {
         }
     }
 
+    fn clear_live_modal_state_preserving_transitions(&mut self) {
+        self.modal = None;
+        self.modal_mouse_mode = false;
+        self.modal_restore_snapshot = None;
+        self.modal_composition_editing = false;
+        self.hint_buffer.clear();
+        self.modal_unit_layout = None;
+        self.active_unit_index = 0;
+        self.prev_prepared_unit = None;
+        self.next_prepared_unit = None;
+    }
+
+    #[allow(dead_code)] // retained as the hard-stop teardown path for non-animated callers
     pub fn close_modal(&mut self) {
         self.modal = None;
         self.modal_mouse_mode = false;
@@ -487,11 +503,8 @@ impl App {
                 state.composite_spans = snapshot.original_spans;
             }
         }
-        self.modal = None;
-        self.modal_mouse_mode = false;
-        self.settle_modal_transitions();
-        self.modal_composition_editing = false;
-        self.hint_buffer.clear();
+        self.fire_modal_exit_transition_if_possible();
+        self.clear_live_modal_state_preserving_transitions();
     }
 
     pub fn set_modal_query(&mut self, new_text: String) {
@@ -821,6 +834,8 @@ impl App {
         // arrival completes (insert here).
         self.modal_transitions.retain(|entry| match entry {
             ModalTransitionLayer::ConnectedTransition { arrival, .. } => !arrival.is_finished(),
+            ModalTransitionLayer::ModalOpen { arrival, .. } => !arrival.is_finished(),
+            ModalTransitionLayer::ModalClose { departure, .. } => !departure.is_finished(),
         });
         if self
             .copy_flash_until
@@ -974,7 +989,7 @@ impl App {
     fn handle_map_key(&mut self, key: AppKey) {
         if self.is_nav_down(&key) {
             self.hint_buffer.clear();
-            if self.map_cursor + 1 < self.sections.len() {
+            if self.map_cursor + 1 < self.navigation.len() {
                 self.map_cursor += 1;
                 self.current_idx = self.map_cursor;
                 let g = self.group_idx_for_section(self.map_cursor);
@@ -1053,14 +1068,9 @@ impl App {
     }
 
     pub fn group_idx_for_section(&self, flat_idx: usize) -> usize {
-        self.sections
+        self.navigation
             .get(flat_idx)
-            .and_then(|section| {
-                self.data
-                    .groups
-                    .iter()
-                    .position(|group| group.id == section.group_id)
-            })
+            .map(|entry| entry.group_index)
             .unwrap_or(0)
     }
 
@@ -1080,13 +1090,13 @@ impl App {
     }
 
     fn navigation_hint_labels(&self) -> Vec<String> {
-        self.fixed_hint_labels(self.sections.len() + self.max_header_field_count())
+        self.fixed_hint_labels(self.navigation.len() + self.max_header_field_count())
     }
 
     pub fn section_hint_labels(&self) -> Vec<String> {
         self.navigation_hint_labels()
             .into_iter()
-            .take(self.sections.len())
+            .take(self.navigation.len())
             .collect()
     }
 
@@ -1105,15 +1115,15 @@ impl App {
         MapHintLabels {
             sections: labels
                 .into_iter()
-                .zip(self.sections.iter())
-                .filter_map(|(label, section)| (section.group_id == group.id).then_some(label))
+                .zip(self.navigation.iter())
+                .filter_map(|(label, entry)| (entry.group_id == group.id).then_some(label))
                 .collect(),
         }
     }
 
     pub fn wizard_hint_labels(&self, field_count: usize) -> WizardHintLabels {
         let labels = self.navigation_hint_labels();
-        let field_start = self.sections.len();
+        let field_start = self.navigation.len();
         WizardHintLabels {
             fields: labels
                 .into_iter()
@@ -1191,6 +1201,7 @@ impl App {
         let data = AppData::load(self.data_dir.clone())?;
         self.sections = data.sections.clone();
         self.section_states = Self::init_states(&self.sections, &data);
+        self.navigation = runtime_navigation(&data.template);
         self.current_idx = previous_section_id
             .as_ref()
             .and_then(|id| self.sections.iter().position(|section| &section.id == id))
@@ -1203,17 +1214,17 @@ impl App {
         self.modal_mouse_mode = false;
         self.settle_modal_transitions();
         self.hint_buffer.clear();
-        self.data = data;
         self.assigned_values.clear();
         self.assigned_contributions.clear();
         self.editable_note = build_initial_document(
-            &self.data.groups,
+            &data.template,
             &self.sections,
             &self.section_states,
             &self.assigned_values,
             &self.config.sticky_values,
-            &self.data.boilerplate_texts,
+            &data.boilerplate_texts,
         );
+        self.data = data;
         self.refresh_note_structure();
         self.update_note_scroll();
         Ok(())
@@ -1247,10 +1258,9 @@ impl App {
         }
 
         let Some(group) = self
-            .data
-            .groups
-            .iter()
-            .find(|group| group.id == section.group_id)
+            .navigation
+            .get(idx)
+            .and_then(|entry| self.data.groups.get(entry.group_index))
         else {
             return 0;
         };
@@ -1445,7 +1455,7 @@ impl App {
     }
 
     fn advance_section(&mut self) {
-        if self.current_idx + 1 < self.sections.len() {
+        if self.current_idx + 1 < self.navigation.len() {
             self.current_idx += 1;
         } else {
             self.status = Some(StatusMsg::success("End of note reached. Press c to copy."));
@@ -1679,6 +1689,7 @@ impl App {
             });
             // Full reset: build layout for the newly opened modal and clear any stale transitions.
             self.rebuild_modal_unit_layout(true);
+            self.fire_modal_open_transition_if_possible();
         }
     }
 
@@ -2219,7 +2230,8 @@ impl App {
                             self.advance_section();
                         }
                     }
-                    self.close_modal();
+                    self.fire_modal_confirm_transition_if_possible();
+                    self.clear_live_modal_state_preserving_transitions();
                     let _ = self.config.save(&self.data_dir);
                 }
             }
@@ -2282,7 +2294,8 @@ impl App {
                         self.advance_section();
                     }
                 }
-                self.close_modal();
+                self.fire_modal_confirm_transition_if_possible();
+                self.clear_live_modal_state_preserving_transitions();
                 let _ = self.config.save(&self.data_dir);
             }
         }
@@ -2803,9 +2816,107 @@ impl App {
                 self.advance_section();
             }
         }
-        self.close_modal();
+        self.fire_modal_confirm_transition_if_possible();
+        self.clear_live_modal_state_preserving_transitions();
         let _ = self.config.save(&self.data_dir);
         true
+    }
+
+    fn modal_lifecycle_slide_distance(&self, geometry: &UnitGeometry) -> f32 {
+        let unit_width = unit_display_width(geometry, self.ui_theme.modal_stub_width);
+        let viewport_width = self.viewport_size.map(|size| size.width).unwrap_or(unit_width);
+        (viewport_width + unit_width) * 0.5 + self.modal_spacer_width()
+    }
+
+    fn fire_modal_open_transition_if_possible(&mut self) {
+        let effective_spacer_width = self.modal_spacer_width();
+        let duration_ms = self.ui_theme.modal_transition_duration.max(1) as u64;
+        let easing = self.ui_theme.modal_transition_easing;
+        let arriving_unit_index = self.active_unit_index;
+
+        let arrival_geometry = {
+            let Some(layout) = self.modal_unit_layout.as_ref() else {
+                return;
+            };
+            let Some(modal) = self.modal.as_ref() else {
+                return;
+            };
+            UnitGeometry::from_layout(layout, arriving_unit_index, modal, effective_spacer_width)
+        };
+
+        let Some(arrival_geometry) = arrival_geometry else {
+            return;
+        };
+
+        let slide_distance = self.modal_lifecycle_slide_distance(&arrival_geometry);
+        let arrival = ModalArrivalLayer {
+            unit_index: arriving_unit_index,
+            geometry: arrival_geometry,
+            focus_direction: FocusDirection::Forward,
+            started_at: Instant::now(),
+            duration_ms,
+            easing,
+        };
+
+        self.modal_transitions.push(ModalTransitionLayer::ModalOpen {
+            arrival,
+            slide_distance,
+        });
+    }
+
+    fn fire_modal_close_transition_if_possible(&mut self, focus_direction: FocusDirection) {
+        let effective_spacer_width = self.modal_spacer_width();
+        let duration_ms = self.ui_theme.modal_transition_duration.max(1) as u64;
+        let easing = self.ui_theme.modal_transition_easing;
+        let departing_unit_index = self.active_unit_index;
+
+        let (departure_geometry, departure_content) = {
+            let Some(layout) = self.modal_unit_layout.as_ref() else {
+                return;
+            };
+            let Some(modal) = self.modal.as_ref() else {
+                return;
+            };
+            (
+                UnitGeometry::from_layout(
+                    layout,
+                    departing_unit_index,
+                    modal,
+                    effective_spacer_width,
+                ),
+                UnitContentSnapshot::from_layout(layout, departing_unit_index),
+            )
+        };
+
+        let (Some(departure_geometry), Some(departure_content)) =
+            (departure_geometry, departure_content)
+        else {
+            return;
+        };
+
+        let slide_distance = self.modal_lifecycle_slide_distance(&departure_geometry);
+        let departure = ModalDepartureLayer {
+            content: departure_content,
+            geometry: departure_geometry,
+            modal: self.modal.as_ref().cloned(),
+            focus_direction,
+            started_at: Instant::now(),
+            duration_ms,
+            easing,
+        };
+
+        self.modal_transitions.push(ModalTransitionLayer::ModalClose {
+            departure,
+            slide_distance,
+        });
+    }
+
+    fn fire_modal_exit_transition_if_possible(&mut self) {
+        self.fire_modal_close_transition_if_possible(FocusDirection::Backward);
+    }
+
+    fn fire_modal_confirm_transition_if_possible(&mut self) {
+        self.fire_modal_close_transition_if_possible(FocusDirection::Forward);
     }
 
     /// Evaluate whether focus crossed a unit boundary after a modal mutation and, if so,
@@ -2900,6 +3011,7 @@ impl App {
         let departure = ModalDepartureLayer {
             content: dep_content,
             geometry: dep_geometry,
+            modal: Some(previous_modal),
             focus_direction,
             started_at: now,
             duration_ms,
@@ -3811,13 +3923,14 @@ mod tests {
 #[cfg(test)]
 mod composition_span_tests {
     use super::{
-        compute_field_composition_spans, App, AppKey, FieldCompositionSpanKind, Focus, SectionState,
+        compute_field_composition_spans, App, AppKey, FieldCompositionSpanKind, Focus,
+        FocusDirection, ModalTransitionLayer, SectionState,
     };
     use crate::config::Config;
     use crate::data::{
         AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem, HierarchyList, ItemAssignment,
         JoinerStyle, KeyBindings, ModalStart, ResolvedCollectionConfig, RuntimeNodeKind,
-        RuntimeTemplate, SectionConfig, SectionGroup,
+        RuntimeGroup, RuntimeNode, RuntimeTemplate, SectionConfig, SectionGroup,
     };
     use crate::modal::SearchModal;
     use crate::modal_layout::ModalFocus;
@@ -4052,7 +4165,12 @@ mod composition_span_tests {
         let data = AppData {
             template: RuntimeTemplate {
                 id: "test".to_string(),
-                children: Vec::new(),
+                children: vec![RuntimeGroup {
+                    id: "intake".to_string(),
+                    nav_label: "Intake".to_string(),
+                    note: GroupNoteMeta::default(),
+                    children: vec![RuntimeNode::Section(section.clone())],
+                }],
             },
             groups: vec![group],
             sections: vec![section],
@@ -4064,6 +4182,82 @@ mod composition_span_tests {
         };
 
         App::new(data, Config::default(), PathBuf::new())
+    }
+
+    #[test]
+    fn group_idx_for_section_uses_runtime_navigation_not_section_group_id() {
+        let first = SectionConfig {
+            id: "first".to_string(),
+            name: "First".to_string(),
+            map_label: "FIRST".to_string(),
+            section_type: "free_text".to_string(),
+            show_field_labels: true,
+            data_file: None,
+            fields: None,
+            lists: Vec::new(),
+            note_label: None,
+            group_id: "wrong".to_string(),
+            node_kind: RuntimeNodeKind::Section,
+        };
+        let second = SectionConfig {
+            id: "second".to_string(),
+            name: "Second".to_string(),
+            map_label: "SECOND".to_string(),
+            section_type: "free_text".to_string(),
+            show_field_labels: true,
+            data_file: None,
+            fields: None,
+            lists: Vec::new(),
+            note_label: None,
+            group_id: "wrong".to_string(),
+            node_kind: RuntimeNodeKind::Section,
+        };
+        let data = AppData {
+            template: RuntimeTemplate {
+                id: "test".to_string(),
+                children: vec![
+                    RuntimeGroup {
+                        id: "group_a".to_string(),
+                        nav_label: "GROUP A".to_string(),
+                        note: GroupNoteMeta::default(),
+                        children: vec![RuntimeNode::Section(first.clone())],
+                    },
+                    RuntimeGroup {
+                        id: "group_b".to_string(),
+                        nav_label: "GROUP B".to_string(),
+                        note: GroupNoteMeta::default(),
+                        children: vec![RuntimeNode::Section(second.clone())],
+                    },
+                ],
+            },
+            groups: vec![
+                SectionGroup {
+                    id: "group_a".to_string(),
+                    num: None,
+                    nav_label: "GROUP A".to_string(),
+                    sections: vec![first.clone()],
+                    note: GroupNoteMeta::default(),
+                },
+                SectionGroup {
+                    id: "group_b".to_string(),
+                    num: None,
+                    nav_label: "GROUP B".to_string(),
+                    sections: vec![second.clone()],
+                    note: GroupNoteMeta::default(),
+                },
+            ],
+            sections: vec![first, second],
+            list_data: HashMap::new(),
+            checklist_data: HashMap::new(),
+            collection_data: HashMap::new(),
+            boilerplate_texts: HashMap::new(),
+            keybindings: KeyBindings::default(),
+        };
+
+        let app = App::new(data, Config::default(), PathBuf::new());
+
+        assert_eq!(app.group_idx_for_section(0), 0);
+        assert_eq!(app.group_idx_for_section(1), 1);
     }
 
     #[test]
@@ -4212,6 +4406,68 @@ mod composition_span_tests {
             !state.in_items(),
             "nav_left should return to the collection list"
         );
+    }
+
+    #[test]
+    fn opening_simple_modal_starts_open_transition() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+
+        app.open_header_modal();
+
+        assert!(app.modal.is_some(), "modal should remain live during open");
+        match app.modal_transitions.last() {
+            Some(ModalTransitionLayer::ModalOpen { arrival, .. }) => {
+                assert_eq!(arrival.focus_direction, FocusDirection::Forward);
+            }
+            other => panic!("expected modal open transition, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn dismissing_simple_modal_retains_close_transition_after_live_modal_clears() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+        app.open_header_modal();
+
+        app.dismiss_modal();
+
+        assert!(app.modal.is_none(), "live modal should be cleared immediately");
+        match app.modal_transitions.last() {
+            Some(ModalTransitionLayer::ModalClose { departure, .. }) => {
+                assert_eq!(departure.focus_direction, FocusDirection::Backward);
+                assert!(departure.modal.is_some(), "close layer should retain modal snapshot");
+            }
+            other => panic!("expected modal close transition, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn confirming_simple_modal_starts_confirm_close_transition() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+        app.open_header_modal();
+
+        app.confirm_modal_value("Shoulder".to_string());
+
+        assert!(app.modal.is_none(), "live modal should be cleared after confirm");
+        match app.modal_transitions.last() {
+            Some(ModalTransitionLayer::ModalClose { departure, .. }) => {
+                assert_eq!(departure.focus_direction, FocusDirection::Forward);
+                assert!(departure.modal.is_some(), "close layer should retain modal snapshot");
+            }
+            other => panic!("expected confirm close transition, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_simple_modal_close_falls_back_to_instant_behavior() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+
+        app.open_header_modal();
+        app.set_modal_query("sho".to_string());
+        assert!(app.modal_unit_layout.is_none());
+
+        app.dismiss_modal();
+        assert!(app.modal.is_none());
+        assert!(app.modal_transitions.is_empty());
     }
 
     #[test]
@@ -4435,7 +4691,12 @@ mod composition_span_tests {
         let data = AppData {
             template: RuntimeTemplate {
                 id: "test".to_string(),
-                children: Vec::new(),
+                children: vec![RuntimeGroup {
+                    id: "intake".to_string(),
+                    nav_label: "Intake".to_string(),
+                    note: GroupNoteMeta::default(),
+                    children: vec![RuntimeNode::Section(section.clone())],
+                }],
             },
             groups: vec![group],
             sections: vec![section],
