@@ -1206,6 +1206,19 @@ impl App {
             .unwrap_or_default()
     }
 
+    fn finalize_modal_completion_value(
+        &self,
+        modal: &SearchModal,
+        final_value: HeaderFieldValue,
+    ) -> HeaderFieldValue {
+        match final_value {
+            HeaderFieldValue::Text(_) => modal
+                .confirmed_field_value_if_complete(&self.config.sticky_values)
+                .unwrap_or(final_value),
+            other => other,
+        }
+    }
+
     pub fn reload_theme(&mut self) -> anyhow::Result<()> {
         self.ui_theme = crate::theme::AppTheme::load(&self.data_dir, &self.config.theme)?;
         Ok(())
@@ -2213,7 +2226,13 @@ impl App {
                     self.sync_modal_preview_state(idx);
                 }
                 FieldAdvance::Complete(final_value) => {
-                    let mut committed_value = final_value;
+                    let mut committed_value = self
+                        .modal
+                        .as_ref()
+                        .map(|modal| {
+                            self.finalize_modal_completion_value(modal, final_value.clone())
+                        })
+                        .unwrap_or(final_value);
                     if let Some(override_text) = self
                         .modal
                         .as_ref()
@@ -2270,7 +2289,11 @@ impl App {
                 self.fire_modal_transition_if_needed(previous_layout, previous_modal);
             }
             FieldAdvance::Complete(final_value) => {
-                let mut committed_value = final_value;
+                let mut committed_value = self
+                    .modal
+                    .as_ref()
+                    .map(|modal| self.finalize_modal_completion_value(modal, final_value.clone()))
+                    .unwrap_or(final_value);
                 if let Some(override_text) = self
                     .modal
                     .as_ref()

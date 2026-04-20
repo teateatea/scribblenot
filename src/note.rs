@@ -675,19 +675,18 @@ mod tests {
         let data = AppData::load(dir).expect("real data loads");
         let mut states = states_for_real_data(&data);
 
-        set_header_field_explicit_empty(&mut states, &data.sections, "appointment_section", 0);
         set_header_field_text(
             &mut states,
             &data.sections,
             "appointment_section",
-            1,
+            0,
             "# Apr 12, 2026 at 1:30PM (60 min)",
         );
         set_header_field_text(
             &mut states,
             &data.sections,
             "appointment_section",
-            2,
+            1,
             "2026-04-12: Pt requested a Treatment massage, focusing on the Head, Neck, and Shoulders, the Low Back, and the Left Knee.",
         );
         set_header_field_text(
