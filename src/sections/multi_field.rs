@@ -53,7 +53,32 @@ pub fn resolve_multifield_value(
     assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> ResolvedMultiFieldValue {
-    resolve_field_values(std::slice::from_ref(confirmed), cfg, assigned_values, sticky_values)
+    resolve_field_values(
+        std::slice::from_ref(confirmed),
+        cfg,
+        assigned_values,
+        sticky_values,
+    )
+}
+
+fn merged_slot_assigned_values(
+    confirmed: &HeaderFieldValue,
+    cfg: &HeaderFieldConfig,
+    assigned_values: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut merged = assigned_values.clone();
+    merged.extend(crate::modal::confirmed_value_assignments(confirmed, cfg));
+    merged
+}
+
+pub fn resolve_multifield_value_for_confirmed_slot(
+    confirmed: &HeaderFieldValue,
+    cfg: &HeaderFieldConfig,
+    assigned_values: &HashMap<String, String>,
+    sticky_values: &HashMap<String, String>,
+) -> ResolvedMultiFieldValue {
+    let merged = merged_slot_assigned_values(confirmed, cfg, assigned_values);
+    resolve_multifield_value(confirmed, cfg, &merged, sticky_values)
 }
 
 pub fn resolve_field_values(
@@ -103,6 +128,29 @@ pub fn render_field_display(
     }
 }
 
+pub fn render_field_display_for_confirmed_values(
+    confirmed_values: &[HeaderFieldValue],
+    cfg: &HeaderFieldConfig,
+    assigned_values: &HashMap<String, String>,
+    sticky_values: &HashMap<String, String>,
+) -> String {
+    if let [confirmed] = confirmed_values {
+        match resolve_multifield_value_for_confirmed_slot(
+            confirmed,
+            cfg,
+            assigned_values,
+            sticky_values,
+        ) {
+            ResolvedMultiFieldValue::Empty => "[empty]".to_string(),
+            ResolvedMultiFieldValue::Partial(value) | ResolvedMultiFieldValue::Complete(value) => {
+                value
+            }
+        }
+    } else {
+        render_field_display(confirmed_values, cfg, assigned_values, sticky_values)
+    }
+}
+
 pub fn renders_without_field_label(section: &SectionConfig, field: &HeaderFieldConfig) -> bool {
     !section.show_field_labels
         || (!field.collections.is_empty() && field.lists.is_empty() && field.format.is_none())
@@ -123,6 +171,17 @@ pub fn render_note_line(
         let label = resolve_field_label(value, field, assigned_values, sticky_values);
         Some(format!("{label}: {rendered}"))
     }
+}
+
+pub fn render_note_line_for_confirmed_slot(
+    section: &SectionConfig,
+    field: &HeaderFieldConfig,
+    value: &HeaderFieldValue,
+    assigned_values: &HashMap<String, String>,
+    sticky_values: &HashMap<String, String>,
+) -> Option<String> {
+    let merged = merged_slot_assigned_values(value, field, assigned_values);
+    render_note_line(section, field, value, &merged, sticky_values)
 }
 
 fn display_template(cfg: &HeaderFieldConfig, prefer_preview: bool) -> String {
@@ -163,8 +222,12 @@ pub fn resolve_field_label(
             .map(|(idx, child)| {
                 let value = nested_state
                     .and_then(|state| state.repeated_values.get(idx))
-                    .map(|values| resolve_field_values(values, child, assigned_values, sticky_values))
-                    .unwrap_or_else(|| resolve_field_values(&[], child, assigned_values, sticky_values))
+                    .map(|values| {
+                        resolve_field_values(values, child, assigned_values, sticky_values)
+                    })
+                    .unwrap_or_else(|| {
+                        resolve_field_values(&[], child, assigned_values, sticky_values)
+                    })
                     .display_value()
                     .map(str::to_string)
                     .or_else(|| child.preview.clone());
@@ -185,10 +248,10 @@ pub fn resolve_field_label(
         let value = if cfg.lists.len() == 1 {
             match confirmed {
                 HeaderFieldValue::ListState(value) => {
-                    resolve_list_state(value, cfg, assigned_values, sticky_values)
+                    { resolve_list_state(value, cfg, assigned_values, sticky_values) }
+                        .display_value()
+                        .map(str::to_string)
                 }
-                    .display_value()
-                    .map(str::to_string),
                 value if value.as_text().is_some_and(|text| !text.is_empty()) => {
                     value.as_text().map(ToOwned::to_owned)
                 }
@@ -234,6 +297,16 @@ pub fn resolve_field_label(
         assigned_values,
         sticky_values,
     )
+}
+
+pub fn resolve_field_label_for_confirmed_slot(
+    confirmed: &HeaderFieldValue,
+    cfg: &HeaderFieldConfig,
+    assigned_values: &HashMap<String, String>,
+    sticky_values: &HashMap<String, String>,
+) -> String {
+    let merged = merged_slot_assigned_values(confirmed, cfg, assigned_values);
+    resolve_field_label(confirmed, cfg, &merged, sticky_values)
 }
 
 fn resolve_repeating_values(
@@ -944,4 +1017,3 @@ mod tests {
         assert_eq!(label, "Requested Shoulder");
     }
 }
-

@@ -127,9 +127,10 @@ sections:
     nav_label: APPOINTMENT
     show_field_labels: false
     contains:
-      - field: date_field
+    #  - field: date_field
       - field: appointment_date_field
       - field: appointment_requested_field
+    #  - field: patient_pronoun
 
  
 
@@ -141,23 +142,28 @@ sections:
 #    note?:
 #      note_label?  
 fields:
-  - id: date_field
-    label: "{year}-{month}-{day}"
-    format: ""
-    lists:
-      - day
-      - month
-      - year
+ # - id: date_field
+ #   label: "{year}-{month}-{day}"
+ #   format: ""
+ #   lists:
+ #     - day
+ #     - month
+ #     - year
 
   - id: appointment_date_field
     label: Appointment Date
-    format: "# {date_month_wor_list} {day}, {year} at {start_hour_list}:{start_minute_list}{am_pm_list} ({duration_list} min)"
+    format: "# {date_month_word_list} {day}, {year} at {start_hour_list}:{start_minute_list}{am_pm_list} ({duration_list} min)"
     lists:
-      - duration_list
+     # - duration_list
+      - date_month_word_list
+      - day
+      - year
       - start_hour_list
       - start_minute_list
-      - day
-      - date_month_wor_list
+      - duration_list
+
+   #   - day
+   #   - date_month_wor_list
 
   - id: appointment_requested_field
     label: Request
@@ -190,6 +196,12 @@ fields:
  #   label: Side
  #   contains:
  #     - { list: side_list }
+ # - id: patient_pronoun
+ #   label: "Pronouns"
+ #   format: ""
+ #   lists:
+ #     - pronoun
+
 
 lists:
   - id: year
@@ -205,41 +217,185 @@ lists:
         label: "2026"
         output: "2026"
 
-  - id: date_month_wor_list
+  - id: date_month_word_list
     label: "Month"
     preview: "MMM"
     sticky: true
     items:
-      - { id: month_01, label: "Jan 1", output: "Jan" }
-      - { id: month_02, label: "Feb 2", output: "Feb" }
-      - { id: month_03, label: "Mar 3", output: "Mar" }
-      - { id: month_04, label: "Apr 4", output: "Apr" }
-      - { id: month_05, label: "May 5", output: "May" }
-      - { id: month_06, label: "Jun 6", output: "Jun" }
-      - { id: month_07, label: "Jul 7", output: "Jul" }
-      - { id: month_08, label: "Aug 8", output: "Aug" }
-      - { id: month_09, label: "Sep 9", output: "Sep" }
-      - { id: month_10, label: "Oct 10", output: "Oct" }
-      - { id: month_11, label: "Nov 11", output: "Nov" }
-      - { id: month_12, label: "Dec 12", output: "Dec" }
+      - id: month_word_01
+        label: "01"
+        output: "Jan"
+        assigns:
+          - list: month
+            item: month_num_01
+      - id: month_word_02
+        label: "02"
+        output: "Feb"
+        assigns:
+          - list: month
+            item: month_num_02
+      - id: month_word_03
+        label: "03"
+        output: "Mar"
+        assigns:
+          - list: month
+            item: month_num_03
+      - id: month_word_04
+        label: "04"
+        output: "Apr"
+        assigns:
+          - list: month
+            item: month_num_04
+      - id: month_word_05
+        label: "05"
+        output: "May"
+        assigns:
+          - list: month
+            item: month_num_05
+      - id: month_word_06
+        label: "06"
+        output: "Jun"
+        assigns:
+          - list: month
+            item: month_num_06
+      - id: month_word_07
+        label: "07"
+        output: "Jul"
+        assigns:
+          - list: month
+            item: month_num_07
+      - id: month_word_08
+        label: "08"
+        output: "Aug"
+        assigns:
+          - list: month
+            item: month_num_08
+      - id: month_word_09
+        label: "09"
+        output: "Sep"
+        assigns:
+          - list: month
+            item: month_num_09
+      - id: month_word_10
+        label: "10"
+        output: "Oct"
+        assigns:
+          - list: month
+            item: month_num_10
+      - id: month_word_11
+        label: "11"
+        output: "Nov"
+        assigns:
+          - list: month
+            item: month_num_11
+      - id: month_word_12
+        label: "12"
+        output: "Dec"
+        assigns:
+          - list: month
+            item: month_num_12
+  #    - { id: month_word_01, label: "Jan 1", output: "Jan" }
+  #    - { id: month_word_02, label: "Feb 2", output: "Feb" }
+  #    - { id: month_word_03, label: "Mar 3", output: "Mar" }
+  #    - { id: month_word_04, label: "Apr 4", output: "Apr" }
+  #    - { id: month_word_05, label: "May 5", output: "May" }
+  #    - { id: month_word_06, label: "Jun 6", output: "Jun" }
+  #    - { id: month_word_07, label: "Jul 7", output: "Jul" }
+  #    - { id: month_word_08, label: "Aug 8", output: "Aug" }
+  #    - { id: month_word_09, label: "Sep 9", output: "Sep" }
+  #    - { id: month_word_10, label: "Oct 10", output: "Oct" }
+  #    - { id: month_word_11, label: "Nov 11", output: "Nov" }
+  #    - { id: month_word_12, label: "Dec 12", output: "Dec" }
 
   - id: month
     label: "Month"
     preview: "MM"
     sticky: true
     items:
-      - { id: month_num_01, label: "01", output: "01" }
-      - { id: month_num_02, label: "02", output: "02" }
-      - { id: month_num_03, label: "03", output: "03" }
-      - { id: month_num_04, label: "04", output: "04" }
-      - { id: month_num_05, label: "05", output: "05" }
-      - { id: month_num_06, label: "06", output: "06" }
-      - { id: month_num_07, label: "07", output: "07" }
-      - { id: month_num_08, label: "08", output: "08" }
-      - { id: month_num_09, label: "09", output: "09" }
-      - { id: month_num_10, label: "10", output: "10" }
-      - { id: month_num_11, label: "11", output: "11" }
-      - { id: month_num_12, label: "12", output: "12" }
+      - id: month_num_01
+        label: "01"
+        output: "01"
+   #     assigns:
+   #       - list: date_month_word_list
+   #         item: month_word_01
+      - id: month_num_02
+        label: "02"
+        output: "02"
+  #      assigns:
+  #        - list: date_month_word_list
+  #          item: month_word_02
+      - id: month_num_03
+        label: "03"
+        output: "03"
+   #     assigns:
+   #       - list: date_month_word_list
+   #         item: month_word_03
+      - id: month_num_04
+        label: "04"
+        output: "04"
+    #    assigns:
+    #      - list: date_month_word_list
+    #        item: month_word_04
+      - id: month_num_05
+        label: "05"
+        output: "05"
+   #     assigns:
+   #       - list: date_month_word_list
+   #         item: month_word_05
+      - id: month_num_06
+        label: "06"
+        output: "06"
+   #     assigns:
+   #       - list: date_month_word_list
+   #         item: month_word_06
+      - id: month_num_07
+        label: "07"
+        output: "07"
+    #    assigns:
+    #      - list: date_month_word_list
+    #        item: month_word_07
+      - id: month_num_08
+        label: "08"
+        output: "08"
+   #     assigns:
+   #       - list: date_month_word_list
+   #         item: month_word_08
+      - id: month_num_09
+        label: "09"
+        output: "09"
+    #    assigns:
+    #      - list: date_month_word_list
+    #        item: month_word_09
+      - id: month_num_10
+        label: "10"
+        output: "10"
+   #     assigns:
+   #       - list: date_month_word_list
+   #         item: month_word_10
+      - id: month_num_11
+        label: "11"
+        output: "11"
+    #    assigns:
+    #      - list: date_month_word_list
+    #        item: month_word_11
+      - id: month_num_12
+        label: "12"
+        output: "12"
+    #    assigns:
+    #      - list: date_month_word_list
+    #        item: month_word_12
+    #  - { id: month_num_01, label: "01", output: "01" }
+    #  - { id: month_num_02, label: "02", output: "02" }
+    #  - { id: month_num_03, label: "03", output: "03" }
+    #  - { id: month_num_04, label: "04", output: "04" }
+    #  - { id: month_num_05, label: "05", output: "05" }
+    #  - { id: month_num_06, label: "06", output: "06" }
+    #  - { id: month_num_07, label: "07", output: "07" }
+    #  - { id: month_num_08, label: "08", output: "08" }
+    #  - { id: month_num_09, label: "09", output: "09" }
+    #  - { id: month_num_10, label: "10", output: "10" }
+    #  - { id: month_num_11, label: "11", output: "11" }
+    #  - { id: month_num_12, label: "12", output: "12" }
 
   - id: day
     label: "Day"
@@ -552,4 +708,39 @@ lists:
         output: "Foot (Sole)"
       - label: "Feet - Soles (Foot BB Bilateral)"
         output: "Feet (Soles)"
-
+        
+ # Commented out when I realized how much upkeep this may turn out to be.
+ # - id: subject_pronoun
+ #   label: "Subject Pronouns"
+ #   preview: "they"
+ #   sticky: true
+ #   default: pos_pron_they
+ #   items:
+ #     - id: pos_pron_he
+ #       label: "he"
+ #       output: "he"
+ #     - id: pos_pron_she
+ #       label: "she"
+ #       output: "she"
+ #     - id: pos_pron_they
+ #       label: "they"
+ #       output: "they"
+ #       assigns:
+ #         - list: date_month_wor_list
+ #           item: month_word_07
+ #           
+ # - id: subjective_pronoun
+ #   label: "Subjective Pronouns"
+ #   preview: "their"
+ #   sticky: true
+ #   default: pos_pron_they
+ #   items:
+ #     - id: pos_pron_he
+ #       label: "he"
+ #       output: "he"
+ #     - id: pos_pron_she
+ #       label: "she"
+ #       output: "she"
+ #     - id: pos_pron_they
+ #       label: "they"
+ #       output: "they"

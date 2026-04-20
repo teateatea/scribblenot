@@ -421,38 +421,6 @@ impl SearchModal {
         assigned
     }
 
-    pub fn committed_assigned_values(
-        &self,
-        sticky_values: &HashMap<String, String>,
-    ) -> HashMap<String, String> {
-        let mut assigned = HashMap::new();
-        if !self.nested_stack.is_empty() {
-            if let Some(root) = self.synced_nested_root_state_with_leaf_value(
-                self.committed_active_leaf_value(sticky_values),
-            ) {
-                if let Some(frame) = self.nested_stack.first() {
-                    collect_assignments_from_state(&root, &frame.field, &mut assigned);
-                }
-            }
-            return assigned;
-        }
-        for frame in &self.branch_stack {
-            collect_assignments_from_flow(&frame.parent_flow, &mut assigned);
-        }
-        if let Some(value) = self.committed_list_state_value() {
-            collect_assignments_from_list_parts(
-                &self.field_flow.lists,
-                &value.item_ids,
-                value.list_idx,
-                &value.repeat_item_ids,
-                &mut assigned,
-            );
-        } else {
-            collect_assignments_from_flow(&self.field_flow, &mut assigned);
-        }
-        assigned
-    }
-
     fn synced_nested_root_state(
         &self,
         sticky_values: &HashMap<String, String>,
@@ -1345,6 +1313,24 @@ impl SearchModal {
             })
     }
 
+    pub fn should_confirm_empty_search_value(&self) -> bool {
+        if self.should_finish_repeating_from_empty_search() {
+            return true;
+        }
+        if self.focus != ModalFocus::SearchBar || !self.query.trim().is_empty() {
+            return false;
+        }
+        self.selected_value().is_some_and(str::is_empty)
+            && self.nested_stack.iter().any(|frame| {
+                frame
+                    .state
+                    .field_configs
+                    .get(frame.state.field_index)
+                    .is_some_and(|cfg| cfg.max_entries.is_some())
+                    && frame.state.active_value_index() > 0
+            })
+    }
+
     pub fn hint_value(&self, hint_pos: usize) -> Option<&str> {
         if self.collection_state.is_some() {
             return None;
@@ -1413,18 +1399,6 @@ impl SearchModal {
         })
     }
 
-    fn committed_active_leaf_value(
-        &self,
-        _sticky_values: &HashMap<String, String>,
-    ) -> HeaderFieldValue {
-        if self.collection_state.is_some() {
-            return self.collection_value();
-        }
-        self.committed_list_state_value()
-            .map(HeaderFieldValue::ListState)
-            .unwrap_or_else(|| self.preview_active_leaf_value(_sticky_values))
-    }
-
     pub fn confirmed_field_value_if_complete(
         &self,
         _sticky_values: &HashMap<String, String>,
@@ -1438,22 +1412,6 @@ impl SearchModal {
                 .map(|root| HeaderFieldValue::NestedState(Box::new(root)))
                 .unwrap_or(leaf_value),
         )
-    }
-
-    pub fn committed_field_value(
-        &self,
-        sticky_values: &HashMap<String, String>,
-    ) -> HeaderFieldValue {
-        self.confirmed_field_value_if_complete(sticky_values)
-            .unwrap_or_else(|| {
-                if let Some(root) = self.synced_nested_root_state_with_leaf_value(
-                    self.committed_active_leaf_value(sticky_values),
-                ) {
-                    HeaderFieldValue::NestedState(Box::new(root))
-                } else {
-                    self.committed_active_leaf_value(sticky_values)
-                }
-            })
     }
 
     fn advance_nested_field(
@@ -2380,6 +2338,15 @@ pub fn resolved_item_labels_for_list(
         .iter()
         .map(|item| resolve_display_template(item.ui_label(), &flow, lookup))
         .collect()
+}
+
+pub fn confirmed_value_assignments(
+    value: &HeaderFieldValue,
+    cfg: &HeaderFieldConfig,
+) -> HashMap<String, String> {
+    let mut assigned = HashMap::new();
+    collect_assignments_from_value(value.source_value(), cfg, &mut assigned);
+    assigned
 }
 
 pub fn format_field_value(flow: &FieldModal, lookup: ListValueLookup<'_>) -> String {

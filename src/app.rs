@@ -1191,6 +1191,21 @@ impl App {
         self.rebuild_assigned_values();
     }
 
+    fn confirmed_assignments_for_current_header_field(
+        &self,
+        section_idx: usize,
+        value: &HeaderFieldValue,
+    ) -> HashMap<String, String> {
+        let Some(SectionState::Header(state)) = self.section_states.get(section_idx) else {
+            return HashMap::new();
+        };
+        state
+            .field_configs
+            .get(state.field_index)
+            .map(|cfg| crate::modal::confirmed_value_assignments(value, cfg))
+            .unwrap_or_default()
+    }
+
     pub fn reload_theme(&mut self) -> anyhow::Result<()> {
         self.ui_theme = crate::theme::AppTheme::load(&self.data_dir, &self.config.theme)?;
         Ok(())
@@ -1564,7 +1579,7 @@ impl App {
                         .and_then(|v| v.last())
                         .cloned()
                         .unwrap_or(HeaderFieldValue::Text(String::new()));
-                    crate::sections::multi_field::resolve_multifield_value(
+                    crate::sections::multi_field::resolve_multifield_value_for_confirmed_slot(
                         &confirmed,
                         cfg,
                         &self.assigned_values,
@@ -1774,7 +1789,7 @@ impl App {
                     if self
                         .modal
                         .as_ref()
-                        .is_some_and(|modal| modal.should_finish_repeating_from_empty_search())
+                        .is_some_and(|modal| modal.should_confirm_empty_search_value())
                     {
                         self.confirm_modal_value(String::new());
                         return;
@@ -2197,17 +2212,8 @@ impl App {
                 FieldAdvance::StayOnList => {
                     self.sync_modal_preview_state(idx);
                 }
-                FieldAdvance::Complete(_) => {
-                    let modal_assignments = self
-                        .modal
-                        .as_ref()
-                        .map(|modal| modal.committed_assigned_values(&self.config.sticky_values))
-                        .unwrap_or_default();
-                    let mut committed_value = self
-                        .modal
-                        .as_ref()
-                        .map(|modal| modal.committed_field_value(&self.config.sticky_values))
-                        .unwrap_or(HeaderFieldValue::Text(String::new()));
+                FieldAdvance::Complete(final_value) => {
+                    let mut committed_value = final_value;
                     if let Some(override_text) = self
                         .modal
                         .as_ref()
@@ -2218,6 +2224,8 @@ impl App {
                             source: Box::new(committed_value),
                         };
                     }
+                    let modal_assignments =
+                        self.confirmed_assignments_for_current_header_field(idx, &committed_value);
                     if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                         s.composite_spans = None;
                         s.set_current_value(committed_value);
@@ -2261,17 +2269,8 @@ impl App {
                 self.rebuild_modal_unit_layout(false);
                 self.fire_modal_transition_if_needed(previous_layout, previous_modal);
             }
-            FieldAdvance::Complete(_) => {
-                let modal_assignments = self
-                    .modal
-                    .as_ref()
-                    .map(|modal| modal.committed_assigned_values(&self.config.sticky_values))
-                    .unwrap_or_default();
-                let mut committed_value = self
-                    .modal
-                    .as_ref()
-                    .map(|modal| modal.committed_field_value(&self.config.sticky_values))
-                    .unwrap_or(HeaderFieldValue::Text(String::new()));
+            FieldAdvance::Complete(final_value) => {
+                let mut committed_value = final_value;
                 if let Some(override_text) = self
                     .modal
                     .as_ref()
@@ -2282,6 +2281,8 @@ impl App {
                         source: Box::new(committed_value),
                     };
                 }
+                let modal_assignments =
+                    self.confirmed_assignments_for_current_header_field(idx, &committed_value);
                 if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                     s.composite_spans = None;
                     s.set_current_value(committed_value);
@@ -2797,13 +2798,14 @@ impl App {
         else {
             return false;
         };
-        let modal_assignments = modal.committed_assigned_values(&self.config.sticky_values);
         if let Some(override_text) = modal.manual_override.clone() {
             committed_value = HeaderFieldValue::ManualOverride {
                 text: override_text,
                 source: Box::new(committed_value),
             };
         }
+        let modal_assignments =
+            self.confirmed_assignments_for_current_header_field(idx, &committed_value);
         if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
             s.composite_spans = None;
             s.set_current_value(committed_value);
@@ -3938,6 +3940,205 @@ mod composition_span_tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
 
+    fn select_only_filtered_modal_match(app: &mut App, query: &str) {
+        app.set_modal_query(query.to_string());
+        let filtered_len = app
+            .modal
+            .as_ref()
+            .map(|modal| modal.filtered.len())
+            .unwrap_or(0);
+        assert_eq!(
+            filtered_len, 1,
+            "expected exactly one filtered match for query '{query}'"
+        );
+        app.handle_key(AppKey::Enter);
+    }
+
+    fn empty_item(id: &str) -> HierarchyItem {
+        item(id, "(Empty)", "")
+    }
+
+    fn observation_field_with_repeating_search_lists() -> HeaderFieldConfig {
+        HeaderFieldConfig {
+            id: "observation".to_string(),
+            name: "Observation".to_string(),
+            format: Some("{place}{muscle}: {tag}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![
+                HierarchyList {
+                    id: "muscle".to_string(),
+                    label: Some("Muscle".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: Some("empty_space".to_string()),
+                    modal_start: ModalStart::Search,
+                    joiner_style: Some(JoinerStyle::Comma),
+                    max_entries: None,
+                    items: vec![
+                        empty_item("empty_space"),
+                        item("trap", "Trapezius Upper", "Trapezius (Upper Fibers)"),
+                    ],
+                },
+                HierarchyList {
+                    id: "place".to_string(),
+                    label: Some("Place".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: Some("empty_space".to_string()),
+                    modal_start: ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        empty_item("empty_space"),
+                        item("left", "Left", "Left "),
+                    ],
+                },
+                HierarchyList {
+                    id: "tag".to_string(),
+                    label: Some("Tag".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: Some("empty_space".to_string()),
+                    modal_start: ModalStart::Search,
+                    joiner_style: Some(JoinerStyle::Comma),
+                    max_entries: None,
+                    items: vec![
+                        empty_item("empty_space"),
+                        item(
+                            "rmt",
+                            "Increased RMT",
+                            "Increased Resting Muscle Tension",
+                        ),
+                    ],
+                },
+            ],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        }
+    }
+
+    fn request_field_with_nested_repeat_terminator() -> HeaderFieldConfig {
+        let appointment_type = HeaderFieldConfig {
+            id: "appointment_type".to_string(),
+            name: "Appointment Type".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "appointment_type".to_string(),
+                label: Some("Appointment Type".to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::Search,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![item(
+                    "relax",
+                    "Relaxation massage",
+                    "Relaxation massage, focusing on ",
+                )],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let region = HeaderFieldConfig {
+            id: "region".to_string(),
+            name: "Region".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "region".to_string(),
+                label: Some("Region".to_string()),
+                preview: None,
+                sticky: false,
+                default: Some("empty_space".to_string()),
+                modal_start: ModalStart::Search,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![
+                    empty_item("empty_space"),
+                    item("shoulder", "Shoulder", "Shoulder"),
+                ],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let place = HeaderFieldConfig {
+            id: "place".to_string(),
+            name: "Place".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "place".to_string(),
+                label: Some("Place".to_string()),
+                preview: None,
+                sticky: false,
+                default: Some("empty_space".to_string()),
+                modal_start: ModalStart::Search,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![empty_item("empty_space"), item("left", "Left", "Left ")],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let single_region = HeaderFieldConfig {
+            id: "single_region".to_string(),
+            name: "Requested Region".to_string(),
+            format: Some("{place}{region}".to_string()),
+            preview: None,
+            fields: vec![region, place],
+            lists: Vec::new(),
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let requested_regions = HeaderFieldConfig {
+            id: "requested_regions".to_string(),
+            name: "Requested Regions".to_string(),
+            format: Some("{single_region}".to_string()),
+            preview: None,
+            fields: vec![single_region],
+            lists: Vec::new(),
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: Some(JoinerStyle::CommaAndThe),
+            max_entries: Some(2),
+            max_actives: None,
+        };
+        HeaderFieldConfig {
+            id: "request".to_string(),
+            name: "Request".to_string(),
+            format: Some("{appointment_type}{requested_regions}".to_string()),
+            preview: None,
+            fields: vec![appointment_type, requested_regions],
+            lists: Vec::new(),
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        }
+    }
+
     fn item(id: &str, label: &str, output: &str) -> HierarchyItem {
         HierarchyItem {
             id: id.to_string(),
@@ -4939,5 +5140,53 @@ mod composition_span_tests {
             state.repeated_values[0].is_empty(),
             "backing out to the first list should clear the in-progress preview slot"
         );
+    }
+
+    #[test]
+    fn confirming_repeating_search_lists_updates_preview_and_export() {
+        let mut app = app_with_single_field(observation_field_with_repeating_search_lists());
+
+        app.open_header_modal();
+        select_only_filtered_modal_match(&mut app, "trapezius");
+        app.handle_key(AppKey::Enter);
+        select_only_filtered_modal_match(&mut app, "left");
+        select_only_filtered_modal_match(&mut app, "rmt");
+        app.handle_key(AppKey::Enter);
+
+        let exported = crate::document::export_editable_document(&app.editable_note);
+
+        assert!(
+            app.editable_note
+                .contains("Observation: Left Trapezius (Upper Fibers): Increased Resting Muscle Tension"),
+            "editable note should contain confirmed objective field output"
+        );
+        assert!(
+            exported.contains("Observation: Left Trapezius (Upper Fibers): Increased Resting Muscle Tension"),
+            "exported preview should contain confirmed objective field output"
+        );
+    }
+
+    #[test]
+    fn confirming_nested_repeat_terminator_updates_preview_and_export() {
+        let mut app = app_with_single_field(request_field_with_nested_repeat_terminator());
+
+        app.open_header_modal();
+        select_only_filtered_modal_match(&mut app, "relaxation");
+        select_only_filtered_modal_match(&mut app, "shoulder");
+        select_only_filtered_modal_match(&mut app, "left");
+        app.handle_key(AppKey::Enter);
+        app.handle_key(AppKey::Enter);
+
+        let exported = crate::document::export_editable_document(&app.editable_note);
+
+        assert!(
+            app.editable_note.contains("Request: Relaxation massage, focusing on the Left Shoulder"),
+            "editable note should contain confirmed appointment request output"
+        );
+        assert!(
+            exported.contains("Request: Relaxation massage, focusing on the Left Shoulder"),
+            "exported preview should contain confirmed appointment request output"
+        );
+        assert!(app.modal.is_none(), "modal should close after nested repeat terminates");
     }
 }

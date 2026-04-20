@@ -477,7 +477,7 @@ fn field_display_value(
     field: &crate::data::HeaderFieldConfig,
     confirmed_values: &[crate::sections::header::HeaderFieldValue],
 ) -> String {
-    crate::sections::multi_field::render_field_display(
+    crate::sections::multi_field::render_field_display_for_confirmed_values(
         confirmed_values,
         field,
         &app.assigned_values,
@@ -576,7 +576,7 @@ fn render_header_state<'a>(
                     confirmed_values
                         .get(repeat_idx)
                         .map(|value| {
-                            match crate::sections::multi_field::resolve_multifield_value(
+                            match crate::sections::multi_field::resolve_multifield_value_for_confirmed_slot(
                                 value,
                                 field,
                                 &app.assigned_values,
@@ -602,7 +602,7 @@ fn render_header_state<'a>(
                 let field_label = confirmed_values
                     .get(repeat_idx)
                     .map(|value| {
-                        crate::sections::multi_field::resolve_field_label(
+                        crate::sections::multi_field::resolve_field_label_for_confirmed_slot(
                             value,
                             field,
                             &app.assigned_values,
@@ -639,7 +639,7 @@ fn render_header_state<'a>(
         let confirmed = confirmed_values.first().cloned().unwrap_or(
             crate::sections::header::HeaderFieldValue::Text(String::new()),
         );
-        let field_label = crate::sections::multi_field::resolve_field_label(
+        let field_label = crate::sections::multi_field::resolve_field_label_for_confirmed_slot(
             &confirmed,
             field,
             &app.assigned_values,
@@ -1113,7 +1113,8 @@ fn match_header_preview_line(app: &App, line: &str) -> Option<HeaderPreviewLineM
             }
 
             for value in values {
-                let resolved = crate::sections::multi_field::resolve_multifield_value(
+                let resolved =
+                    crate::sections::multi_field::resolve_multifield_value_for_confirmed_slot(
                     value,
                     field,
                     &app.assigned_values,
@@ -1122,7 +1123,7 @@ fn match_header_preview_line(app: &App, line: &str) -> Option<HeaderPreviewLineM
                 let Some(rendered) = resolved.export_value() else {
                     continue;
                 };
-                let candidate = crate::sections::multi_field::render_note_line(
+                let candidate = crate::sections::multi_field::render_note_line_for_confirmed_slot(
                     section,
                     field,
                     value,
