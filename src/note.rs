@@ -135,7 +135,8 @@ fn render_document(
             let Some((cfg, state)) = state_lookup.get(config.id.as_str()).copied() else {
                 continue;
             };
-            let body = render_section_body(cfg, state, assigned_values, sticky_values, mode.clone());
+            let body =
+                render_section_body(cfg, state, assigned_values, sticky_values, mode.clone());
             if body.trim().is_empty() && is_skipped(state) {
                 continue;
             }
@@ -435,11 +436,7 @@ mod tests {
         }
     }
 
-    fn list_state(
-        values: &[&str],
-        item_ids: &[&str],
-        list_idx: usize,
-    ) -> HeaderFieldValue {
+    fn list_state(values: &[&str], item_ids: &[&str], list_idx: usize) -> HeaderFieldValue {
         HeaderFieldValue::ListState(ListFieldValue {
             values: values.iter().map(|value| (*value).to_string()).collect(),
             item_ids: item_ids.iter().map(|id| (*id).to_string()).collect(),
@@ -447,6 +444,91 @@ mod tests {
             repeat_values: Vec::new(),
             repeat_item_ids: Vec::new(),
         })
+    }
+
+    fn multifield_section(fields: Vec<HeaderFieldConfig>) -> SectionConfig {
+        SectionConfig {
+            id: "request_section".to_string(),
+            name: "Request".to_string(),
+            map_label: "Request".to_string(),
+            section_type: "multi_field".to_string(),
+            show_field_labels: true,
+            data_file: None,
+            fields: Some(fields),
+            lists: Vec::new(),
+            note_label: None,
+            group_id: "intake".to_string(),
+            node_kind: RuntimeNodeKind::Section,
+        }
+    }
+
+    #[test]
+    fn repeating_note_slots_use_slot_local_assigned_values() {
+        let section = multifield_section(vec![assigned_time_field(
+            "appointment",
+            "Appointment",
+            Some(2),
+        )]);
+        let field = section
+            .fields
+            .as_ref()
+            .and_then(|fields| fields.first())
+            .expect("section should contain one field");
+        let first = list_state(&["9", "00"], &["hour_9", "minute_00"], 2);
+        let second = list_state(&["12", "45"], &["hour_12", "minute_45"], 2);
+        let assigned_values = HashMap::from([(String::from("am_pm"), String::from("PM"))]);
+        let sticky_values = HashMap::new();
+
+        let first_line = render_note_line_for_confirmed_slot(
+            &section,
+            field,
+            &first,
+            &assigned_values,
+            &sticky_values,
+        )
+        .expect("first slot should render");
+        let second_line = render_note_line_for_confirmed_slot(
+            &section,
+            field,
+            &second,
+            &assigned_values,
+            &sticky_values,
+        )
+        .expect("second slot should render");
+
+        assert_eq!(first_line, "Appointment: 9:00AM");
+        assert_eq!(second_line, "Appointment: 12:45PM");
+    }
+
+    #[test]
+    fn cross_field_note_lines_override_global_assignment_collisions_per_slot() {
+        let start_field = assigned_time_field("start_time", "Start Time", None);
+        let end_field = assigned_time_field("end_time", "End Time", None);
+        let section = multifield_section(vec![start_field.clone(), end_field.clone()]);
+        let start_value = list_state(&["9", "00"], &["hour_9", "minute_00"], 2);
+        let end_value = list_state(&["12", "45"], &["hour_12", "minute_45"], 2);
+        let assigned_values = HashMap::from([(String::from("am_pm"), String::from("PM"))]);
+        let sticky_values = HashMap::new();
+
+        let start_line = render_note_line_for_confirmed_slot(
+            &section,
+            &start_field,
+            &start_value,
+            &assigned_values,
+            &sticky_values,
+        )
+        .expect("start field should render");
+        let end_line = render_note_line_for_confirmed_slot(
+            &section,
+            &end_field,
+            &end_value,
+            &assigned_values,
+            &sticky_values,
+        )
+        .expect("end field should render");
+
+        assert_eq!(start_line, "Start Time: 9:00AM");
+        assert_eq!(end_line, "End Time: 12:45PM");
     }
 
     #[test]
@@ -561,8 +643,12 @@ mod tests {
             NoteRenderMode::Preview,
         );
 
-        let first_heading = note.find("#### FIRST").expect("first heading should render");
-        let second_heading = note.find("#### SECOND").expect("second heading should render");
+        let first_heading = note
+            .find("#### FIRST")
+            .expect("first heading should render");
+        let second_heading = note
+            .find("#### SECOND")
+            .expect("second heading should render");
         assert!(first_heading < second_heading);
         assert!(note.contains("first body"));
         assert!(note.contains("second body"));
@@ -852,7 +938,11 @@ mod tests {
             section_type: "multi_field".to_string(),
             show_field_labels: true,
             data_file: None,
-            fields: Some(vec![assigned_time_field("appointment", "Appointment", Some(2))]),
+            fields: Some(vec![assigned_time_field(
+                "appointment",
+                "Appointment",
+                Some(2),
+            )]),
             lists: Vec::new(),
             note_label: None,
             group_id: "intake".to_string(),
@@ -892,8 +982,7 @@ mod tests {
         };
         let mut state = HeaderState::new(cfg.fields.clone().unwrap_or_default());
         state.repeated_values[0] = vec![list_state(&["9", "00"], &["hour_9", "minute_00"], 2)];
-        state.repeated_values[1] =
-            vec![list_state(&["12", "45"], &["hour_12", "minute_45"], 2)];
+        state.repeated_values[1] = vec![list_state(&["12", "45"], &["hour_12", "minute_45"], 2)];
         let assigned_values = HashMap::from([("am_pm".to_string(), "PM".to_string())]);
 
         let rendered = render_multifield(&cfg, &state, &assigned_values, &HashMap::new());

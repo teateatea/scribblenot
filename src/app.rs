@@ -19,8 +19,9 @@ use crate::sections::{
     list_select::{ListSelectMode, ListSelectState},
 };
 pub use crate::transition::{
-    unit_display_width, FocusDirection, ModalArrivalLayer, ModalDepartureLayer,
-    ModalTransitionEasing, ModalTransitionLayer, UnitContentSnapshot, UnitGeometry,
+    unit_display_width, FocusDirection, ModalArrivalLayer, ModalCompositionLayer,
+    ModalCompositionTransition, ModalDepartureLayer, ModalTransitionEasing, ModalTransitionLayer,
+    UnitContentSnapshot, UnitGeometry,
 };
 use iced::keyboard::{key::Named, Key, Modifiers};
 use std::collections::{BTreeMap, HashMap};
@@ -242,6 +243,7 @@ pub struct App {
     pub next_prepared_unit: Option<usize>,
     /// In-flight animation entries, ordered oldest-to-newest (newest = last / topmost).
     pub modal_transitions: Vec<ModalTransitionLayer>,
+    pub modal_composition_transition: Option<ModalCompositionTransition>,
     pub modal_composition_editing: bool,
     pub editable_note: String,
     pub note_headings_valid: bool,
@@ -341,6 +343,7 @@ impl App {
             prev_prepared_unit: None,
             next_prepared_unit: None,
             modal_transitions: Vec::new(),
+            modal_composition_transition: None,
             modal_composition_editing: false,
             editable_note,
             note_headings_valid,
@@ -487,6 +490,7 @@ impl App {
         self.modal_mouse_mode = false;
         self.modal_restore_snapshot = None;
         self.settle_modal_transitions();
+        self.modal_composition_transition = None;
         self.modal_composition_editing = false;
         self.hint_buffer.clear();
     }
@@ -878,6 +882,16 @@ impl App {
             ModalTransitionLayer::ModalClose { departure, .. } => !departure.is_finished(),
         });
         if self
+            .modal_composition_transition
+            .as_ref()
+            .is_some_and(|transition| match transition {
+                ModalCompositionTransition::Open { arrival, .. } => arrival.is_finished(),
+                ModalCompositionTransition::Close { departure, .. } => departure.is_finished(),
+            })
+        {
+            self.modal_composition_transition = None;
+        }
+        if self
             .copy_flash_until
             .is_some_and(|until| Instant::now() >= until)
         {
@@ -893,7 +907,7 @@ impl App {
 
     /// Returns true when any transition layer is currently animating.
     pub fn has_active_modal_transition(&self) -> bool {
-        !self.modal_transitions.is_empty()
+        !self.modal_transitions.is_empty() || self.modal_composition_transition.is_some()
     }
 
     pub fn collection_text_flash_amount(&self, collection_id: &str) -> Option<f32> {
@@ -2248,6 +2262,13 @@ impl App {
             // Dual-layout capture: snapshot pre-mutation state for departure geometry.
             let previous_layout = self.modal_unit_layout.clone();
             let previous_modal = self.modal.as_ref().unwrap().clone();
+            let confirm_snapshot_override = self.modal.as_ref().and_then(|modal| {
+                modal.preview_current_list_as_confirmed(
+                    Some(value.as_str()),
+                    &self.assigned_values,
+                    &self.config.sticky_values,
+                )
+            });
             let window_size = self.modal_window_size();
             let advance = self.modal.as_mut().unwrap().advance_field(
                 value,
@@ -2260,7 +2281,11 @@ impl App {
                     self.sync_modal_preview_state(idx);
                     let _ = self.config.save(&self.data_dir);
                     self.rebuild_modal_unit_layout(false);
-                    self.fire_modal_transition_if_needed(previous_layout, previous_modal);
+                    self.fire_modal_transition_if_needed(
+                        previous_layout,
+                        previous_modal,
+                        confirm_snapshot_override,
+                    );
                 }
                 FieldAdvance::StayOnList => {
                     self.sync_modal_preview_state(idx);
@@ -2297,7 +2322,7 @@ impl App {
                             self.advance_section();
                         }
                     }
-                    self.fire_modal_confirm_transition_if_possible();
+                    self.fire_modal_confirm_transition_if_possible(confirm_snapshot_override);
                     self.clear_live_modal_state_preserving_transitions();
                     let _ = self.config.save(&self.data_dir);
                 }
@@ -2314,6 +2339,13 @@ impl App {
         // Dual-layout capture: snapshot pre-mutation state for departure geometry.
         let previous_layout = self.modal_unit_layout.clone();
         let previous_modal = self.modal.as_ref().unwrap().clone();
+        let confirm_snapshot_override = self.modal.as_ref().and_then(|modal| {
+            modal.preview_current_list_as_confirmed(
+                None,
+                &self.assigned_values,
+                &self.config.sticky_values,
+            )
+        });
         let window_size = self.modal_window_size();
         let advance = self.modal.as_mut().unwrap().super_confirm_field(
             &self.assigned_values,
@@ -2326,7 +2358,11 @@ impl App {
                 self.sync_modal_preview_state(idx);
                 let _ = self.config.save(&self.data_dir);
                 self.rebuild_modal_unit_layout(false);
-                self.fire_modal_transition_if_needed(previous_layout, previous_modal);
+                self.fire_modal_transition_if_needed(
+                    previous_layout,
+                    previous_modal,
+                    confirm_snapshot_override,
+                );
             }
             FieldAdvance::Complete(final_value) => {
                 let mut committed_value = self
@@ -2358,7 +2394,7 @@ impl App {
                         self.advance_section();
                     }
                 }
-                self.fire_modal_confirm_transition_if_possible();
+                self.fire_modal_confirm_transition_if_possible(confirm_snapshot_override);
                 self.clear_live_modal_state_preserving_transitions();
                 let _ = self.config.save(&self.data_dir);
             }
@@ -2726,7 +2762,7 @@ impl App {
         }) {
             self.sync_modal_preview_state(idx);
             self.rebuild_modal_unit_layout(false);
-            self.fire_modal_transition_if_needed(previous_layout, previous_modal);
+            self.fire_modal_transition_if_needed(previous_layout, previous_modal, None);
             return;
         }
         let (new_list_idx, popped_output, popped_item_id, new_labels, new_outputs) = {
@@ -2823,7 +2859,7 @@ impl App {
             self.sync_modal_preview_state(idx);
         }
         self.rebuild_modal_unit_layout(false);
-        self.fire_modal_transition_if_needed(previous_layout, previous_modal);
+        self.fire_modal_transition_if_needed(previous_layout, previous_modal, None);
     }
 
     fn composite_go_forward(&mut self) -> bool {
@@ -2845,7 +2881,7 @@ impl App {
         }) {
             self.sync_modal_preview_state(idx);
             self.rebuild_modal_unit_layout(false);
-            self.fire_modal_transition_if_needed(previous_layout, previous_modal);
+            self.fire_modal_transition_if_needed(previous_layout, previous_modal, None);
             return true;
         }
         false
@@ -2881,7 +2917,7 @@ impl App {
                 self.advance_section();
             }
         }
-        self.fire_modal_confirm_transition_if_possible();
+        self.fire_modal_confirm_transition_if_possible(None);
         self.clear_live_modal_state_preserving_transitions();
         let _ = self.config.save(&self.data_dir);
         true
@@ -2889,8 +2925,44 @@ impl App {
 
     fn modal_lifecycle_slide_distance(&self, geometry: &UnitGeometry) -> f32 {
         let unit_width = unit_display_width(geometry, self.ui_theme.modal_stub_width);
-        let viewport_width = self.viewport_size.map(|size| size.width).unwrap_or(unit_width);
+        let viewport_width = self
+            .viewport_size
+            .map(|size| size.width)
+            .unwrap_or(unit_width);
         (viewport_width + unit_width) * 0.5 + self.modal_spacer_width()
+    }
+
+    fn fire_modal_composition_open_transition_if_possible(&mut self) {
+        let Some(modal) = self.modal.as_ref() else {
+            return;
+        };
+        if modal.is_collection_mode() || self.modal_unit_layout.is_none() {
+            return;
+        }
+        let effective_spacer_width = self.modal_spacer_width();
+        let duration_ms = self.ui_theme.modal_transition_duration.max(1) as u64;
+        let easing = self.ui_theme.modal_transition_easing;
+        let Some(geometry) = self.modal_unit_layout.as_ref().and_then(|layout| {
+            UnitGeometry::from_layout(
+                layout,
+                self.active_unit_index,
+                modal,
+                effective_spacer_width,
+            )
+        }) else {
+            return;
+        };
+
+        self.modal_composition_transition = Some(ModalCompositionTransition::Open {
+            arrival: ModalCompositionLayer {
+                modal: modal.clone(),
+                focus_direction: FocusDirection::Forward,
+                started_at: Instant::now(),
+                duration_ms,
+                easing,
+            },
+            slide_distance: self.modal_lifecycle_slide_distance(&geometry),
+        });
     }
 
     fn fire_modal_open_transition_if_possible(&mut self) {
@@ -2923,13 +2995,55 @@ impl App {
             easing,
         };
 
-        self.modal_transitions.push(ModalTransitionLayer::ModalOpen {
-            arrival,
-            slide_distance,
+        self.modal_transitions
+            .push(ModalTransitionLayer::ModalOpen {
+                arrival,
+                slide_distance,
+            });
+        self.fire_modal_composition_open_transition_if_possible();
+    }
+
+    fn fire_modal_composition_close_transition_if_possible(
+        &mut self,
+        focus_direction: FocusDirection,
+    ) {
+        let Some(modal) = self.modal.as_ref() else {
+            return;
+        };
+        if modal.is_collection_mode() || self.modal_unit_layout.is_none() {
+            return;
+        }
+        let effective_spacer_width = self.modal_spacer_width();
+        let duration_ms = self.ui_theme.modal_transition_duration.max(1) as u64;
+        let easing = self.ui_theme.modal_transition_easing;
+        let Some(geometry) = self.modal_unit_layout.as_ref().and_then(|layout| {
+            UnitGeometry::from_layout(
+                layout,
+                self.active_unit_index,
+                modal,
+                effective_spacer_width,
+            )
+        }) else {
+            return;
+        };
+
+        self.modal_composition_transition = Some(ModalCompositionTransition::Close {
+            departure: ModalCompositionLayer {
+                modal: modal.clone(),
+                focus_direction,
+                started_at: Instant::now(),
+                duration_ms,
+                easing,
+            },
+            slide_distance: self.modal_lifecycle_slide_distance(&geometry),
         });
     }
 
-    fn fire_modal_close_transition_if_possible(&mut self, focus_direction: FocusDirection) {
+    fn fire_modal_close_transition_if_possible(
+        &mut self,
+        focus_direction: FocusDirection,
+        active_snapshot_override: Option<crate::modal_layout::ModalListViewSnapshot>,
+    ) {
         let effective_spacer_width = self.modal_spacer_width();
         let duration_ms = self.ui_theme.modal_transition_duration.max(1) as u64;
         let easing = self.ui_theme.modal_transition_easing;
@@ -2949,7 +3063,11 @@ impl App {
                     modal,
                     effective_spacer_width,
                 ),
-                UnitContentSnapshot::from_layout(layout, departing_unit_index),
+                UnitContentSnapshot::from_layout_with_active_override(
+                    layout,
+                    departing_unit_index,
+                    active_snapshot_override,
+                ),
             )
         };
 
@@ -2970,18 +3088,26 @@ impl App {
             easing,
         };
 
-        self.modal_transitions.push(ModalTransitionLayer::ModalClose {
-            departure,
-            slide_distance,
-        });
+        self.modal_transitions
+            .push(ModalTransitionLayer::ModalClose {
+                departure,
+                slide_distance,
+            });
+        self.fire_modal_composition_close_transition_if_possible(focus_direction);
     }
 
     fn fire_modal_exit_transition_if_possible(&mut self) {
-        self.fire_modal_close_transition_if_possible(FocusDirection::Backward);
+        self.fire_modal_close_transition_if_possible(FocusDirection::Backward, None);
     }
 
-    fn fire_modal_confirm_transition_if_possible(&mut self) {
-        self.fire_modal_close_transition_if_possible(FocusDirection::Forward);
+    fn fire_modal_confirm_transition_if_possible(
+        &mut self,
+        active_snapshot_override: Option<crate::modal_layout::ModalListViewSnapshot>,
+    ) {
+        self.fire_modal_close_transition_if_possible(
+            FocusDirection::Forward,
+            active_snapshot_override,
+        );
     }
 
     /// Evaluate whether focus crossed a unit boundary after a modal mutation and, if so,
@@ -2994,6 +3120,7 @@ impl App {
         &mut self,
         previous_layout: Option<SimpleModalUnitLayout>,
         previous_modal: SearchModal,
+        active_snapshot_override: Option<crate::modal_layout::ModalListViewSnapshot>,
     ) {
         // Both current and previous states must be in simple mode.
         if self.modal_unit_layout.is_none() || self.modal.is_none() {
@@ -3052,7 +3179,11 @@ impl App {
                 self.modal.as_ref().unwrap(),
                 effective_spacer_width,
             );
-            dep_content = UnitContentSnapshot::from_layout(prev_layout, departing_unit_index);
+            dep_content = UnitContentSnapshot::from_layout_with_active_override(
+                prev_layout,
+                departing_unit_index,
+                active_snapshot_override,
+            );
         }
 
         let (Some(dep_geometry), Some(arr_geometry), Some(dep_content)) =
@@ -3989,13 +4120,13 @@ mod tests {
 mod composition_span_tests {
     use super::{
         compute_field_composition_spans, App, AppKey, FieldCompositionSpanKind, Focus,
-        FocusDirection, ModalTransitionLayer, SectionState,
+        FocusDirection, ModalCompositionTransition, ModalTransitionLayer, SectionState,
     };
     use crate::config::Config;
     use crate::data::{
         AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem, HierarchyList, ItemAssignment,
-        JoinerStyle, KeyBindings, ModalStart, ResolvedCollectionConfig, RuntimeNodeKind,
-        RuntimeGroup, RuntimeNode, RuntimeTemplate, SectionConfig, SectionGroup,
+        JoinerStyle, KeyBindings, ModalStart, ResolvedCollectionConfig, RuntimeGroup, RuntimeNode,
+        RuntimeNodeKind, RuntimeTemplate, SectionConfig, SectionGroup,
     };
     use crate::modal::SearchModal;
     use crate::modal_layout::ModalFocus;
@@ -4053,10 +4184,7 @@ mod composition_span_tests {
                     modal_start: ModalStart::Search,
                     joiner_style: None,
                     max_entries: None,
-                    items: vec![
-                        empty_item("empty_space"),
-                        item("left", "Left", "Left "),
-                    ],
+                    items: vec![empty_item("empty_space"), item("left", "Left", "Left ")],
                 },
                 HierarchyList {
                     id: "tag".to_string(),
@@ -4069,11 +4197,7 @@ mod composition_span_tests {
                     max_entries: None,
                     items: vec![
                         empty_item("empty_space"),
-                        item(
-                            "rmt",
-                            "Increased RMT",
-                            "Increased Resting Muscle Tension",
-                        ),
+                        item("rmt", "Increased RMT", "Increased Resting Muscle Tension"),
                     ],
                 },
             ],
@@ -4350,6 +4474,12 @@ mod composition_span_tests {
             max_entries: None,
             max_actives: None,
         }
+    }
+
+    fn repeating_assigned_time_field(max_entries: usize) -> HeaderFieldConfig {
+        let mut field = assigned_time_field();
+        field.max_entries = Some(max_entries);
+        field
     }
 
     fn scheduled_visit_field() -> HeaderFieldConfig {
@@ -4849,6 +4979,12 @@ mod composition_span_tests {
             }
             other => panic!("expected modal open transition, got {other:?}"),
         }
+        match app.modal_composition_transition.as_ref() {
+            Some(ModalCompositionTransition::Open { arrival, .. }) => {
+                assert_eq!(arrival.focus_direction, FocusDirection::Forward);
+            }
+            other => panic!("expected composition open transition, got {other:?}"),
+        }
     }
 
     #[test]
@@ -4858,13 +4994,25 @@ mod composition_span_tests {
 
         app.dismiss_modal();
 
-        assert!(app.modal.is_none(), "live modal should be cleared immediately");
+        assert!(
+            app.modal.is_none(),
+            "live modal should be cleared immediately"
+        );
         match app.modal_transitions.last() {
             Some(ModalTransitionLayer::ModalClose { departure, .. }) => {
                 assert_eq!(departure.focus_direction, FocusDirection::Backward);
-                assert!(departure.modal.is_some(), "close layer should retain modal snapshot");
+                assert!(
+                    departure.modal.is_some(),
+                    "close layer should retain modal snapshot"
+                );
             }
             other => panic!("expected modal close transition, got {other:?}"),
+        }
+        match app.modal_composition_transition.as_ref() {
+            Some(ModalCompositionTransition::Close { departure, .. }) => {
+                assert_eq!(departure.focus_direction, FocusDirection::Backward);
+            }
+            other => panic!("expected composition close transition, got {other:?}"),
         }
     }
 
@@ -4875,13 +5023,58 @@ mod composition_span_tests {
 
         app.confirm_modal_value("Shoulder".to_string());
 
-        assert!(app.modal.is_none(), "live modal should be cleared after confirm");
+        assert!(
+            app.modal.is_none(),
+            "live modal should be cleared after confirm"
+        );
         match app.modal_transitions.last() {
             Some(ModalTransitionLayer::ModalClose { departure, .. }) => {
                 assert_eq!(departure.focus_direction, FocusDirection::Forward);
-                assert!(departure.modal.is_some(), "close layer should retain modal snapshot");
+                assert!(
+                    departure.modal.is_some(),
+                    "close layer should retain modal snapshot"
+                );
+                assert_eq!(
+                    departure
+                        .content
+                        .modals
+                        .first()
+                        .and_then(|snapshot| snapshot.confirmed_row),
+                    Some(0),
+                    "confirm close should snapshot the row in confirmed styling before motion"
+                );
             }
             other => panic!("expected confirm close transition, got {other:?}"),
+        }
+        match app.modal_composition_transition.as_ref() {
+            Some(ModalCompositionTransition::Close { departure, .. }) => {
+                assert_eq!(departure.focus_direction, FocusDirection::Forward);
+            }
+            other => panic!("expected composition confirm close transition, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn confirming_across_unit_boundary_snapshots_confirmed_row_before_connected_transition() {
+        let mut app = app_with_single_field(scheduled_visit_field());
+        app.viewport_size = Some(iced::Size::new(220.0, 900.0));
+        app.open_header_modal();
+
+        app.confirm_modal_value("12".to_string());
+
+        match app.modal_transitions.last() {
+            Some(ModalTransitionLayer::ConnectedTransition { departure, .. }) => {
+                assert_eq!(
+                    departure
+                        .content
+                        .modals
+                        .last()
+                        .and_then(|snapshot| snapshot.confirmed_row),
+                    Some(1),
+                    "departing unit should preserve confirmed styling when confirmation crosses into the next unit"
+                );
+            }
+            other => panic!("expected connected transition, got {other:?}"),
         }
     }
 
@@ -5334,6 +5527,53 @@ mod composition_span_tests {
     }
 
     #[test]
+    fn editing_one_repeating_slot_preserves_neighbor_note_output() {
+        let mut app = app_with_single_field(repeating_assigned_time_field(2));
+        app.open_header_modal();
+        app.confirm_modal_value("9".to_string());
+        app.confirm_modal_value("00".to_string());
+
+        app.open_header_modal();
+        app.confirm_modal_value("12".to_string());
+        app.confirm_modal_value("45".to_string());
+
+        let before = app.editable_note.clone();
+        assert!(
+            before.contains("Appointment: 9:00AM"),
+            "first slot should render before the edit"
+        );
+        assert!(
+            before.contains("Appointment: 12:45PM"),
+            "second slot should render before the edit"
+        );
+
+        let SectionState::Header(state) = &mut app.section_states[0] else {
+            panic!("expected header state");
+        };
+        state.field_index = 0;
+        state.repeat_counts[0] = 0;
+        state.completed = false;
+        app.open_header_modal();
+        app.confirm_modal_value("12".to_string());
+        app.confirm_modal_value("00".to_string());
+
+        let after = app.editable_note.clone();
+        assert!(
+            !after.contains("Appointment: 9:00AM"),
+            "edited slot should no longer show the old value"
+        );
+        assert!(
+            after.contains("Appointment: 12:00PM"),
+            "edited slot should show the replacement value"
+        );
+        assert_eq!(
+            before.matches("Appointment: 12:45PM").count(),
+            after.matches("Appointment: 12:45PM").count(),
+            "editing slot 0 should not change slot 1's rendered note output"
+        );
+    }
+
+    #[test]
     fn reopened_modal_restores_confirmed_cursors_and_nav_right_keeps_original_choice() {
         let mut app = app_with_single_field(assigned_time_field());
         app.open_header_modal();
@@ -5361,6 +5601,43 @@ mod composition_span_tests {
         let modal = app.modal.as_ref().expect("modal should stay open");
         assert_eq!(modal.field_flow.list_idx, 0);
         assert_eq!(modal.selected_value(), Some("9"));
+    }
+
+    #[test]
+    fn reopened_repeating_modal_restores_slot_specific_confirmed_cursor_despite_global_collision() {
+        let mut app = app_with_single_field(repeating_assigned_time_field(2));
+        app.open_header_modal();
+        app.confirm_modal_value("12".to_string());
+        app.confirm_modal_value("45".to_string());
+
+        app.open_header_modal();
+        app.confirm_modal_value("9".to_string());
+        app.confirm_modal_value("00".to_string());
+
+        assert_eq!(
+            app.assigned_values.get("am_pm").map(String::as_str),
+            Some("AM"),
+            "global assigned cache should reflect the most recently confirmed slot"
+        );
+
+        let SectionState::Header(state) = &mut app.section_states[0] else {
+            panic!("expected header state");
+        };
+        state.field_index = 0;
+        state.repeat_counts[0] = 0;
+        state.completed = false;
+        app.open_header_modal();
+
+        let modal = app.modal.as_ref().expect("modal should reopen");
+        assert_eq!(modal.field_flow.list_idx, 0);
+        assert_eq!(modal.selected_value(), Some("12"));
+        assert_eq!(modal.confirmed_row_for_current_list(), Some(1));
+
+        app.handle_key(AppKey::Char('i'));
+        let modal = app.modal.as_ref().expect("modal should stay open");
+        assert_eq!(modal.field_flow.list_idx, 1);
+        assert_eq!(modal.selected_value(), Some("45"));
+        assert_eq!(modal.confirmed_row_for_current_list(), Some(1));
     }
 
     #[test]
@@ -5520,12 +5797,15 @@ mod composition_span_tests {
         let exported = crate::document::export_editable_document(&app.editable_note);
 
         assert!(
-            app.editable_note
-                .contains("Observation: Left Trapezius (Upper Fibers): Increased Resting Muscle Tension"),
+            app.editable_note.contains(
+                "Observation: Left Trapezius (Upper Fibers): Increased Resting Muscle Tension"
+            ),
             "editable note should contain confirmed objective field output"
         );
         assert!(
-            exported.contains("Observation: Left Trapezius (Upper Fibers): Increased Resting Muscle Tension"),
+            exported.contains(
+                "Observation: Left Trapezius (Upper Fibers): Increased Resting Muscle Tension"
+            ),
             "exported preview should contain confirmed objective field output"
         );
     }
@@ -5544,13 +5824,17 @@ mod composition_span_tests {
         let exported = crate::document::export_editable_document(&app.editable_note);
 
         assert!(
-            app.editable_note.contains("Request: Relaxation massage, focusing on the Left Shoulder"),
+            app.editable_note
+                .contains("Request: Relaxation massage, focusing on the Left Shoulder"),
             "editable note should contain confirmed appointment request output"
         );
         assert!(
             exported.contains("Request: Relaxation massage, focusing on the Left Shoulder"),
             "exported preview should contain confirmed appointment request output"
         );
-        assert!(app.modal.is_none(), "modal should close after nested repeat terminates");
+        assert!(
+            app.modal.is_none(),
+            "modal should close after nested repeat terminates"
+        );
     }
 }

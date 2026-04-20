@@ -12,7 +12,7 @@ fields:
   - id: obmuscle_field
     label: "Muscle Observation"
     format: "{year}-{month}-{day}: {place}{muscle}: {tag}"
-    repeat_limit: 12
+    max_entries: 12
     lists:
       - muscle
       - place
@@ -34,7 +34,7 @@ lists:
     modal_start: search
     default: empty_space
     joiner_style: comma
-    repeat_limit: 12
+    max_entries: 12
     items:
       - id: empty_space
         label: "1 (Empty Space)"
@@ -285,7 +285,7 @@ lists:
     label: "Objective Tag Desciptions"
     modal_start: search
     joiner_style: comma
-    repeat_limit: 12
+    max_entries: 12
     default: empty_space
     items:
       - id: empty_space
@@ -411,7 +411,7 @@ lists:
     label: "muscle erector spinae thoracic spine"
     modal_start: search
     default: empty_space
-    repeat_limit: 12
+    max_entries: 12
     joiner_style: comma
     items:
       - id: empty_space

@@ -166,6 +166,22 @@ impl UnitContentSnapshot {
             .unwrap_or_default();
         Some(Self { modals })
     }
+
+    pub fn from_layout_with_active_override(
+        layout: &SimpleModalUnitLayout,
+        unit_index: usize,
+        active_snapshot: Option<ModalListViewSnapshot>,
+    ) -> Option<Self> {
+        let unit = layout.units.get(unit_index)?;
+        let mut snapshot = Self::from_layout(layout, unit_index)?;
+        if let Some(active_snapshot) = active_snapshot {
+            let active_index = layout.sequence.active_sequence_index;
+            if (unit.start..=unit.end).contains(&active_index) {
+                snapshot.modals[active_index - unit.start] = active_snapshot;
+            }
+        }
+        Some(snapshot)
+    }
 }
 
 // LESSON 5: The clock and config for the incoming unit's animation. Owns started_at/duration/easing
@@ -229,6 +245,42 @@ impl ModalDepartureLayer {
     pub fn is_finished(&self) -> bool {
         self.progress() >= 1.0
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct ModalCompositionLayer {
+    pub modal: SearchModal,
+    pub focus_direction: FocusDirection,
+    pub started_at: Instant,
+    pub duration_ms: u64,
+    pub easing: ModalTransitionEasing,
+}
+
+impl ModalCompositionLayer {
+    pub fn progress(&self) -> f32 {
+        let duration_secs = (self.duration_ms.max(1) as f32) / 1000.0;
+        (self.started_at.elapsed().as_secs_f32() / duration_secs).clamp(0.0, 1.0)
+    }
+
+    pub fn eased_progress(&self) -> f32 {
+        self.easing.apply(self.progress())
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.progress() >= 1.0
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ModalCompositionTransition {
+    Open {
+        arrival: ModalCompositionLayer,
+        slide_distance: f32,
+    },
+    Close {
+        departure: ModalCompositionLayer,
+        slide_distance: f32,
+    },
 }
 
 // LESSON 7: The envelope that pairs arrival + departure + slide_distance into one animation entry.

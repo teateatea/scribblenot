@@ -311,13 +311,7 @@ pub(super) fn build_modal_open_rendered_unit(
 
     if geometry.shows_stubs {
         if let Some(kind) = geometry.leading_stub_kind {
-            push_strip_stub(
-                &mut cards,
-                ModalUnitSide::Left,
-                kind,
-                stub_width,
-                alpha,
-            );
+            push_strip_stub(&mut cards, ModalUnitSide::Left, kind, stub_width, alpha);
         }
     }
 
@@ -339,13 +333,7 @@ pub(super) fn build_modal_open_rendered_unit(
 
     if geometry.shows_stubs {
         if let Some(kind) = geometry.trailing_stub_kind {
-            push_strip_stub(
-                &mut cards,
-                ModalUnitSide::Right,
-                kind,
-                stub_width,
-                alpha,
-            );
+            push_strip_stub(&mut cards, ModalUnitSide::Right, kind, stub_width, alpha);
         }
     }
 
@@ -362,13 +350,7 @@ pub(super) fn build_modal_close_rendered_unit(
 
     if geometry.shows_stubs {
         if let Some(kind) = geometry.leading_stub_kind {
-            push_strip_stub(
-                &mut cards,
-                ModalUnitSide::Left,
-                kind,
-                stub_width,
-                alpha,
-            );
+            push_strip_stub(&mut cards, ModalUnitSide::Left, kind, stub_width, alpha);
         }
     }
 
@@ -388,13 +370,7 @@ pub(super) fn build_modal_close_rendered_unit(
 
     if geometry.shows_stubs {
         if let Some(kind) = geometry.trailing_stub_kind {
-            push_strip_stub(
-                &mut cards,
-                ModalUnitSide::Right,
-                kind,
-                stub_width,
-                alpha,
-            );
+            push_strip_stub(&mut cards, ModalUnitSide::Right, kind, stub_width, alpha);
         }
     }
 
@@ -569,15 +545,15 @@ pub(super) fn transition_unit_display_width(
 // left_pad Space consumes all the room the cards need. ClipTranslate bypasses this by using
 // Limits::new(Size::ZERO, Size::new(f32::MAX, h)) for the content layout pass, then places
 // the resulting node at x_offset (can be negative). The clip envelope is explicit.
-struct ClipTranslate<'a, M, T, R> {
+pub(super) struct ClipTranslate<'a, M, T, R> {
     x_offset: f32,
     width: f32,
-    height: f32,
+    height: Option<f32>,
     content: Element<'a, M, T, R>,
 }
 
 impl<'a, M, T, R> ClipTranslate<'a, M, T, R> {
-    fn new(
+    pub(super) fn new(
         x_offset: f32,
         width: f32,
         height: f32,
@@ -586,7 +562,20 @@ impl<'a, M, T, R> ClipTranslate<'a, M, T, R> {
         Self {
             x_offset,
             width,
-            height,
+            height: Some(height),
+            content: content.into(),
+        }
+    }
+
+    pub(super) fn auto_height(
+        x_offset: f32,
+        width: f32,
+        content: impl Into<Element<'a, M, T, R>>,
+    ) -> Self {
+        Self {
+            x_offset,
+            width,
+            height: None,
             content: content.into(),
         }
     }
@@ -599,7 +588,7 @@ where
     fn size(&self) -> Size<Length> {
         Size {
             width: Length::Fixed(self.width),
-            height: Length::Fixed(self.height),
+            height: self.height.map_or(Length::Shrink, Length::Fixed),
         }
     }
 
@@ -609,15 +598,19 @@ where
         renderer: &R,
         limits: &layout::Limits,
     ) -> layout::Node {
-        // Clamp to parent-granted height so clip envelope and child layout agree.
-        let effective_height = self.height.min(limits.max().height);
+        let max_height = self.height.unwrap_or(limits.max().height);
+        let effective_height = max_height.min(limits.max().height);
         let content_limits = layout::Limits::new(Size::ZERO, Size::new(f32::MAX, effective_height));
         let content_node = self
             .content
             .as_widget()
             .layout(&mut tree.children[0], renderer, &content_limits)
             .move_to(Point::new(self.x_offset, 0.0));
-        layout::Node::with_children(Size::new(self.width, effective_height), vec![content_node])
+        let node_height = self
+            .height
+            .map(|_| effective_height)
+            .unwrap_or_else(|| content_node.size().height);
+        layout::Node::with_children(Size::new(self.width, node_height), vec![content_node])
     }
 
     fn draw(

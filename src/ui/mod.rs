@@ -1115,11 +1115,11 @@ fn match_header_preview_line(app: &App, line: &str) -> Option<HeaderPreviewLineM
             for value in values {
                 let resolved =
                     crate::sections::multi_field::resolve_multifield_value_for_confirmed_slot(
-                    value,
-                    field,
-                    &app.assigned_values,
-                    &app.config.sticky_values,
-                );
+                        value,
+                        field,
+                        &app.assigned_values,
+                        &app.config.sticky_values,
+                    );
                 let Some(rendered) = resolved.export_value() else {
                     continue;
                 };
@@ -1868,6 +1868,7 @@ fn entry_composition_panel<'a>(
     modal: &'a crate::modal::SearchModal,
     modal_width: f32,
     composition_editing: bool,
+    alpha: f32,
 ) -> Option<Element<'a, Message>> {
     let structured_spans = crate::app::compute_field_composition_spans(
         modal,
@@ -1878,6 +1879,13 @@ fn entry_composition_panel<'a>(
         return None;
     }
 
+    let fade = move |color| {
+        if alpha < 1.0 {
+            apply_alpha(color, alpha)
+        } else {
+            color
+        }
+    };
     let styled_spans = structured_spans
         .clone()
         .into_iter()
@@ -1888,7 +1896,7 @@ fn entry_composition_panel<'a>(
                 crate::app::FieldCompositionSpanKind::Active => app.ui_theme.active,
                 crate::app::FieldCompositionSpanKind::Preview => app.ui_theme.modal_muted_text,
             };
-            span::<Message, iced::Font>(span_data.text).color(color)
+            span::<Message, iced::Font>(span_data.text).color(fade(color))
         })
         .collect::<Vec<_>>();
     let subdued_source_spans = structured_spans
@@ -1900,26 +1908,30 @@ fn entry_composition_panel<'a>(
                 crate::app::FieldCompositionSpanKind::Active => app.ui_theme.active,
                 crate::app::FieldCompositionSpanKind::Preview => app.ui_theme.modal_muted_text,
             };
-            span::<Message, iced::Font>(span_data.text).color(blend_color(
+            span::<Message, iced::Font>(span_data.text).color(fade(blend_color(
                 base,
                 app.ui_theme.modal_muted_text,
                 0.45,
-            ))
+            )))
         })
         .collect::<Vec<_>>();
 
-    let panel_width = app
-        .viewport_size
-        .map(|size| (size.width * 0.9).clamp(modal_width, 980.0))
-        .unwrap_or(820.0)
-        .max(modal_width);
-    let label_color = blend_color(app.ui_theme.modal_hint_text, app.ui_theme.text, 0.25);
-    let panel_background = blend_color(
+    let panel_width = entry_composition_panel_width(app, modal_width);
+    let label_color = fade(blend_color(
+        app.ui_theme.modal_hint_text,
+        app.ui_theme.text,
+        0.25,
+    ));
+    let panel_background = fade(blend_color(
         app.ui_theme.modal_panel_background,
         app.ui_theme.modal_input_background,
         0.15,
-    );
-    let border_color = blend_color(app.ui_theme.modal_input_border, app.ui_theme.text, 0.25);
+    ));
+    let border_color = fade(blend_color(
+        app.ui_theme.modal_input_border,
+        app.ui_theme.text,
+        0.25,
+    ));
     let helper_text = if composition_editing {
         "Manual edit mode | Enter or Esc exits | Ctrl+R resets"
     } else if modal.manual_override.is_some() {
@@ -1927,8 +1939,12 @@ fn entry_composition_panel<'a>(
     } else {
         "Structured composition | Ctrl+E edits current field"
     };
-    let helper_color = blend_color(app.ui_theme.modal_muted_text, app.ui_theme.text, 0.2);
-    let input_theme = app.ui_theme.clone();
+    let helper_color = fade(blend_color(
+        app.ui_theme.modal_muted_text,
+        app.ui_theme.text,
+        0.2,
+    ));
+    let input_theme = blended_modal_theme(app, alpha);
 
     let main_content: Element<'a, Message> = if composition_editing {
         let current_text = modal.manual_override.as_deref().unwrap_or_default();
@@ -1948,7 +1964,11 @@ fn entry_composition_panel<'a>(
             .font(modal_composition_font(app, true))
             .size(16)
             .width(Length::Fill)
-            .color(blend_color(app.ui_theme.text, app.ui_theme.selected, 0.18))
+            .color(fade(blend_color(
+                app.ui_theme.text,
+                app.ui_theme.selected,
+                0.18,
+            )))
             .into()
     } else {
         rich_text::<Message, iced::Theme, iced::Renderer>(styled_spans)
@@ -1991,7 +2011,7 @@ fn entry_composition_panel<'a>(
             .width(Length::Fixed(panel_width))
             .padding(12)
             .style(move |_| {
-                background_style(panel_background, app.ui_theme.text).border(Border {
+                background_style(panel_background, fade(app.ui_theme.text)).border(Border {
                     color: border_color,
                     width: 1.0,
                     radius: 6.0.into(),
@@ -1999,6 +2019,13 @@ fn entry_composition_panel<'a>(
             })
             .into(),
     )
+}
+
+fn entry_composition_panel_width(app: &App, modal_width: f32) -> f32 {
+    app.viewport_size
+        .map(|size| (size.width * 0.9).clamp(modal_width, 980.0))
+        .unwrap_or(820.0)
+        .max(modal_width)
 }
 
 fn simple_modal_unit_root_width(layout: &SimpleModalUnitLayout) -> Option<f32> {
@@ -2011,7 +2038,11 @@ fn simple_modal_unit_root_width(layout: &SimpleModalUnitLayout) -> Option<f32> {
 
 fn retained_close_root_width(departure: &crate::app::ModalDepartureLayer) -> Option<f32> {
     let active_list_idx = departure.modal.as_ref()?.field_flow.list_idx;
-    if !departure.geometry.modal_index_range.contains(&active_list_idx) {
+    if !departure
+        .geometry
+        .modal_index_range
+        .contains(&active_list_idx)
+    {
         return None;
     }
     let relative_idx = active_list_idx - departure.geometry.modal_index_range.start;
@@ -2024,9 +2055,7 @@ fn collection_neighbor_previews_supported(app: &App) -> bool {
         .unwrap_or(true)
 }
 
-fn retained_modal_close_transition(
-    app: &App,
-) -> Option<(&crate::app::ModalDepartureLayer, f32)> {
+fn retained_modal_close_transition(app: &App) -> Option<(&crate::app::ModalDepartureLayer, f32)> {
     match app.modal_transitions.last() {
         Some(crate::app::ModalTransitionLayer::ModalClose {
             departure,
@@ -2034,6 +2063,32 @@ fn retained_modal_close_transition(
         }) => Some((departure, *slide_distance)),
         _ => None,
     }
+}
+
+fn retained_composition_close_transition(
+    app: &App,
+) -> Option<(&crate::app::ModalCompositionLayer, f32)> {
+    match app.modal_composition_transition.as_ref() {
+        Some(crate::app::ModalCompositionTransition::Close {
+            departure,
+            slide_distance,
+        }) => Some((departure, *slide_distance)),
+        _ => None,
+    }
+}
+
+fn composition_panel_layer<'a>(
+    app: &App,
+    panel: Element<'a, Message>,
+    panel_width: f32,
+    shift: f32,
+) -> Element<'a, Message> {
+    let viewport_width = app
+        .viewport_size
+        .map(|size| size.width)
+        .unwrap_or(panel_width);
+    let left = (viewport_width - panel_width) * 0.5 + shift;
+    modal_unit::ClipTranslate::auto_height(left, viewport_width, panel).into()
 }
 
 fn should_render_modal_overlay(app: &App) -> bool {
@@ -2241,14 +2296,38 @@ fn modal_overlay<'a>(
         Space::with_width(Length::Shrink).into()
     };
 
-    let retained_composition_modal = retained_close
-        .and_then(|(departure, _)| departure.modal.as_ref())
-        .filter(|modal| !modal.is_collection_mode());
-    let composition_panel = if let Some(modal) = modal.filter(|modal| !modal.is_collection_mode())
-    {
-        entry_composition_panel(app, modal, modal_width, app.modal_composition_editing)
-    } else if let Some(modal) = retained_composition_modal {
-        entry_composition_panel(app, modal, modal_width, false)
+    let retained_composition_close = retained_composition_close_transition(app);
+    let composition_panel = if let Some(modal) = modal.filter(|modal| !modal.is_collection_mode()) {
+        let (alpha, shift) = match app.modal_composition_transition.as_ref() {
+            Some(crate::app::ModalCompositionTransition::Open {
+                arrival,
+                slide_distance,
+            }) => {
+                let p = arrival.eased_progress();
+                (p, modal_open_shift(p, *slide_distance))
+            }
+            _ => (1.0, 0.0),
+        };
+        let panel_width = entry_composition_panel_width(app, modal_width);
+        entry_composition_panel(
+            app,
+            modal,
+            modal_width,
+            app.modal_composition_editing,
+            alpha,
+        )
+        .map(|panel| composition_panel_layer(app, panel, panel_width, shift))
+    } else if let Some((departure, slide_distance)) = retained_composition_close {
+        let p = departure.eased_progress();
+        let panel_width = entry_composition_panel_width(app, modal_width);
+        entry_composition_panel(app, &departure.modal, modal_width, false, 1.0 - p).map(|panel| {
+            composition_panel_layer(
+                app,
+                panel,
+                panel_width,
+                modal_close_shift(departure.focus_direction, p, slide_distance),
+            )
+        })
     } else {
         None
     };
@@ -2261,20 +2340,14 @@ fn modal_overlay<'a>(
                     column(
                         std::iter::once(Space::with_height(Length::Fixed(top_offset)).into())
                             .chain(
-                                composition_panel
-                                    .into_iter()
-                                    .map(|panel| {
-                                        container(panel)
-                                            .width(Length::Fill)
-                                            .center_x(Length::Fill)
-                                            .into()
-                                    })
-                                    .chain(std::iter::once(
+                                composition_panel.into_iter().map(Into::into).chain(
+                                    std::iter::once(
                                         container(modal_stream)
                                             .width(Length::Fill)
                                             .center_x(Length::Fill)
                                             .into(),
-                                    )),
+                                    ),
+                                ),
                             )
                             .collect::<Vec<Element<'a, Message>>>(),
                     )
@@ -2759,14 +2832,12 @@ mod tests {
         build_connected_transition_rendered_unit, build_modal_close_rendered_unit,
         build_modal_open_rendered_unit, collection_preview_metrics, modal_close_shift,
         modal_open_shift, modal_unit_runway_layout, retained_close_root_width,
-        retained_modal_close_transition, should_render_modal_overlay,
-        simple_modal_unit_root_width, transition_unit_display_width, ModalUnitCardKind,
-        ModalUnitSide,
+        retained_modal_close_transition, should_render_modal_overlay, simple_modal_unit_root_width,
+        transition_unit_display_width, ModalUnitCardKind, ModalUnitSide,
     };
     use crate::app::{
         App, FocusDirection, ModalArrivalLayer, ModalDepartureLayer, ModalTransitionEasing,
-        ModalTransitionLayer,
-        UnitContentSnapshot, UnitGeometry,
+        ModalTransitionLayer, UnitContentSnapshot, UnitGeometry,
     };
     use crate::config::Config;
     use crate::data::{
@@ -3140,10 +3211,13 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(stub_alphas, vec![0.4, 0.4]);
-        assert!(rendered
-            .cards
-            .iter()
-            .any(|card| matches!(card.kind, ModalUnitCardKind::Active { .. }) && card.alpha == 0.4));
+        assert!(
+            rendered
+                .cards
+                .iter()
+                .any(|card| matches!(card.kind, ModalUnitCardKind::Active { .. })
+                    && card.alpha == 0.4)
+        );
     }
 
     #[test]

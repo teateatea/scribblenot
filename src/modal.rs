@@ -1066,6 +1066,48 @@ impl SearchModal {
         })
     }
 
+    pub fn preview_current_list_as_confirmed(
+        &self,
+        confirmed_value: Option<&str>,
+        assigned_values: &HashMap<String, String>,
+        sticky_values: &HashMap<String, String>,
+    ) -> Option<ModalListViewSnapshot> {
+        if !self.supports_simple_list_teasers() {
+            return None;
+        }
+        let list_idx = self.field_flow.list_idx;
+        let list = self.field_flow.lists.get(list_idx)?;
+        let lookup = ListValueLookup::new(assigned_values, sticky_values);
+        let value = confirmed_value
+            .map(str::to_string)
+            .or_else(|| self.selected_value().map(str::to_string))
+            .or_else(|| current_list_fallback_value(self, lookup))?;
+        let item_id = self
+            .selected_item_id()
+            .filter(|item_id| {
+                list.items.iter().any(|item| {
+                    item.id == *item_id
+                        && (item.output() == value.as_str() || item.ui_label() == value.as_str())
+                })
+            })
+            .map(str::to_string)
+            .or_else(|| {
+                list.items
+                    .iter()
+                    .find(|item| {
+                        item.output() == value.as_str() || item.ui_label() == value.as_str()
+                    })
+                    .map(|item| item.id.clone())
+            })
+            .or_else(|| current_list_fallback_item_id(self, lookup));
+        let mut preview = self.clone();
+        if preview.session_confirmed_values.len() > list_idx {
+            preview.session_confirmed_values[list_idx] = Some(value);
+            preview.session_confirmed_item_ids[list_idx] = item_id;
+        }
+        preview.list_view_snapshot(assigned_values, sticky_values)
+    }
+
     #[allow(dead_code)]
     pub fn peek_prev_list_view(
         &self,
@@ -1105,6 +1147,44 @@ impl SearchModal {
         snapshots
     }
 
+    fn advance_preview_to_next_list_snapshot(
+        &mut self,
+        assigned_values: &mut HashMap<String, String>,
+        sticky_values: &mut HashMap<String, String>,
+    ) -> Option<ModalListViewSnapshot> {
+        let Some(list) = self.field_flow.lists.get(self.field_flow.list_idx) else {
+            return None;
+        };
+
+        let advance = if effective_joiner_style(list).is_some() {
+            self.finish_repeating_current_list(
+                self.selected_value().map(str::to_string),
+                self.selected_item_id().map(str::to_string),
+                assigned_values,
+                sticky_values,
+                self.window_size,
+            )?
+        } else {
+            let (selected, selected_item_id) = self.navigation_choice_for_current_list();
+            let selected = selected?;
+            if branch_for_value(list, &selected).is_some() {
+                return None;
+            }
+            self.finish_current_list(
+                selected,
+                selected_item_id,
+                assigned_values,
+                sticky_values,
+                self.window_size,
+            )
+        };
+
+        match advance {
+            FieldAdvance::NextList => self.list_view_snapshot(assigned_values, sticky_values),
+            FieldAdvance::Complete(_) | FieldAdvance::StayOnList => None,
+        }
+    }
+
     #[allow(dead_code)]
     pub fn peek_next_list_view(
         &self,
@@ -1114,31 +1194,11 @@ impl SearchModal {
         if !self.supports_simple_list_teasers() {
             return None;
         }
-        let list = self.field_flow.lists.get(self.field_flow.list_idx)?;
-        if effective_joiner_style(list).is_some() {
-            return None;
-        }
-        let (selected, selected_item_id) = self.navigation_choice_for_current_list();
-        let selected = selected?;
-        if branch_for_value(list, &selected).is_some() {
-            return None;
-        }
 
         let mut preview = self.clone();
         let mut sticky_preview = sticky_values.clone();
         let mut assigned_preview = assigned_values.clone();
-        match preview.finish_current_list(
-            selected,
-            selected_item_id,
-            &mut assigned_preview,
-            &mut sticky_preview,
-            preview.window_size,
-        ) {
-            FieldAdvance::NextList => {
-                preview.list_view_snapshot(&assigned_preview, &sticky_preview)
-            }
-            FieldAdvance::Complete(_) | FieldAdvance::StayOnList => None,
-        }
+        preview.advance_preview_to_next_list_snapshot(&mut assigned_preview, &mut sticky_preview)
     }
 
     pub fn peek_next_list_views(
@@ -1156,38 +1216,12 @@ impl SearchModal {
         let mut sticky_preview = sticky_values.clone();
         let mut snapshots = Vec::new();
         while snapshots.len() < limit {
-            let Some(list) = preview.field_flow.lists.get(preview.field_flow.list_idx) else {
+            let Some(snapshot) = preview
+                .advance_preview_to_next_list_snapshot(&mut assigned_preview, &mut sticky_preview)
+            else {
                 break;
             };
-            if effective_joiner_style(list).is_some() {
-                break;
-            }
-
-            let (selected, selected_item_id) = preview.navigation_choice_for_current_list();
-            let Some(selected) = selected else {
-                break;
-            };
-            if branch_for_value(list, &selected).is_some() {
-                break;
-            }
-
-            match preview.finish_current_list(
-                selected,
-                selected_item_id,
-                &mut assigned_preview,
-                &mut sticky_preview,
-                preview.window_size,
-            ) {
-                FieldAdvance::NextList => {
-                    let Some(snapshot) =
-                        preview.list_view_snapshot(&assigned_preview, &sticky_preview)
-                    else {
-                        break;
-                    };
-                    snapshots.push(snapshot);
-                }
-                FieldAdvance::Complete(_) | FieldAdvance::StayOnList => break,
-            }
+            snapshots.push(snapshot);
         }
         snapshots
     }
@@ -2845,6 +2879,61 @@ mod modal_filter_tests {
         }
     }
 
+    fn repeating_joiner_field_with_downstream_list() -> HeaderFieldConfig {
+        HeaderFieldConfig {
+            id: "observation".to_string(),
+            name: "Observation".to_string(),
+            format: Some("{muscle}{place}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![
+                HierarchyList {
+                    id: "muscle".to_string(),
+                    label: Some("Muscle".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::Search,
+                    joiner_style: Some(JoinerStyle::Comma),
+                    max_entries: None,
+                    items: vec![HierarchyItem {
+                        id: "trap".to_string(),
+                        label: Some("Trapezius Upper".to_string()),
+                        default_enabled: true,
+                        output: Some("Trapezius (Upper Fibers)".to_string()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                        assigns: Vec::new(),
+                    }],
+                },
+                HierarchyList {
+                    id: "place".to_string(),
+                    label: Some("Place".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![HierarchyItem {
+                        id: "left".to_string(),
+                        label: Some("Left".to_string()),
+                        default_enabled: true,
+                        output: Some("Left ".to_string()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                        assigns: Vec::new(),
+                    }],
+                },
+            ],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        }
+    }
+
     #[test]
     fn empty_search_enter_does_not_finish_first_repeating_search_start_item() {
         let modal = SearchModal::new_field(
@@ -2972,6 +3061,47 @@ mod modal_filter_tests {
         assert_eq!(next.title, "Pressure");
         assert_eq!(next.rows, vec!["Medium".to_string()]);
         assert_eq!(next.list_cursor, 0);
+    }
+
+    #[test]
+    fn repeating_joiner_preview_includes_real_downstream_list() {
+        let sticky_values = HashMap::new();
+        let modal = SearchModal::new_field(
+            0,
+            repeating_joiner_field_with_downstream_list(),
+            None,
+            &HashMap::new(),
+            &sticky_values,
+            5,
+        );
+
+        let next = modal
+            .peek_next_list_view(&HashMap::new(), &sticky_values)
+            .expect("repeat-joiner teaser should preview the downstream list");
+
+        assert_eq!(next.title, "Place");
+        assert_eq!(next.rows, vec!["Left".to_string()]);
+        assert_eq!(next.list_cursor, 0);
+    }
+
+    #[test]
+    fn terminal_repeating_joiner_preview_remains_confirm_only() {
+        let sticky_values = HashMap::new();
+        let modal = SearchModal::new_field(
+            0,
+            test_field(Some(JoinerStyle::Comma), ModalStart::Search),
+            None,
+            &HashMap::new(),
+            &sticky_values,
+            5,
+        );
+
+        assert!(modal
+            .peek_next_list_view(&HashMap::new(), &sticky_values)
+            .is_none());
+        assert!(modal
+            .peek_next_list_views(&HashMap::new(), &sticky_values, 2)
+            .is_empty());
     }
 
     #[test]
