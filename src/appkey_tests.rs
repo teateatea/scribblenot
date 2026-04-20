@@ -97,4 +97,35 @@ mod appkey_conversion_tests {
             "Key::Character('c') with CTRL should map to AppKey::CtrlC"
         );
     }
+
+    #[test]
+    fn shift_letter_maps_to_uppercase_char() {
+        let result = appkey_from_iced(Key::Character("a".into()), Modifiers::SHIFT);
+        assert_eq!(
+            result,
+            AppKey::Char('A'),
+            "shifted letter input should preserve capitalization"
+        );
+    }
+
+    #[test]
+    fn shift_number_maps_to_shifted_symbol() {
+        let result = appkey_from_iced(Key::Character("1".into()), Modifiers::SHIFT);
+        assert_eq!(
+            result,
+            AppKey::Char('!'),
+            "shifted number input should preserve symbol text entry"
+        );
+    }
+
+    #[test]
+    fn ctrl_uppercase_letter_normalizes_to_lowercase_ctrl_char() {
+        let result =
+            appkey_from_iced(Key::Character("R".into()), Modifiers::CTRL | Modifiers::SHIFT);
+        assert_eq!(
+            result,
+            AppKey::CtrlChar('r'),
+            "ctrl-modified letters should normalize to lowercase command bindings"
+        );
+    }
 }
