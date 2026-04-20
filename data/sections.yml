@@ -151,7 +151,8 @@ fields:
  #     - year
 
   - id: appointment_date_field
-    label: Appointment Date
+    label: "Date & Time"
+   # note_label: "Appointment Date & Time"
     format: "# {date_month_word_list} {day}, {year} at {start_hour_list}:{start_minute_list}{am_pm_list} ({duration_list} min)"
     lists:
      # - duration_list
