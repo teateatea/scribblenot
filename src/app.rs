@@ -44,6 +44,42 @@ pub enum AppKey {
     Ignored,
 }
 
+fn shifted_char(c: char) -> char {
+    match c {
+        'a'..='z' => c.to_ascii_uppercase(),
+        '1' => '!',
+        '2' => '@',
+        '3' => '#',
+        '4' => '$',
+        '5' => '%',
+        '6' => '^',
+        '7' => '&',
+        '8' => '*',
+        '9' => '(',
+        '0' => ')',
+        '-' => '_',
+        '=' => '+',
+        '[' => '{',
+        ']' => '}',
+        '\\' => '|',
+        ';' => ':',
+        '\'' => '"',
+        ',' => '<',
+        '.' => '>',
+        '/' => '?',
+        '`' => '~',
+        _ => c,
+    }
+}
+
+fn normalized_ctrl_char(c: char) -> char {
+    if c.is_ascii_alphabetic() {
+        c.to_ascii_lowercase()
+    } else {
+        c
+    }
+}
+
 pub fn appkey_from_iced(key: Key, modifiers: Modifiers) -> AppKey {
     match key {
         Key::Named(Named::Enter) => {
@@ -62,8 +98,9 @@ pub fn appkey_from_iced(key: Key, modifiers: Modifiers) -> AppKey {
         Key::Named(Named::ArrowLeft) => AppKey::Left,
         Key::Named(Named::ArrowRight) => AppKey::Right,
         Key::Character(ref s) => {
-            let c = s.chars().next().unwrap_or('\0');
+            let mut c = s.chars().next().unwrap_or('\0');
             if modifiers.contains(Modifiers::CTRL) {
+                c = normalized_ctrl_char(c);
                 if c == 'c' {
                     AppKey::CtrlC
                 } else {
@@ -72,6 +109,9 @@ pub fn appkey_from_iced(key: Key, modifiers: Modifiers) -> AppKey {
             } else if c == ' ' {
                 AppKey::Space
             } else {
+                if modifiers.contains(Modifiers::SHIFT) {
+                    c = shifted_char(c);
+                }
                 AppKey::Char(c)
             }
         }
@@ -565,11 +605,11 @@ impl App {
 
     fn handle_modal_composition_key(&mut self, key: AppKey) {
         match key {
-            AppKey::Tab
-            | AppKey::Enter
-            | AppKey::ShiftEnter
-            | AppKey::Esc
-            | AppKey::CtrlChar('e') => {
+            AppKey::ShiftEnter => {
+                self.modal_composition_editing = false;
+                self.super_confirm_modal_field();
+            }
+            AppKey::Tab | AppKey::Enter | AppKey::Esc | AppKey::CtrlChar('e') => {
                 self.modal_composition_editing = false;
             }
             AppKey::Backspace => {
@@ -3962,6 +4002,7 @@ mod composition_span_tests {
     use crate::sections::header::HeaderFieldValue;
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use tempfile::TempDir;
 
     fn select_only_filtered_modal_match(app: &mut App, query: &str) {
         app.set_modal_query(query.to_string());
@@ -4365,7 +4406,7 @@ mod composition_span_tests {
         }
     }
 
-    fn app_with_single_field(field: HeaderFieldConfig) -> App {
+    fn app_with_single_field_in_data_dir(field: HeaderFieldConfig, data_dir: PathBuf) -> App {
         let section = SectionConfig {
             id: "request_section".to_string(),
             name: "Request".to_string(),
@@ -4405,7 +4446,170 @@ mod composition_span_tests {
             keybindings: KeyBindings::default(),
         };
 
+        App::new(data, Config::default(), data_dir)
+    }
+
+    fn app_with_single_field(field: HeaderFieldConfig) -> App {
+        app_with_single_field_in_data_dir(field, PathBuf::new())
+    }
+
+    fn temp_app_with_single_field(field: HeaderFieldConfig) -> (App, TempDir) {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let app = app_with_single_field_in_data_dir(field, temp.path().to_path_buf());
+        (app, temp)
+    }
+
+    fn app_with_free_text_sections(sections: Vec<SectionConfig>) -> App {
+        let groups = sections
+            .iter()
+            .map(|section| SectionGroup {
+                id: section.group_id.clone(),
+                num: None,
+                nav_label: section.name.clone(),
+                sections: vec![section.clone()],
+                note: GroupNoteMeta::default(),
+            })
+            .collect::<Vec<_>>();
+        let template_children = sections
+            .iter()
+            .map(|section| RuntimeGroup {
+                id: section.group_id.clone(),
+                nav_label: section.name.clone(),
+                note: GroupNoteMeta::default(),
+                children: vec![RuntimeNode::Section(section.clone())],
+            })
+            .collect::<Vec<_>>();
+        let data = AppData {
+            template: RuntimeTemplate {
+                id: "test".to_string(),
+                children: template_children,
+            },
+            groups,
+            sections,
+            list_data: HashMap::new(),
+            checklist_data: HashMap::new(),
+            collection_data: HashMap::new(),
+            boilerplate_texts: HashMap::new(),
+            keybindings: KeyBindings::default(),
+        };
+
         App::new(data, Config::default(), PathBuf::new())
+    }
+
+    fn free_text_section(id: &str, name: &str, group_id: &str) -> SectionConfig {
+        SectionConfig {
+            id: id.to_string(),
+            name: name.to_string(),
+            map_label: name.to_string(),
+            section_type: "free_text".to_string(),
+            show_field_labels: true,
+            data_file: None,
+            fields: None,
+            lists: Vec::new(),
+            note_label: None,
+            group_id: group_id.to_string(),
+            node_kind: RuntimeNodeKind::Section,
+        }
+    }
+
+    fn read_saved_config(dir: &std::path::Path) -> String {
+        std::fs::read_to_string(dir.join("config.yml")).expect("config.yml read failed")
+    }
+
+    fn save_config_to_temp(cfg: &Config, dir: &std::path::Path) -> String {
+        cfg.save(dir).expect("config save failed");
+        read_saved_config(dir)
+    }
+
+    fn assert_no_patient_text(haystack: &str, sentinel: &str, label: &str) {
+        assert!(
+            !haystack.contains(sentinel),
+            "{label}: sentinel patient text found in persisted output\nsentinel: {sentinel:?}\noutput:\n{haystack}"
+        );
+    }
+
+    #[test]
+    fn config_save_does_not_include_editable_note() {
+        let sentinel = "PATIENT: Jane Doe DOB 1990-01-01 SENTINEL";
+        let (mut app, temp) = temp_app_with_single_field(list_field(ModalStart::List));
+        app.editable_note = sentinel.to_string();
+
+        let saved = save_config_to_temp(&app.config, temp.path());
+
+        assert_no_patient_text(&saved, sentinel, "direct config save");
+    }
+
+    #[test]
+    fn config_save_does_not_include_editable_note_after_modal_confirm() {
+        let sentinel = "PATIENT: Jane Doe DOB 1990-01-01 SENTINEL";
+        let (mut app, temp) = temp_app_with_single_field(list_field(ModalStart::List));
+        app.editable_note = sentinel.to_string();
+        app.open_header_modal();
+
+        app.confirm_modal_value("Shoulder".to_string());
+
+        let saved = read_saved_config(temp.path());
+        assert_no_patient_text(&saved, sentinel, "modal completion save");
+    }
+
+    #[test]
+    fn modal_save_paths_do_not_persist_editable_note() {
+        let sentinel = "PATIENT: Jane Doe DOB 1990-01-01 SENTINEL";
+        let (mut app, temp) = temp_app_with_single_field(assigned_time_field());
+        app.editable_note = sentinel.to_string();
+
+        app.handle_key(AppKey::Char('`'));
+        assert_no_patient_text(
+            &read_saved_config(temp.path()),
+            sentinel,
+            "pane swap save",
+        );
+
+        app.open_header_modal();
+        app.confirm_modal_value("9".to_string());
+        assert_no_patient_text(
+            &read_saved_config(temp.path()),
+            sentinel,
+            "modal intermediate save",
+        );
+
+        app.confirm_modal_value("00".to_string());
+        assert_no_patient_text(
+            &read_saved_config(temp.path()),
+            sentinel,
+            "modal completion save",
+        );
+    }
+
+    #[test]
+    fn sticky_values_do_not_contain_imported_text_after_save() {
+        let sentinel = "PATIENT: Jane Doe DOB 1990-01-01 SENTINEL";
+        let (mut app, temp) = temp_app_with_single_field(assigned_time_field());
+        app.editable_note = sentinel.to_string();
+        assert!(
+            app.config
+                .sticky_values
+                .values()
+                .all(|value| !value.contains(sentinel)),
+            "sticky values should start without clipboard sentinel text"
+        );
+
+        app.open_header_modal();
+        app.confirm_modal_value("9".to_string());
+        app.confirm_modal_value("00".to_string());
+
+        assert!(
+            app.config
+                .sticky_values
+                .values()
+                .all(|value| !value.contains(sentinel)),
+            "sticky values must not absorb clipboard sentinel text after save-triggering flows"
+        );
+        assert_no_patient_text(
+            &read_saved_config(temp.path()),
+            sentinel,
+            "sticky value persistence canary",
+        );
     }
 
     #[test]
@@ -4960,6 +5164,143 @@ mod composition_span_tests {
             modal.preview_field_value(&app.config.sticky_values),
             HeaderFieldValue::ListState(_)
         ));
+    }
+
+    #[test]
+    fn manual_override_text_survives_export() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+        app.open_header_modal();
+        app.handle_key(AppKey::CtrlChar('e'));
+        app.set_modal_composition_text("custom override".to_string());
+        app.handle_key(AppKey::Enter);
+        app.confirm_modal_value("Shoulder".to_string());
+
+        let exported = crate::document::export_editable_document(&app.editable_note);
+
+        assert!(
+            app.editable_note.contains("Region: custom override"),
+            "editable note should contain override text"
+        );
+        assert!(
+            exported.contains("Region: custom override"),
+            "exported note should also contain override text"
+        );
+    }
+
+    #[test]
+    fn composition_override_ctrl_r_reverts_editable_note() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+        app.open_header_modal();
+        app.handle_key(AppKey::CtrlChar('e'));
+        app.set_modal_composition_text("should not appear".to_string());
+        app.handle_key(AppKey::CtrlChar('r'));
+        app.confirm_modal_value("Shoulder".to_string());
+
+        assert!(
+            app.editable_note.contains("Region: Shoulder"),
+            "editable note should contain the modal-resolved value after reset"
+        );
+        assert!(
+            !app.editable_note.contains("should not appear"),
+            "editable note must not contain the cleared override text"
+        );
+    }
+
+    #[test]
+    fn composition_override_shift_enter_super_confirms_manual_override() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+        app.open_header_modal();
+        app.handle_key(AppKey::CtrlChar('e'));
+        app.set_modal_composition_text("Manual shoulder".to_string());
+
+        app.handle_key(AppKey::ShiftEnter);
+
+        assert!(app.modal.is_none(), "shift+enter should commit and close the modal");
+        assert!(
+            app.editable_note.contains("Region: Manual shoulder"),
+            "super confirm should preserve the manual override text"
+        );
+        let SectionState::Header(state) = &app.section_states[0] else {
+            panic!("expected header state");
+        };
+        assert!(matches!(
+            state.repeated_values[0].first(),
+            Some(HeaderFieldValue::ManualOverride { text, .. }) if text == "Manual shoulder"
+        ));
+    }
+
+    #[test]
+    fn free_text_confirm_via_key_handler_syncs_editable_note() {
+        use crate::sections::free_text::{FreeTextMode, FreeTextState};
+
+        let mut app = app_with_free_text_sections(vec![free_text_section(
+            "notes_section",
+            "Notes",
+            "subjective",
+        )]);
+        app.section_states[0] = SectionState::FreeText(FreeTextState {
+            entries: vec!["patient reported pain in left shoulder".to_string()],
+            cursor: 0,
+            mode: FreeTextMode::Browsing,
+            edit_buf: String::new(),
+            skipped: false,
+            completed: false,
+        });
+
+        app.handle_free_text_key(AppKey::Enter);
+
+        assert!(
+            app.editable_note.contains("patient reported pain in left shoulder"),
+            "editable note should reflect the committed free-text entry"
+        );
+        assert!(
+            app.note_headings_valid,
+            "document structure should remain valid after sync"
+        );
+    }
+
+    #[test]
+    fn completing_two_free_text_sections_keeps_both_in_editable_note() {
+        use crate::sections::free_text::{FreeTextMode, FreeTextState};
+
+        let mut app = app_with_free_text_sections(vec![
+            free_text_section("section_a", "SectionA", "group_a"),
+            free_text_section("section_b", "SectionB", "group_b"),
+        ]);
+        app.section_states[0] = SectionState::FreeText(FreeTextState {
+            entries: vec!["section a content".to_string()],
+            cursor: 0,
+            mode: FreeTextMode::Browsing,
+            edit_buf: String::new(),
+            skipped: false,
+            completed: false,
+        });
+
+        app.handle_free_text_key(AppKey::Enter);
+
+        app.section_states[1] = SectionState::FreeText(FreeTextState {
+            entries: vec!["section b content".to_string()],
+            cursor: 0,
+            mode: FreeTextMode::Browsing,
+            edit_buf: String::new(),
+            skipped: false,
+            completed: false,
+        });
+
+        app.handle_free_text_key(AppKey::Enter);
+
+        assert!(
+            app.editable_note.contains("section a content"),
+            "section A output should remain in editable note after section B syncs"
+        );
+        assert!(
+            app.editable_note.contains("section b content"),
+            "section B output should appear in editable note"
+        );
+        assert!(
+            app.note_headings_valid,
+            "document structure should remain valid after both syncs"
+        );
     }
 
     #[test]

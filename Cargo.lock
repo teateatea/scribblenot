@@ -2983,6 +2983,7 @@ dependencies = [
  "serde",
  "serde_yaml",
  "simple-easing",
+ "tempfile",
 ]
 
 [[package]]
