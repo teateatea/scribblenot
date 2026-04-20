@@ -1,7 +1,7 @@
 use crate::app::SectionState;
 use crate::data::{RuntimeTemplate, SectionConfig};
 use crate::sections::header::HeaderFieldValue;
-use crate::sections::multi_field::render_note_line;
+use crate::sections::multi_field::{render_note_line, render_note_line_for_confirmed_slot};
 use std::collections::HashMap;
 
 #[allow(dead_code)]
@@ -229,22 +229,22 @@ fn render_multifield(
             .unwrap_or(&[]);
 
         for value in values {
-            if let Some(rendered) =
-                render_note_line(cfg, field_cfg, value, assigned_values, sticky_values)
-            {
+            if let Some(rendered) = render_note_line_for_confirmed_slot(
+                cfg,
+                field_cfg,
+                value,
+                assigned_values,
+                sticky_values,
+            ) {
                 lines.push(rendered);
             }
         }
 
         if values.is_empty() {
             let empty_value = HeaderFieldValue::Text(String::new());
-            if let Some(rendered) = render_note_line(
-                cfg,
-                field_cfg,
-                &empty_value,
-                assigned_values,
-                sticky_values,
-            ) {
+            if let Some(rendered) =
+                render_note_line(cfg, field_cfg, &empty_value, assigned_values, sticky_values)
+            {
                 lines.push(rendered);
             }
         }
@@ -271,12 +271,13 @@ fn is_skipped(state: &SectionState) -> bool {
 mod tests {
     use super::*;
     use crate::data::{
-        AppData, GroupNoteMeta, HeaderFieldConfig, ResolvedCollectionConfig, RuntimeGroup,
-        RuntimeNode, RuntimeNodeKind, RuntimeTemplate, SectionConfig,
+        AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem, HierarchyList, ItemAssignment,
+        ModalStart, ResolvedCollectionConfig, RuntimeGroup, RuntimeNode, RuntimeNodeKind,
+        RuntimeTemplate, SectionConfig,
     };
     use crate::sections::collection::CollectionState;
     use crate::sections::free_text::FreeTextState;
-    use crate::sections::header::HeaderState;
+    use crate::sections::header::{HeaderFieldValue, HeaderState, ListFieldValue};
     use crate::sections::list_select::ListSelectState;
     use std::fs;
     use std::path::PathBuf;
@@ -345,6 +346,107 @@ mod tests {
         };
         state.repeated_values[field_index] =
             vec![crate::sections::header::HeaderFieldValue::ExplicitEmpty];
+    }
+
+    fn item(id: &str, label: &str, output: &str) -> HierarchyItem {
+        HierarchyItem {
+            id: id.to_string(),
+            label: Some(label.to_string()),
+            default_enabled: true,
+            output: Some(output.to_string()),
+            fields: None,
+            branch_fields: Vec::new(),
+            assigns: Vec::new(),
+        }
+    }
+
+    fn item_with_assignment(
+        id: &str,
+        label: &str,
+        output: &str,
+        list_id: &str,
+        item_id: &str,
+        assigned_output: &str,
+    ) -> HierarchyItem {
+        HierarchyItem {
+            id: id.to_string(),
+            label: Some(label.to_string()),
+            default_enabled: true,
+            output: Some(output.to_string()),
+            fields: None,
+            branch_fields: Vec::new(),
+            assigns: vec![ItemAssignment {
+                list_id: list_id.to_string(),
+                item_id: item_id.to_string(),
+                output: assigned_output.to_string(),
+            }],
+        }
+    }
+
+    fn assigned_time_field(id: &str, name: &str, max_entries: Option<usize>) -> HeaderFieldConfig {
+        HeaderFieldConfig {
+            id: id.to_string(),
+            name: name.to_string(),
+            format: Some("{start_hour}:{start_minute}{am_pm}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![
+                HierarchyList {
+                    id: "start_hour".to_string(),
+                    label: Some("Start Hour".to_string()),
+                    preview: Some("hh".to_string()),
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        item_with_assignment("hour_9", "9", "9", "am_pm", "am_item", "AM"),
+                        item_with_assignment("hour_12", "12", "12", "am_pm", "pm_item", "PM"),
+                    ],
+                },
+                HierarchyList {
+                    id: "start_minute".to_string(),
+                    label: Some("Start Minute".to_string()),
+                    preview: Some("mm".to_string()),
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![item("minute_00", "00", "00"), item("minute_45", "45", "45")],
+                },
+            ],
+            collections: Vec::new(),
+            format_lists: vec![HierarchyList {
+                id: "am_pm".to_string(),
+                label: Some("AM/PM".to_string()),
+                preview: Some("XM".to_string()),
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![item("am_item", "AM", "AM"), item("pm_item", "PM", "PM")],
+            }],
+            joiner_style: None,
+            max_entries,
+            max_actives: None,
+        }
+    }
+
+    fn list_state(
+        values: &[&str],
+        item_ids: &[&str],
+        list_idx: usize,
+    ) -> HeaderFieldValue {
+        HeaderFieldValue::ListState(ListFieldValue {
+            values: values.iter().map(|value| (*value).to_string()).collect(),
+            item_ids: item_ids.iter().map(|id| (*id).to_string()).collect(),
+            list_idx,
+            repeat_values: Vec::new(),
+            repeat_item_ids: Vec::new(),
+        })
     }
 
     #[test]
@@ -573,19 +675,18 @@ mod tests {
         let data = AppData::load(dir).expect("real data loads");
         let mut states = states_for_real_data(&data);
 
-        set_header_field_explicit_empty(&mut states, &data.sections, "appointment_section", 0);
         set_header_field_text(
             &mut states,
             &data.sections,
             "appointment_section",
-            1,
+            0,
             "# Apr 12, 2026 at 1:30PM (60 min)",
         );
         set_header_field_text(
             &mut states,
             &data.sections,
             "appointment_section",
-            2,
+            1,
             "2026-04-12: Pt requested a Treatment massage, focusing on the Head, Neck, and Shoulders, the Low Back, and the Left Knee.",
         );
         set_header_field_text(
@@ -741,5 +842,64 @@ mod tests {
 
         assert_eq!(rendered, "Standalone summary");
     }
-}
 
+    #[test]
+    fn repeating_slots_keep_their_own_assigned_format_list_outputs() {
+        let cfg = SectionConfig {
+            id: "appointments".to_string(),
+            name: "Appointments".to_string(),
+            map_label: "APPTS".to_string(),
+            section_type: "multi_field".to_string(),
+            show_field_labels: true,
+            data_file: None,
+            fields: Some(vec![assigned_time_field("appointment", "Appointment", Some(2))]),
+            lists: Vec::new(),
+            note_label: None,
+            group_id: "intake".to_string(),
+            node_kind: RuntimeNodeKind::Section,
+        };
+        let mut state = HeaderState::new(cfg.fields.clone().unwrap_or_default());
+        state.repeated_values[0] = vec![
+            list_state(&["9", "00"], &["hour_9", "minute_00"], 2),
+            list_state(&["12", "45"], &["hour_12", "minute_45"], 2),
+        ];
+        let assigned_values = HashMap::from([("am_pm".to_string(), "PM".to_string())]);
+
+        let rendered = render_multifield(&cfg, &state, &assigned_values, &HashMap::new());
+
+        assert!(rendered.contains("Appointment: 9:00AM"));
+        assert!(rendered.contains("Appointment: 12:45PM"));
+        assert!(!rendered.contains("Appointment: 9:00PM"));
+    }
+
+    #[test]
+    fn different_fields_do_not_overwrite_each_others_assigned_format_lists() {
+        let cfg = SectionConfig {
+            id: "schedule".to_string(),
+            name: "Schedule".to_string(),
+            map_label: "SCHEDULE".to_string(),
+            section_type: "multi_field".to_string(),
+            show_field_labels: true,
+            data_file: None,
+            fields: Some(vec![
+                assigned_time_field("first_visit", "First Visit", None),
+                assigned_time_field("follow_up", "Follow-up", None),
+            ]),
+            lists: Vec::new(),
+            note_label: None,
+            group_id: "intake".to_string(),
+            node_kind: RuntimeNodeKind::Section,
+        };
+        let mut state = HeaderState::new(cfg.fields.clone().unwrap_or_default());
+        state.repeated_values[0] = vec![list_state(&["9", "00"], &["hour_9", "minute_00"], 2)];
+        state.repeated_values[1] =
+            vec![list_state(&["12", "45"], &["hour_12", "minute_45"], 2)];
+        let assigned_values = HashMap::from([("am_pm".to_string(), "PM".to_string())]);
+
+        let rendered = render_multifield(&cfg, &state, &assigned_values, &HashMap::new());
+
+        assert!(rendered.contains("First Visit: 9:00AM"));
+        assert!(rendered.contains("Follow-up: 12:45PM"));
+        assert!(!rendered.contains("First Visit: 9:00PM"));
+    }
+}

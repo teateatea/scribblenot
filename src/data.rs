@@ -1554,7 +1554,11 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
                         list.id, item.id, assign.list_id
                     ));
                 };
-                if !target_list.items.iter().any(|target| target.id == assign.item_id) {
+                if !target_list
+                    .items
+                    .iter()
+                    .any(|target| target.id == assign.item_id)
+                {
                     return Err(format!(
                         "list '{}' item '{}' assigns unknown item '{}' in list '{}'. Fix: use an existing target item id.",
                         list.id, item.id, assign.item_id, assign.list_id

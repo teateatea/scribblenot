@@ -1154,20 +1154,12 @@ impl App {
         let SectionState::Header(state) = self.section_states.get(section_idx)? else {
             return None;
         };
-        Some(self.assignment_source_key(
-            section_idx,
-            state.field_index,
-            state.active_value_index(),
-        ))
+        Some(self.assignment_source_key(section_idx, state.field_index, state.active_value_index()))
     }
 
     fn modal_assignment_source_key(&self) -> Option<AssignmentSourceKey> {
         let snapshot = self.modal_restore_snapshot.as_ref()?;
-        Some(self.assignment_source_key(
-            self.current_idx,
-            snapshot.field_idx,
-            snapshot.value_index,
-        ))
+        Some(self.assignment_source_key(self.current_idx, snapshot.field_idx, snapshot.value_index))
     }
 
     fn rebuild_assigned_values(&mut self) {
@@ -1197,6 +1189,34 @@ impl App {
     fn clear_assignments_for_key(&mut self, key: &AssignmentSourceKey) {
         self.assigned_contributions.remove(key);
         self.rebuild_assigned_values();
+    }
+
+    fn confirmed_assignments_for_current_header_field(
+        &self,
+        section_idx: usize,
+        value: &HeaderFieldValue,
+    ) -> HashMap<String, String> {
+        let Some(SectionState::Header(state)) = self.section_states.get(section_idx) else {
+            return HashMap::new();
+        };
+        state
+            .field_configs
+            .get(state.field_index)
+            .map(|cfg| crate::modal::confirmed_value_assignments(value, cfg))
+            .unwrap_or_default()
+    }
+
+    fn finalize_modal_completion_value(
+        &self,
+        modal: &SearchModal,
+        final_value: HeaderFieldValue,
+    ) -> HeaderFieldValue {
+        match final_value {
+            HeaderFieldValue::Text(_) => modal
+                .confirmed_field_value_if_complete(&self.config.sticky_values)
+                .unwrap_or(final_value),
+            other => other,
+        }
     }
 
     pub fn reload_theme(&mut self) -> anyhow::Result<()> {
@@ -1572,7 +1592,7 @@ impl App {
                         .and_then(|v| v.last())
                         .cloned()
                         .unwrap_or(HeaderFieldValue::Text(String::new()));
-                    crate::sections::multi_field::resolve_multifield_value(
+                    crate::sections::multi_field::resolve_multifield_value_for_confirmed_slot(
                         &confirmed,
                         cfg,
                         &self.assigned_values,
@@ -1647,7 +1667,7 @@ impl App {
             return;
         }
 
-        if matches!(key, AppKey::Enter) || self.is_nav_right(&key) {
+        if self.is_confirm(&key) || self.is_nav_right(&key) {
             self.open_header_modal();
         }
     }
@@ -1755,12 +1775,8 @@ impl App {
             ModalFocus::List => self.is_nav_right(&key),
         };
         if nav_right_active {
-            if let Some(value) = self
-                .modal
-                .as_ref()
-                .and_then(|modal| modal.selected_value().map(str::to_string))
-            {
-                self.confirm_modal_value(value);
+            if !self.composite_go_forward() && matches!(focus, ModalFocus::List) {
+                let _ = self.confirm_modal_from_confirmed_state();
             }
             return;
         }
@@ -1782,19 +1798,11 @@ impl App {
                     return;
                 }
 
-                if matches!(key, AppKey::Tab) {
-                    let query = self.modal.as_ref().unwrap().query.trim().to_string();
-                    if !query.is_empty() {
-                        self.confirm_modal_value(query);
-                    }
-                    return;
-                }
-
-                if matches!(key, AppKey::Enter) {
+                if self.is_confirm(&key) {
                     if self
                         .modal
                         .as_ref()
-                        .is_some_and(|modal| modal.should_finish_repeating_from_empty_search())
+                        .is_some_and(|modal| modal.should_confirm_empty_search_value())
                     {
                         self.confirm_modal_value(String::new());
                         return;
@@ -1845,24 +1853,6 @@ impl App {
                         if self
                             .modal
                             .as_ref()
-                            .is_some_and(|modal| modal.should_finish_repeating_from_empty_search())
-                        {
-                            self.confirm_modal_value(String::new());
-                            return;
-                        }
-
-                        let only_value = self.modal.as_ref().and_then(|modal| {
-                            if modal.filtered.len() == 1 {
-                                modal.selected_value().map(String::from)
-                            } else {
-                                None
-                            }
-                        });
-                        if let Some(value) = only_value {
-                            self.confirm_modal_value(value);
-                        } else if self
-                            .modal
-                            .as_ref()
                             .is_some_and(|modal| !modal.filtered.is_empty())
                         {
                             self.modal.as_mut().unwrap().focus = ModalFocus::List;
@@ -1901,7 +1891,7 @@ impl App {
                     return;
                 }
 
-                if matches!(key, AppKey::Enter) {
+                if self.is_confirm(&key) {
                     self.hint_buffer.clear();
                     if let Some(val) = self
                         .modal
@@ -2055,7 +2045,7 @@ impl App {
             return;
         }
 
-        if matches!(key, AppKey::Enter) {
+        if self.is_confirm(&key) {
             self.hint_buffer.clear();
             if let Some(modal) = self.modal.as_mut() {
                 let evicted = modal.collection_toggle_current();
@@ -2235,25 +2225,29 @@ impl App {
                 FieldAdvance::StayOnList => {
                     self.sync_modal_preview_state(idx);
                 }
-                FieldAdvance::Complete(mut final_value) => {
-                    let modal_assignments = self
+                FieldAdvance::Complete(final_value) => {
+                    let mut committed_value = self
                         .modal
                         .as_ref()
-                        .map(|modal| modal.assigned_values())
-                        .unwrap_or_default();
+                        .map(|modal| {
+                            self.finalize_modal_completion_value(modal, final_value.clone())
+                        })
+                        .unwrap_or(final_value);
                     if let Some(override_text) = self
                         .modal
                         .as_ref()
                         .and_then(|modal| modal.manual_override.clone())
                     {
-                        final_value = HeaderFieldValue::ManualOverride {
+                        committed_value = HeaderFieldValue::ManualOverride {
                             text: override_text,
-                            source: Box::new(final_value),
+                            source: Box::new(committed_value),
                         };
                     }
+                    let modal_assignments =
+                        self.confirmed_assignments_for_current_header_field(idx, &committed_value);
                     if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                         s.composite_spans = None;
-                        s.set_current_value(final_value);
+                        s.set_current_value(committed_value);
                         let done = s.advance();
                         if let Some(key) = self.modal_assignment_source_key() {
                             self.replace_assignments_for_key(key, modal_assignments);
@@ -2281,15 +2275,11 @@ impl App {
         let previous_layout = self.modal_unit_layout.clone();
         let previous_modal = self.modal.as_ref().unwrap().clone();
         let window_size = self.modal_window_size();
-        let advance = self
-            .modal
-            .as_mut()
-            .unwrap()
-            .super_confirm_field(
-                &self.assigned_values,
-                &mut self.config.sticky_values,
-                window_size,
-            );
+        let advance = self.modal.as_mut().unwrap().super_confirm_field(
+            &self.assigned_values,
+            &mut self.config.sticky_values,
+            window_size,
+        );
 
         match advance {
             FieldAdvance::NextList | FieldAdvance::StayOnList => {
@@ -2298,25 +2288,27 @@ impl App {
                 self.rebuild_modal_unit_layout(false);
                 self.fire_modal_transition_if_needed(previous_layout, previous_modal);
             }
-            FieldAdvance::Complete(mut final_value) => {
-                let modal_assignments = self
+            FieldAdvance::Complete(final_value) => {
+                let mut committed_value = self
                     .modal
                     .as_ref()
-                    .map(|modal| modal.assigned_values())
-                    .unwrap_or_default();
+                    .map(|modal| self.finalize_modal_completion_value(modal, final_value.clone()))
+                    .unwrap_or(final_value);
                 if let Some(override_text) = self
                     .modal
                     .as_ref()
                     .and_then(|modal| modal.manual_override.clone())
                 {
-                    final_value = HeaderFieldValue::ManualOverride {
+                    committed_value = HeaderFieldValue::ManualOverride {
                         text: override_text,
-                        source: Box::new(final_value),
+                        source: Box::new(committed_value),
                     };
                 }
+                let modal_assignments =
+                    self.confirmed_assignments_for_current_header_field(idx, &committed_value);
                 if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                     s.composite_spans = None;
-                    s.set_current_value(final_value);
+                    s.set_current_value(committed_value);
                     let done = s.advance();
                     if let Some(key) = self.modal_assignment_source_key() {
                         self.replace_assignments_for_key(key, modal_assignments);
@@ -2685,19 +2677,19 @@ impl App {
         };
 
         let window_size = self.modal_window_size();
-        if self
-            .modal
-            .as_mut()
-            .is_some_and(|modal| {
-                modal.go_back_one_step(&self.assigned_values, &self.config.sticky_values, window_size)
-            })
-        {
+        if self.modal.as_mut().is_some_and(|modal| {
+            modal.go_back_one_step(
+                &self.assigned_values,
+                &self.config.sticky_values,
+                window_size,
+            )
+        }) {
             self.sync_modal_preview_state(idx);
             self.rebuild_modal_unit_layout(false);
             self.fire_modal_transition_if_needed(previous_layout, previous_modal);
             return;
         }
-        let (new_list_idx, popped_output, new_labels, new_outputs) = {
+        let (new_list_idx, popped_output, popped_item_id, new_labels, new_outputs) = {
             let modal = match self.modal.as_mut() {
                 Some(m) => m,
                 None => return,
@@ -2714,7 +2706,7 @@ impl App {
                 return;
             }
             let popped = modal.field_flow.values.pop();
-            modal.field_flow.item_ids.pop();
+            let popped_item_id = modal.field_flow.item_ids.pop();
             modal.field_flow.list_idx -= 1;
             let list = &modal.field_flow.lists[modal.field_flow.list_idx];
             let mut merged_assigned = self.assigned_values.clone();
@@ -2731,13 +2723,37 @@ impl App {
                 .iter()
                 .map(|item| item.output().to_string())
                 .collect();
-            (modal.field_flow.list_idx, popped, labels, outputs)
+            (
+                modal.field_flow.list_idx,
+                popped,
+                popped_item_id,
+                labels,
+                outputs,
+            )
         };
 
-        let cursor = popped_output
-            .as_ref()
-            .and_then(|v| new_outputs.iter().position(|e| e == v))
-            .unwrap_or(0);
+        let cursor = if let Some(item_id) = popped_item_id.as_ref() {
+            self.modal
+                .as_ref()
+                .and_then(|modal| {
+                    modal
+                        .field_flow
+                        .lists
+                        .get(new_list_idx)
+                        .and_then(|list| list.items.iter().position(|item| &item.id == item_id))
+                })
+                .or_else(|| {
+                    popped_output
+                        .as_ref()
+                        .and_then(|v| new_outputs.iter().position(|e| e == v))
+                })
+                .unwrap_or(0)
+        } else {
+            popped_output
+                .as_ref()
+                .and_then(|v| new_outputs.iter().position(|e| e == v))
+                .unwrap_or(0)
+        };
         let assignment_key = if new_list_idx == 0 {
             self.modal_assignment_source_key()
         } else {
@@ -2768,6 +2784,67 @@ impl App {
         }
         self.rebuild_modal_unit_layout(false);
         self.fire_modal_transition_if_needed(previous_layout, previous_modal);
+    }
+
+    fn composite_go_forward(&mut self) -> bool {
+        let idx = self.current_idx;
+
+        let previous_layout = self.modal_unit_layout.clone();
+        let previous_modal = match self.modal.as_ref() {
+            Some(m) => m.clone(),
+            None => return false,
+        };
+
+        let window_size = self.modal_window_size();
+        if self.modal.as_mut().is_some_and(|modal| {
+            modal.move_right_without_confirm(
+                &self.assigned_values,
+                &self.config.sticky_values,
+                window_size,
+            )
+        }) {
+            self.sync_modal_preview_state(idx);
+            self.rebuild_modal_unit_layout(false);
+            self.fire_modal_transition_if_needed(previous_layout, previous_modal);
+            return true;
+        }
+        false
+    }
+
+    fn confirm_modal_from_confirmed_state(&mut self) -> bool {
+        let idx = self.current_idx;
+        let Some(modal) = self.modal.as_ref() else {
+            return false;
+        };
+        let Some(mut committed_value) =
+            modal.confirmed_field_value_if_complete(&self.config.sticky_values)
+        else {
+            return false;
+        };
+        if let Some(override_text) = modal.manual_override.clone() {
+            committed_value = HeaderFieldValue::ManualOverride {
+                text: override_text,
+                source: Box::new(committed_value),
+            };
+        }
+        let modal_assignments =
+            self.confirmed_assignments_for_current_header_field(idx, &committed_value);
+        if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+            s.composite_spans = None;
+            s.set_current_value(committed_value);
+            let done = s.advance();
+            if let Some(key) = self.modal_assignment_source_key() {
+                self.replace_assignments_for_key(key, modal_assignments);
+            }
+            self.sync_section_into_editable_note(idx);
+            if done {
+                self.advance_section();
+            }
+        }
+        self.fire_modal_confirm_transition_if_possible();
+        self.clear_live_modal_state_preserving_transitions();
+        let _ = self.config.save(&self.data_dir);
+        true
     }
 
     fn modal_lifecycle_slide_distance(&self, geometry: &UnitGeometry) -> f32 {
@@ -3886,6 +3963,205 @@ mod composition_span_tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
 
+    fn select_only_filtered_modal_match(app: &mut App, query: &str) {
+        app.set_modal_query(query.to_string());
+        let filtered_len = app
+            .modal
+            .as_ref()
+            .map(|modal| modal.filtered.len())
+            .unwrap_or(0);
+        assert_eq!(
+            filtered_len, 1,
+            "expected exactly one filtered match for query '{query}'"
+        );
+        app.handle_key(AppKey::Enter);
+    }
+
+    fn empty_item(id: &str) -> HierarchyItem {
+        item(id, "(Empty)", "")
+    }
+
+    fn observation_field_with_repeating_search_lists() -> HeaderFieldConfig {
+        HeaderFieldConfig {
+            id: "observation".to_string(),
+            name: "Observation".to_string(),
+            format: Some("{place}{muscle}: {tag}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![
+                HierarchyList {
+                    id: "muscle".to_string(),
+                    label: Some("Muscle".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: Some("empty_space".to_string()),
+                    modal_start: ModalStart::Search,
+                    joiner_style: Some(JoinerStyle::Comma),
+                    max_entries: None,
+                    items: vec![
+                        empty_item("empty_space"),
+                        item("trap", "Trapezius Upper", "Trapezius (Upper Fibers)"),
+                    ],
+                },
+                HierarchyList {
+                    id: "place".to_string(),
+                    label: Some("Place".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: Some("empty_space".to_string()),
+                    modal_start: ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        empty_item("empty_space"),
+                        item("left", "Left", "Left "),
+                    ],
+                },
+                HierarchyList {
+                    id: "tag".to_string(),
+                    label: Some("Tag".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: Some("empty_space".to_string()),
+                    modal_start: ModalStart::Search,
+                    joiner_style: Some(JoinerStyle::Comma),
+                    max_entries: None,
+                    items: vec![
+                        empty_item("empty_space"),
+                        item(
+                            "rmt",
+                            "Increased RMT",
+                            "Increased Resting Muscle Tension",
+                        ),
+                    ],
+                },
+            ],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        }
+    }
+
+    fn request_field_with_nested_repeat_terminator() -> HeaderFieldConfig {
+        let appointment_type = HeaderFieldConfig {
+            id: "appointment_type".to_string(),
+            name: "Appointment Type".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "appointment_type".to_string(),
+                label: Some("Appointment Type".to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::Search,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![item(
+                    "relax",
+                    "Relaxation massage",
+                    "Relaxation massage, focusing on ",
+                )],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let region = HeaderFieldConfig {
+            id: "region".to_string(),
+            name: "Region".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "region".to_string(),
+                label: Some("Region".to_string()),
+                preview: None,
+                sticky: false,
+                default: Some("empty_space".to_string()),
+                modal_start: ModalStart::Search,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![
+                    empty_item("empty_space"),
+                    item("shoulder", "Shoulder", "Shoulder"),
+                ],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let place = HeaderFieldConfig {
+            id: "place".to_string(),
+            name: "Place".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "place".to_string(),
+                label: Some("Place".to_string()),
+                preview: None,
+                sticky: false,
+                default: Some("empty_space".to_string()),
+                modal_start: ModalStart::Search,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![empty_item("empty_space"), item("left", "Left", "Left ")],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let single_region = HeaderFieldConfig {
+            id: "single_region".to_string(),
+            name: "Requested Region".to_string(),
+            format: Some("{place}{region}".to_string()),
+            preview: None,
+            fields: vec![region, place],
+            lists: Vec::new(),
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let requested_regions = HeaderFieldConfig {
+            id: "requested_regions".to_string(),
+            name: "Requested Regions".to_string(),
+            format: Some("{single_region}".to_string()),
+            preview: None,
+            fields: vec![single_region],
+            lists: Vec::new(),
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: Some(JoinerStyle::CommaAndThe),
+            max_entries: Some(2),
+            max_actives: None,
+        };
+        HeaderFieldConfig {
+            id: "request".to_string(),
+            name: "Request".to_string(),
+            format: Some("{appointment_type}{requested_regions}".to_string()),
+            preview: None,
+            fields: vec![appointment_type, requested_regions],
+            lists: Vec::new(),
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        }
+    }
+
     fn item(id: &str, label: &str, output: &str) -> HierarchyItem {
         HierarchyItem {
             id: id.to_string(),
@@ -4014,7 +4290,7 @@ mod composition_span_tests {
                     modal_start: ModalStart::List,
                     joiner_style: None,
                     max_entries: None,
-                    items: vec![item("minute_00", "00", "00")],
+                    items: vec![item("minute_00", "00", "00"), item("minute_45", "45", "45")],
                 },
             ],
             collections: Vec::new(),
@@ -4029,6 +4305,60 @@ mod composition_span_tests {
                 max_entries: None,
                 items: vec![item("am_item", "AM", "AM"), item("pm_item", "PM", "PM")],
             }],
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        }
+    }
+
+    fn scheduled_visit_field() -> HeaderFieldConfig {
+        HeaderFieldConfig {
+            id: "scheduled_visit".to_string(),
+            name: "Scheduled Visit".to_string(),
+            format: Some("{start_hour}:{start_minute} for {duration} minutes".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![
+                HierarchyList {
+                    id: "start_hour".to_string(),
+                    label: Some("Start Hour".to_string()),
+                    preview: Some("hh".to_string()),
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![item("hour_9", "9", "9"), item("hour_12", "12", "12")],
+                },
+                HierarchyList {
+                    id: "start_minute".to_string(),
+                    label: Some("Start Minute".to_string()),
+                    preview: Some("mm".to_string()),
+                    sticky: false,
+                    default: Some("minute_00".to_string()),
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![item("minute_00", "00", "00"), item("minute_45", "45", "45")],
+                },
+                HierarchyList {
+                    id: "duration".to_string(),
+                    label: Some("Duration".to_string()),
+                    preview: Some("dur".to_string()),
+                    sticky: false,
+                    default: Some("duration_60".to_string()),
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        item("duration_30", "30", "30"),
+                        item("duration_45", "45", "45"),
+                        item("duration_60", "60", "60"),
+                    ],
+                },
+            ],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
             joiner_style: None,
             max_entries: None,
             max_actives: None,
@@ -4167,30 +4497,52 @@ mod composition_span_tests {
     }
 
     #[test]
-    fn modal_list_nav_aliases_move_and_confirm() {
-        let mut app = app_with_single_field(list_field(ModalStart::List));
+    fn modal_nav_right_browses_next_part_without_confirming() {
+        let mut app = app_with_single_field(assigned_time_field());
         app.open_header_modal();
 
-        app.handle_key(AppKey::Char('n'));
-        let modal = app
-            .modal
-            .as_ref()
-            .expect("modal should stay open after nav_down");
+        let modal = app.modal.as_ref().expect("modal should open");
         assert_eq!(modal.focus, ModalFocus::List);
-        assert_eq!(modal.list_cursor, 1);
+
+        app.handle_key(AppKey::Char('i'));
+
+        let modal = app.modal.as_ref().expect("modal should stay open");
+        assert_eq!(modal.field_flow.list_idx, 1);
+        assert_eq!(modal.selected_value(), Some("00"));
+        let SectionState::Header(state) = &app.section_states[0] else {
+            panic!("expected header state");
+        };
+        assert!(matches!(
+            state.repeated_values[0].first(),
+            Some(HeaderFieldValue::ListState(value)) if value.values == vec!["9".to_string()]
+                && value.list_idx == 1
+        ));
+    }
+
+    #[test]
+    fn modal_terminal_nav_right_confirms_using_cursor_fallback_when_needed() {
+        let mut app = app_with_single_field(assigned_time_field());
+        app.open_header_modal();
+
+        app.handle_key(AppKey::Char('i'));
+        assert!(
+            app.modal.is_some(),
+            "first nav_right should browse to next modal"
+        );
 
         app.handle_key(AppKey::Char('i'));
 
         assert!(
             app.modal.is_none(),
-            "nav_right should confirm the current list row"
+            "terminal nav_right should confirm the field using cursor fallback"
         );
         let SectionState::Header(state) = &app.section_states[0] else {
             panic!("expected header state");
         };
         assert!(matches!(
-            &state.repeated_values[0][0],
-            HeaderFieldValue::Text(value) if value == "Hip"
+            state.repeated_values[0].first(),
+            Some(HeaderFieldValue::ListState(value))
+                if value.values == vec!["9".to_string(), "00".to_string()] && value.list_idx == 2
         ));
     }
 
@@ -4593,10 +4945,7 @@ mod composition_span_tests {
         match &state.repeated_values[0][0] {
             HeaderFieldValue::ManualOverride { text, source } => {
                 assert_eq!(text, "Manual shoulder");
-                assert!(matches!(
-                    source.as_ref(),
-                    HeaderFieldValue::Text(value) if value == "Shoulder"
-                ));
+                assert!(matches!(source.as_ref(), HeaderFieldValue::ListState(_)));
             }
             other => panic!("expected manual override, got {other:?}"),
         }
@@ -4619,18 +4968,144 @@ mod composition_span_tests {
         app.open_header_modal();
 
         app.confirm_modal_value("9".to_string());
-        assert!(app.modal.is_some(), "first list should advance to minute selection");
+        assert!(
+            app.modal.is_some(),
+            "first list should advance to minute selection"
+        );
 
         app.confirm_modal_value("00".to_string());
 
-        assert_eq!(app.assigned_values.get("am_pm").map(String::as_str), Some("AM"));
+        assert_eq!(
+            app.assigned_values.get("am_pm").map(String::as_str),
+            Some("AM")
+        );
         assert!(app.editable_note.contains("Appointment: 9:00AM"));
         let SectionState::Header(state) = &app.section_states[0] else {
             panic!("expected header state");
         };
+        match &state.repeated_values[0][0] {
+            HeaderFieldValue::ListState(value) => {
+                assert_eq!(value.values, vec!["9".to_string(), "00".to_string()]);
+                assert_eq!(value.list_idx, 2);
+            }
+            other => panic!("expected list state, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reopened_modal_restores_confirmed_cursors_and_nav_right_keeps_original_choice() {
+        let mut app = app_with_single_field(assigned_time_field());
+        app.open_header_modal();
+        app.confirm_modal_value("12".to_string());
+        app.confirm_modal_value("45".to_string());
+
+        app.open_header_modal();
+
+        let modal = app.modal.as_ref().expect("modal should reopen");
+        assert_eq!(modal.field_flow.list_idx, 0);
+        assert_eq!(modal.selected_value(), Some("12"));
+        assert_eq!(modal.confirmed_row_for_current_list(), Some(1));
+
+        app.handle_key(AppKey::Char('e'));
+        let modal = app.modal.as_ref().expect("modal should stay open");
+        assert_eq!(modal.selected_value(), Some("9"));
+
+        app.handle_key(AppKey::Char('i'));
+        let modal = app.modal.as_ref().expect("modal should stay open");
+        assert_eq!(modal.field_flow.list_idx, 1);
+        assert_eq!(modal.selected_value(), Some("45"));
+        assert_eq!(modal.confirmed_row_for_current_list(), Some(1));
+
+        app.handle_key(AppKey::Char('h'));
+        let modal = app.modal.as_ref().expect("modal should stay open");
+        assert_eq!(modal.field_flow.list_idx, 0);
+        assert_eq!(modal.selected_value(), Some("9"));
+    }
+
+    #[test]
+    fn reopened_three_part_modal_preserves_live_cursor_when_leaving_left() {
+        let mut app = app_with_single_field(scheduled_visit_field());
+        app.open_header_modal();
+        app.confirm_modal_value("12".to_string());
+        app.confirm_modal_value("45".to_string());
+        app.confirm_modal_value("60".to_string());
+
+        app.open_header_modal();
+        app.handle_key(AppKey::Char('i'));
+        app.handle_key(AppKey::Char('e'));
+        let modal = app.modal.as_ref().expect("modal should stay open");
+        assert_eq!(modal.field_flow.list_idx, 1);
+        assert_eq!(modal.selected_value(), Some("00"));
+
+        app.handle_key(AppKey::Char('i'));
+        app.handle_key(AppKey::Char('e'));
+        let modal = app.modal.as_ref().expect("modal should stay open");
+        assert_eq!(modal.field_flow.list_idx, 2);
+        assert_eq!(modal.selected_value(), Some("45"));
+
+        app.handle_key(AppKey::Char('h'));
+        let modal = app.modal.as_ref().expect("modal should stay open");
+        assert_eq!(modal.field_flow.list_idx, 1);
+        assert_eq!(modal.selected_value(), Some("00"));
+
+        app.handle_key(AppKey::Char('i'));
+        let modal = app.modal.as_ref().expect("modal should stay open");
+        assert_eq!(modal.field_flow.list_idx, 2);
+        assert_eq!(modal.selected_value(), Some("45"));
+    }
+
+    #[test]
+    fn reopened_terminal_nav_right_commits_only_explicitly_confirmed_choices() {
+        let mut app = app_with_single_field(scheduled_visit_field());
+        app.open_header_modal();
+        app.confirm_modal_value("12".to_string());
+        app.confirm_modal_value("45".to_string());
+        app.confirm_modal_value("60".to_string());
+
+        app.open_header_modal();
+        app.handle_key(AppKey::Char('i'));
+        app.handle_key(AppKey::Char('e'));
+        let modal = app.modal.as_ref().expect("modal should stay open");
+        assert_eq!(modal.field_flow.list_idx, 1);
+        assert_eq!(modal.selected_value(), Some("00"));
+
+        app.handle_key(AppKey::Char('i'));
+        app.handle_key(AppKey::Char('h'));
+        let modal = app.modal.as_ref().expect("modal should stay open");
+        assert_eq!(modal.field_flow.list_idx, 1);
+        assert_eq!(modal.selected_value(), Some("00"));
+
+        app.handle_key(AppKey::Char('i'));
+        app.handle_key(AppKey::Char('e'));
+        let modal = app.modal.as_ref().expect("modal should stay open");
+        assert_eq!(modal.field_flow.list_idx, 2);
+        assert_eq!(modal.selected_value(), Some("45"));
+
+        app.handle_key(AppKey::Char('h'));
+        let modal = app.modal.as_ref().expect("modal should stay open");
+        assert_eq!(modal.field_flow.list_idx, 1);
+        assert_eq!(modal.selected_value(), Some("00"));
+
+        app.handle_key(AppKey::Char('i'));
+        let modal = app.modal.as_ref().expect("modal should stay open");
+        assert_eq!(modal.field_flow.list_idx, 2);
+        assert_eq!(modal.selected_value(), Some("45"));
+
+        app.handle_key(AppKey::Char('i'));
+
+        assert!(
+            app.modal.is_none(),
+            "terminal nav_right should commit the field"
+        );
+        let SectionState::Header(state) = &app.section_states[0] else {
+            panic!("expected header state");
+        };
         assert!(matches!(
-            &state.repeated_values[0][0],
-            HeaderFieldValue::Text(value) if value == "9:00AM"
+            state.repeated_values[0].first(),
+            Some(HeaderFieldValue::ListState(value))
+                if value.values
+                    == vec!["12".to_string(), "45".to_string(), "60".to_string()]
+                    && value.list_idx == 3
         ));
     }
 
@@ -4663,7 +5138,10 @@ mod composition_span_tests {
         app.open_header_modal();
         app.confirm_modal_value("9".to_string());
         app.confirm_modal_value("00".to_string());
-        assert_eq!(app.assigned_values.get("am_pm").map(String::as_str), Some("AM"));
+        assert_eq!(
+            app.assigned_values.get("am_pm").map(String::as_str),
+            Some("AM")
+        );
 
         app.open_header_modal();
         app.confirm_modal_value("12".to_string());
@@ -4685,5 +5163,53 @@ mod composition_span_tests {
             state.repeated_values[0].is_empty(),
             "backing out to the first list should clear the in-progress preview slot"
         );
+    }
+
+    #[test]
+    fn confirming_repeating_search_lists_updates_preview_and_export() {
+        let mut app = app_with_single_field(observation_field_with_repeating_search_lists());
+
+        app.open_header_modal();
+        select_only_filtered_modal_match(&mut app, "trapezius");
+        app.handle_key(AppKey::Enter);
+        select_only_filtered_modal_match(&mut app, "left");
+        select_only_filtered_modal_match(&mut app, "rmt");
+        app.handle_key(AppKey::Enter);
+
+        let exported = crate::document::export_editable_document(&app.editable_note);
+
+        assert!(
+            app.editable_note
+                .contains("Observation: Left Trapezius (Upper Fibers): Increased Resting Muscle Tension"),
+            "editable note should contain confirmed objective field output"
+        );
+        assert!(
+            exported.contains("Observation: Left Trapezius (Upper Fibers): Increased Resting Muscle Tension"),
+            "exported preview should contain confirmed objective field output"
+        );
+    }
+
+    #[test]
+    fn confirming_nested_repeat_terminator_updates_preview_and_export() {
+        let mut app = app_with_single_field(request_field_with_nested_repeat_terminator());
+
+        app.open_header_modal();
+        select_only_filtered_modal_match(&mut app, "relaxation");
+        select_only_filtered_modal_match(&mut app, "shoulder");
+        select_only_filtered_modal_match(&mut app, "left");
+        app.handle_key(AppKey::Enter);
+        app.handle_key(AppKey::Enter);
+
+        let exported = crate::document::export_editable_document(&app.editable_note);
+
+        assert!(
+            app.editable_note.contains("Request: Relaxation massage, focusing on the Left Shoulder"),
+            "editable note should contain confirmed appointment request output"
+        );
+        assert!(
+            exported.contains("Request: Relaxation massage, focusing on the Left Shoulder"),
+            "exported preview should contain confirmed appointment request output"
+        );
+        assert!(app.modal.is_none(), "modal should close after nested repeat terminates");
     }
 }

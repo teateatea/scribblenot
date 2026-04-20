@@ -321,23 +321,88 @@ fn scrollable_style(
 fn modal_item_button_style(
     app_theme: &crate::theme::AppTheme,
     status: iced::widget::button::Status,
+    forced_background: Option<Color>,
+    forced_text_color: Option<Color>,
 ) -> iced::widget::button::Style {
-    let background = match status {
-        iced::widget::button::Status::Hovered | iced::widget::button::Status::Pressed => {
-            app_theme.modal_item_hovered_background
-        }
-        iced::widget::button::Status::Active | iced::widget::button::Status::Disabled => {
-            app_theme.modal_item_background
-        }
+    let background = match forced_background {
+        Some(background) => background,
+        None => match status {
+            iced::widget::button::Status::Hovered | iced::widget::button::Status::Pressed => {
+                app_theme.modal_item_hovered_background
+            }
+            iced::widget::button::Status::Active | iced::widget::button::Status::Disabled => {
+                app_theme.modal_item_background
+            }
+        },
     };
 
     iced::widget::button::Style {
         background: Some(Background::Color(background)),
-        text_color: app_theme.modal_text,
+        text_color: forced_text_color.unwrap_or(app_theme.modal_text),
         border: Border {
             color: background,
             width: 0.0,
             radius: 2.0.into(),
+        },
+        shadow: iced::Shadow::default(),
+    }
+}
+
+fn modal_row_cursor_accent(
+    app_theme: &crate::theme::AppTheme,
+    is_current: bool,
+    is_active_modal: bool,
+) -> Option<Color> {
+    if is_current {
+        Some(if is_active_modal {
+            app_theme.active
+        } else {
+            app_theme.active_preview
+        })
+    } else {
+        None
+    }
+}
+
+fn confirmed_row_border_color(
+    app_theme: &crate::theme::AppTheme,
+    is_confirmed: bool,
+    cursor_accent: Option<Color>,
+) -> Option<Color> {
+    if !is_confirmed {
+        None
+    } else {
+        Some(cursor_accent.unwrap_or(app_theme.selected))
+    }
+}
+
+fn modal_row_color(
+    cursor_accent: Option<Color>,
+    confirmed_color: Option<Color>,
+    fallback: Color,
+) -> Color {
+    cursor_accent.or(confirmed_color).unwrap_or(fallback)
+}
+
+fn modal_row_container_style(border_color: Option<Color>) -> iced::widget::container::Style {
+    match border_color {
+        Some(border_color) => iced::widget::container::Style::default().border(Border {
+            color: border_color,
+            width: 1.0,
+            radius: 2.0.into(),
+        }),
+        None => iced::widget::container::Style::default(),
+    }
+}
+
+fn plain_modal_row_button_style() -> iced::widget::button::Style {
+    iced::widget::button::Style {
+        background: None,
+        text_color: Color::TRANSPARENT,
+        border: Border {
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius: 0.0.into(),
         },
         shadow: iced::Shadow::default(),
     }
@@ -412,7 +477,7 @@ fn field_display_value(
     field: &crate::data::HeaderFieldConfig,
     confirmed_values: &[crate::sections::header::HeaderFieldValue],
 ) -> String {
-    crate::sections::multi_field::render_field_display(
+    crate::sections::multi_field::render_field_display_for_confirmed_values(
         confirmed_values,
         field,
         &app.assigned_values,
@@ -511,7 +576,7 @@ fn render_header_state<'a>(
                     confirmed_values
                         .get(repeat_idx)
                         .map(|value| {
-                            match crate::sections::multi_field::resolve_multifield_value(
+                            match crate::sections::multi_field::resolve_multifield_value_for_confirmed_slot(
                                 value,
                                 field,
                                 &app.assigned_values,
@@ -537,7 +602,7 @@ fn render_header_state<'a>(
                 let field_label = confirmed_values
                     .get(repeat_idx)
                     .map(|value| {
-                        crate::sections::multi_field::resolve_field_label(
+                        crate::sections::multi_field::resolve_field_label_for_confirmed_slot(
                             value,
                             field,
                             &app.assigned_values,
@@ -574,7 +639,7 @@ fn render_header_state<'a>(
         let confirmed = confirmed_values.first().cloned().unwrap_or(
             crate::sections::header::HeaderFieldValue::Text(String::new()),
         );
-        let field_label = crate::sections::multi_field::resolve_field_label(
+        let field_label = crate::sections::multi_field::resolve_field_label_for_confirmed_slot(
             &confirmed,
             field,
             &app.assigned_values,
@@ -1048,7 +1113,8 @@ fn match_header_preview_line(app: &App, line: &str) -> Option<HeaderPreviewLineM
             }
 
             for value in values {
-                let resolved = crate::sections::multi_field::resolve_multifield_value(
+                let resolved =
+                    crate::sections::multi_field::resolve_multifield_value_for_confirmed_slot(
                     value,
                     field,
                     &app.assigned_values,
@@ -1057,7 +1123,7 @@ fn match_header_preview_line(app: &App, line: &str) -> Option<HeaderPreviewLineM
                 let Some(rendered) = resolved.export_value() else {
                     continue;
                 };
-                let candidate = crate::sections::multi_field::render_note_line(
+                let candidate = crate::sections::multi_field::render_note_line_for_confirmed_slot(
                     section,
                     field,
                     value,
@@ -1272,7 +1338,7 @@ fn panel_status_text(app: &App) -> String {
             ModalFocus::List => "list",
         };
         return format!(
-            "Modal: {focus} | {} matches | Enter selects | Empty Space moves into list | Ctrl+E edits entry | Esc closes",
+            "Modal: {focus} | {} matches | Confirm commits | Left/Right browse parts | Space enters list | Ctrl+E edits entry | Esc closes",
             modal.filtered.len()
         );
     }
@@ -1574,41 +1640,63 @@ fn preview_simple_modal_content<'a>(
             continue;
         };
         let is_current = window_pos == snapshot.list_cursor;
+        let is_confirmed = snapshot.confirmed_row == Some(entry_idx);
+        let cursor_accent = modal_row_cursor_accent(&app.ui_theme, is_current, false);
+        let confirmed_color = if is_confirmed {
+            Some(app.ui_theme.selected)
+        } else {
+            None
+        };
+        let border_color = confirmed_row_border_color(&app.ui_theme, is_confirmed, cursor_accent);
         let hint = modal_hints
             .get(window_pos - snapshot.list_scroll)
             .map(|hint| display_hint_label(app, hint))
             .unwrap_or_default();
+        let marker_color = modal_row_color(
+            cursor_accent,
+            confirmed_color,
+            app.ui_theme.modal_muted_text,
+        );
+        let hint_color = modal_row_color(
+            cursor_accent,
+            confirmed_color,
+            app.ui_theme.modal_muted_text,
+        );
+        let label_color = modal_row_color(
+            cursor_accent,
+            confirmed_color,
+            app.ui_theme.modal_muted_text,
+        );
         let row_content = row![
             container(
                 text(if is_current { ">" } else { " " })
                     .font(app.ui_theme.font_modal)
-                    .color(apply_alpha(
-                        if is_current {
-                            app.ui_theme.modal_text
-                        } else {
-                            app.ui_theme.modal_muted_text
-                        },
-                        alpha,
-                    )),
+                    .color(apply_alpha(marker_color, alpha)),
             )
             .align_left(Length::Fixed(14.0)),
             container(
                 text(format!("{hint:<4}"))
                     .font(app.ui_theme.font_modal)
-                    .color(apply_alpha(app.ui_theme.modal_muted_text, alpha)),
+                    .color(apply_alpha(hint_color, alpha)),
             )
             .align_left(Length::Fixed(24.0)),
-            text(label).font(app.ui_theme.font_modal).color(apply_alpha(
-                if is_current {
-                    app.ui_theme.active_preview
-                } else {
-                    app.ui_theme.modal_muted_text
-                },
-                alpha,
-            )),
+            container(
+                text(label)
+                    .font(app.ui_theme.font_modal)
+                    .color(apply_alpha(label_color, alpha)),
+            )
+            .width(Length::Fill),
         ]
-        .spacing(0);
-        items.push(container(row_content).width(Length::Fill).into());
+        .spacing(0)
+        .width(Length::Fill);
+        items.push(
+            container(row_content)
+                .width(Length::Fill)
+                .style(move |_| {
+                    modal_row_container_style(border_color.map(|color| apply_alpha(color, alpha)))
+                })
+                .into(),
+        );
     }
 
     container(column(items).spacing(4).padding(8))
@@ -1700,35 +1788,37 @@ fn active_simple_modal_content<'a>(
         .cloned()
         .collect();
     let mut list_items: Vec<Element<'a, Message>> = Vec::new();
+    let confirmed_row = modal.confirmed_row_for_current_list();
     for window_pos in modal.list_scroll..end {
         if let Some(&entry_idx) = modal.filtered.get(window_pos) {
             let label = &modal.all_entries[entry_idx];
-            let color = if window_pos == modal.list_cursor {
-                ui_theme.active
+            let is_current = window_pos == modal.list_cursor;
+            let is_confirmed = confirmed_row == Some(entry_idx);
+            let cursor_accent = modal_row_cursor_accent(&ui_theme, is_current, true);
+            let confirmed_color = if is_confirmed {
+                Some(ui_theme.selected)
             } else {
-                ui_theme.modal_muted_text
+                None
             };
+            let border_color = confirmed_row_border_color(&ui_theme, is_confirmed, cursor_accent);
+            let color = modal_row_color(cursor_accent, confirmed_color, ui_theme.modal_muted_text);
             let hint = modal_hints
                 .get(window_pos - modal.list_scroll)
                 .map(|hint| display_hint_label(app, hint))
                 .unwrap_or_default();
-            let hint_color = if matches!(modal.focus, ModalFocus::List) {
-                ui_theme.modal_hint_text
-            } else {
-                ui_theme.modal_muted_text
-            };
-            let marker = if window_pos == modal.list_cursor {
-                ">"
-            } else {
-                " "
-            };
-            let marker_color =
-                if matches!(modal.focus, ModalFocus::List) && window_pos == modal.list_cursor {
-                    ui_theme.active
+            let hint_color = modal_row_color(
+                cursor_accent,
+                confirmed_color,
+                if matches!(modal.focus, ModalFocus::List) {
+                    ui_theme.modal_hint_text
                 } else {
                     ui_theme.modal_muted_text
-                };
-            let button_label = row![
+                },
+            );
+            let marker = if is_current { ">" } else { " " };
+            let marker_color =
+                modal_row_color(cursor_accent, confirmed_color, ui_theme.modal_muted_text);
+            let row_content = row![
                 container(text(marker).font(ui_theme.font_modal).color(marker_color))
                     .align_left(Length::Fixed(14.0)),
                 container(
@@ -1737,17 +1827,21 @@ fn active_simple_modal_content<'a>(
                         .color(hint_color),
                 )
                 .align_left(Length::Fixed(24.0)),
-                text(label).font(ui_theme.font_modal).color(color),
+                container(text(label).font(ui_theme.font_modal).color(color)).width(Length::Fill),
             ]
-            .spacing(0);
-            let app_theme = ui_theme.clone();
+            .spacing(0)
+            .width(Length::Fill);
             list_items.push(
-                button(button_label)
-                    .width(Length::Fill)
-                    .padding(0)
-                    .on_press(Message::ModalSelect(window_pos))
-                    .style(move |_theme, status| modal_item_button_style(&app_theme, status))
-                    .into(),
+                button(
+                    container(row_content)
+                        .width(Length::Fill)
+                        .style(move |_| modal_row_container_style(border_color)),
+                )
+                .width(Length::Fill)
+                .padding(0)
+                .on_press(Message::ModalSelect(window_pos))
+                .style(move |_theme, _status| plain_modal_row_button_style())
+                .into(),
             );
         }
     }
@@ -1775,12 +1869,11 @@ fn entry_composition_panel<'a>(
     modal_width: f32,
     composition_editing: bool,
 ) -> Option<Element<'a, Message>> {
-    let structured_spans =
-        crate::app::compute_field_composition_spans(
-            modal,
-            &app.assigned_values,
-            &app.config.sticky_values,
-        );
+    let structured_spans = crate::app::compute_field_composition_spans(
+        modal,
+        &app.assigned_values,
+        &app.config.sticky_values,
+    );
     if structured_spans.is_empty() && modal.manual_override.is_none() {
         return None;
     }
@@ -2367,7 +2460,9 @@ fn render_modal_rows<'a>(
                 button(button_label)
                     .width(Length::Fill)
                     .on_press(Message::ModalRowPressed(target, window_pos))
-                    .style(move |_theme, status| modal_item_button_style(&app_theme, status)),
+                    .style(move |_theme, status| {
+                        modal_item_button_style(&app_theme, status, None, None)
+                    }),
             )
             .on_enter(Message::ModalRowHovered(target, window_pos))
             .interaction(iced::mouse::Interaction::Pointer)
@@ -2726,6 +2821,8 @@ mod tests {
             query: String::new(),
             rows: vec![format!("{title} row")],
             filtered: vec![0],
+            revisiting_completed_field: false,
+            confirmed_row: None,
             list_cursor: 0,
             list_scroll: 0,
             focus: ModalFocus::List,
@@ -3294,4 +3391,3 @@ mod tests {
         );
     }
 }
-
