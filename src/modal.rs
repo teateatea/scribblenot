@@ -4001,7 +4001,7 @@ mod modal_filter_tests {
     fn real_appointment_requested_field() -> HeaderFieldConfig {
         let data =
             crate::data::AppData::load(crate::data::find_data_dir()).expect("real data loads");
-        for section in &data.sections {
+        for section in crate::data::flat_sections_from_template(&data.template) {
             if let Some(fields) = &section.fields {
                 if let Some(field) = find_field_by_id(fields, "appointment_requested_field") {
                     return field;

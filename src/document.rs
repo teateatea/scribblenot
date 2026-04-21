@@ -17,8 +17,8 @@
 //! A section with an empty `note_label` has no heading anchor; its markers are
 //! the stable replacement boundary.
 
-use crate::app::SectionState;
-use crate::data::{RuntimeTemplate, SectionConfig};
+use crate::app::SectionStateStore;
+use crate::data::RuntimeTemplate;
 use crate::note::{managed_heading_for_section, render_editable_document};
 use std::collections::HashMap;
 
@@ -32,15 +32,13 @@ pub struct SectionAnchorSpec {
 
 pub fn build_initial_document(
     template: &RuntimeTemplate,
-    sections: &[SectionConfig],
-    states: &[SectionState],
+    states: &SectionStateStore,
     assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
     boilerplate_texts: &HashMap<String, String>,
 ) -> String {
     render_editable_document(
         template,
-        sections,
         states,
         assigned_values,
         sticky_values,
@@ -56,10 +54,13 @@ pub fn marker_end(section_id: &str) -> String {
     format!("<!-- scribblenot:section id={section_id}:end -->")
 }
 
-pub fn editable_section_specs(sections: &[SectionConfig]) -> Vec<SectionAnchorSpec> {
-    sections
+pub fn editable_section_specs(template: &RuntimeTemplate) -> Vec<SectionAnchorSpec> {
+    template
+        .children
         .iter()
-        .map(|cfg| {
+        .flat_map(|group| group.children.iter())
+        .map(|node| {
+            let cfg = node.config();
             let heading = managed_heading_for_section(cfg).filter(|heading| !heading.is_empty());
             SectionAnchorSpec {
                 section_id: cfg.id.clone(),
@@ -71,8 +72,8 @@ pub fn editable_section_specs(sections: &[SectionConfig]) -> Vec<SectionAnchorSp
         .collect()
 }
 
-pub fn validate_section_anchors(document: &str, sections: &[SectionConfig]) -> Result<(), String> {
-    for spec in editable_section_specs(sections) {
+pub fn validate_section_anchors(document: &str, template: &RuntimeTemplate) -> Result<(), String> {
+    for spec in editable_section_specs(template) {
         let start_pos = document.find(&spec.marker_start).ok_or_else(|| {
             format!(
                 "Missing managed section start marker for '{}'.",
@@ -111,9 +112,9 @@ pub fn validate_section_anchors(document: &str, sections: &[SectionConfig]) -> R
 
 pub fn validate_document_structure(
     document: &str,
-    sections: &[SectionConfig],
+    template: &RuntimeTemplate,
 ) -> Result<(), String> {
-    validate_section_anchors(document, sections)
+    validate_section_anchors(document, template)
 }
 
 pub fn replace_managed_section_body(
@@ -219,8 +220,11 @@ fn compact_blank_lines(lines: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::SectionState;
-    use crate::data::{AppData, RuntimeNodeKind};
+    use crate::app::{SectionState, SectionStateStore};
+    use crate::data::{
+        flat_sections_from_template, AppData, GroupNoteMeta, RuntimeGroup, RuntimeNode,
+        RuntimeNodeKind, RuntimeTemplate, SectionConfig,
+    };
     use crate::sections::collection::CollectionState;
     use crate::sections::free_text::FreeTextState;
     use crate::sections::header::HeaderState;
@@ -244,8 +248,8 @@ mod tests {
     }
 
     fn states_for_real_data(data: &AppData) -> Vec<SectionState> {
-        data.sections
-            .iter()
+        flat_sections_from_template(&data.template)
+            .into_iter()
             .map(|section| match section.section_type.as_str() {
                 "multi_field" => SectionState::Header(HeaderState::new(
                     section.fields.clone().unwrap_or_default(),
@@ -273,20 +277,39 @@ mod tests {
             .collect()
     }
 
+    fn state_store(
+        sections: &[crate::data::SectionConfig],
+        states: Vec<SectionState>,
+    ) -> SectionStateStore {
+        SectionStateStore::new(sections, states)
+    }
+
+    fn template_with_sections(sections: Vec<crate::data::SectionConfig>) -> RuntimeTemplate {
+        RuntimeTemplate {
+            id: "test".to_string(),
+            children: vec![RuntimeGroup {
+                id: "group".to_string(),
+                nav_label: "GROUP".to_string(),
+                note: GroupNoteMeta::default(),
+                children: sections.into_iter().map(RuntimeNode::Section).collect(),
+            }],
+        }
+    }
+
     #[test]
     fn initial_document_from_real_data_validates_against_current_structure() {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data");
         let data = AppData::load(dir).expect("real data loads");
+        let sections = flat_sections_from_template(&data.template);
         let document = build_initial_document(
             &data.template,
-            &data.sections,
-            &states_for_real_data(&data),
+            &state_store(&sections, states_for_real_data(&data)),
             &HashMap::new(),
             &HashMap::new(),
             &data.boilerplate_texts,
         );
 
-        validate_document_structure(&document, &data.sections)
+        validate_document_structure(&document, &data.template)
             .expect("real editable document should validate");
     }
 
@@ -299,7 +322,7 @@ mod tests {
             marker_end(&section.id)
         );
 
-        validate_section_anchors(&document, &[section])
+        validate_section_anchors(&document, &template_with_sections(vec![section]))
             .expect("empty note_label sections should validate without heading text");
     }
 
@@ -312,7 +335,7 @@ mod tests {
             marker_end(&section.id)
         );
 
-        let err = validate_section_anchors(&document, &[section])
+        let err = validate_section_anchors(&document, &template_with_sections(vec![section]))
             .expect_err("heading after marker should fail validation");
         assert!(err.contains("appears after its start marker"));
     }

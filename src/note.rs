@@ -1,4 +1,4 @@
-use crate::app::SectionState;
+use crate::app::{SectionState, SectionStateStore};
 use crate::data::{RuntimeTemplate, SectionConfig};
 use crate::sections::header::HeaderFieldValue;
 use crate::sections::multi_field::{render_note_line, render_note_line_for_confirmed_slot};
@@ -14,8 +14,7 @@ pub enum NoteRenderMode {
 #[allow(dead_code)]
 pub fn section_start_line(
     template: &RuntimeTemplate,
-    sections: &[SectionConfig],
-    states: &[SectionState],
+    states: &SectionStateStore,
     assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
     boilerplate_texts: &HashMap<String, String>,
@@ -23,16 +22,13 @@ pub fn section_start_line(
 ) -> u16 {
     let note = render_note(
         template,
-        sections,
         states,
         assigned_values,
         sticky_values,
         boilerplate_texts,
         NoteRenderMode::Preview,
     );
-    let anchor = sections
-        .iter()
-        .find(|section| section.id == section_id)
+    let anchor = runtime_config_by_id(template, section_id)
         .and_then(managed_heading_for_section)
         .unwrap_or_default();
 
@@ -45,8 +41,7 @@ pub fn section_start_line(
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn render_note(
     template: &RuntimeTemplate,
-    sections: &[SectionConfig],
-    states: &[SectionState],
+    states: &SectionStateStore,
     assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
     boilerplate_texts: &HashMap<String, String>,
@@ -54,7 +49,6 @@ pub fn render_note(
 ) -> String {
     render_document(
         template,
-        sections,
         states,
         assigned_values,
         sticky_values,
@@ -66,15 +60,13 @@ pub fn render_note(
 
 pub fn render_editable_document(
     template: &RuntimeTemplate,
-    sections: &[SectionConfig],
-    states: &[SectionState],
+    states: &SectionStateStore,
     assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
     boilerplate_texts: &HashMap<String, String>,
 ) -> String {
     render_document(
         template,
-        sections,
         states,
         assigned_values,
         sticky_values,
@@ -102,8 +94,7 @@ pub fn render_editable_section_body(
 
 fn render_document(
     template: &RuntimeTemplate,
-    sections: &[SectionConfig],
-    states: &[SectionState],
+    states: &SectionStateStore,
     assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
     boilerplate_texts: &HashMap<String, String>,
@@ -111,7 +102,6 @@ fn render_document(
     editable: bool,
 ) -> String {
     let mut parts = Vec::new();
-    let state_lookup = section_state_lookup(sections, states);
 
     for (group_idx, group) in template.children.iter().enumerate() {
         if group_idx > 0 {
@@ -132,18 +122,18 @@ fn render_document(
 
         for node in &group.children {
             let config = node.config();
-            let Some((cfg, state)) = state_lookup.get(config.id.as_str()).copied() else {
+            let Some(state) = states.by_id(&config.id) else {
                 continue;
             };
             let body =
-                render_section_body(cfg, state, assigned_values, sticky_values, mode.clone());
+                render_section_body(config, state, assigned_values, sticky_values, mode.clone());
             if body.trim().is_empty() && is_skipped(state) {
                 continue;
             }
 
             if editable {
-                append_managed_section(&mut parts, cfg, body);
-            } else if let Some(heading) = managed_heading_for_section(cfg) {
+                append_managed_section(&mut parts, config, body);
+            } else if let Some(heading) = managed_heading_for_section(config) {
                 parts.push(format!("\n\n{}", heading));
                 if !body.trim().is_empty() {
                     parts.push(format!("\n{}", body));
@@ -159,15 +149,15 @@ fn render_document(
     parts.join("")
 }
 
-fn section_state_lookup<'a>(
-    sections: &'a [SectionConfig],
-    states: &'a [SectionState],
-) -> HashMap<&'a str, (&'a SectionConfig, &'a SectionState)> {
-    sections
+fn runtime_config_by_id<'a>(
+    template: &'a RuntimeTemplate,
+    section_id: &str,
+) -> Option<&'a SectionConfig> {
+    template
+        .children
         .iter()
-        .zip(states.iter())
-        .map(|(section, state)| (section.id.as_str(), (section, state)))
-        .collect()
+        .flat_map(|group| group.children.iter())
+        .find_map(|node| (node.config().id == section_id).then_some(node.config()))
 }
 
 fn append_managed_section(parts: &mut Vec<String>, cfg: &SectionConfig, body: String) {
@@ -272,10 +262,11 @@ fn is_skipped(state: &SectionState) -> bool {
 mod tests {
     use super::*;
     use crate::data::{
-        AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem, HierarchyList, ItemAssignment,
-        ModalStart, ResolvedCollectionConfig, RuntimeGroup, RuntimeNode, RuntimeNodeKind,
-        RuntimeTemplate, SectionConfig,
+        flat_sections_from_template, AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem,
+        HierarchyList, ItemAssignment, ModalStart, ResolvedCollectionConfig, RuntimeGroup,
+        RuntimeNode, RuntimeNodeKind, RuntimeTemplate, SectionConfig,
     };
+    use crate::app::SectionStateStore;
     use crate::sections::collection::CollectionState;
     use crate::sections::free_text::FreeTextState;
     use crate::sections::header::{HeaderFieldValue, HeaderState, ListFieldValue};
@@ -284,8 +275,8 @@ mod tests {
     use std::path::PathBuf;
 
     fn states_for_real_data(data: &AppData) -> Vec<SectionState> {
-        data.sections
-            .iter()
+        flat_sections_from_template(&data.template)
+            .into_iter()
             .map(|section| match section.section_type.as_str() {
                 "multi_field" => SectionState::Header(HeaderState::new(
                     section.fields.clone().unwrap_or_default(),
@@ -311,6 +302,14 @@ mod tests {
                 _ => SectionState::Pending,
             })
             .collect()
+    }
+
+    fn state_store(sections: &[SectionConfig], states: Vec<SectionState>) -> SectionStateStore {
+        SectionStateStore::new(sections, states)
+    }
+
+    fn real_sections(data: &AppData) -> Vec<SectionConfig> {
+        flat_sections_from_template(&data.template)
     }
 
     fn set_header_field_text(
@@ -535,12 +534,12 @@ mod tests {
     fn real_data_render_uses_group_authored_heading_order() {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data");
         let data = AppData::load(dir).expect("real data loads");
+        let sections = real_sections(&data);
         let states = states_for_real_data(&data);
 
         let note = render_note(
             &data.template,
-            &data.sections,
-            &states,
+            &state_store(&sections, states),
             &HashMap::new(),
             &HashMap::new(),
             &data.boilerplate_texts,
@@ -548,7 +547,8 @@ mod tests {
         );
 
         let expected_headings: Vec<&str> = data
-            .groups
+            .template
+            .children
             .iter()
             .filter_map(|group| group.note.note_label.as_deref())
             .collect();
@@ -635,8 +635,7 @@ mod tests {
 
         let note = render_note(
             &template,
-            &sections,
-            &states,
+            &state_store(&sections, states),
             &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
@@ -658,18 +657,18 @@ mod tests {
     fn real_data_render_places_group_headings_before_authored_section_headings() {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data");
         let data = AppData::load(dir).expect("real data loads");
+        let sections = real_sections(&data);
         let states = states_for_real_data(&data);
 
         let note = render_editable_document(
             &data.template,
-            &data.sections,
-            &states,
+            &state_store(&sections, states),
             &HashMap::new(),
             &HashMap::new(),
             &data.boilerplate_texts,
         );
 
-        for section in &data.sections {
+        for section in &sections {
             let Some(section_heading) = managed_heading_for_section(section) else {
                 continue;
             };
@@ -690,12 +689,12 @@ mod tests {
     fn real_data_render_skips_group_heading_when_note_label_is_omitted() {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data");
         let data = AppData::load(dir).expect("real data loads");
+        let sections = real_sections(&data);
         let states = states_for_real_data(&data);
 
         let note = render_note(
             &data.template,
-            &data.sections,
-            &states,
+            &state_store(&sections, states),
             &HashMap::new(),
             &HashMap::new(),
             &data.boilerplate_texts,
@@ -712,10 +711,11 @@ mod tests {
     fn real_data_render_uses_live_field_outputs() {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data");
         let data = AppData::load(dir).expect("real data loads");
+        let sections = real_sections(&data);
         let mut states = states_for_real_data(&data);
         let mut expected_outputs = Vec::new();
 
-        for (index, section) in data.sections.iter().enumerate() {
+        for (index, section) in sections.iter().enumerate() {
             if section.section_type != "multi_field" {
                 continue;
             }
@@ -739,8 +739,7 @@ mod tests {
 
         let note = render_note(
             &data.template,
-            &data.sections,
-            &states,
+            &state_store(&sections, states),
             &HashMap::new(),
             &HashMap::new(),
             &data.boilerplate_texts,
@@ -759,47 +758,48 @@ mod tests {
     fn representative_note_matches_golden_file() {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data");
         let data = AppData::load(dir).expect("real data loads");
+        let sections = real_sections(&data);
         let mut states = states_for_real_data(&data);
 
         set_header_field_text(
             &mut states,
-            &data.sections,
+            &sections,
             "appointment_section",
             0,
             "# Apr 12, 2026 at 1:30PM (60 min)",
         );
         set_header_field_text(
             &mut states,
-            &data.sections,
+            &sections,
             "appointment_section",
             1,
             "2026-04-12: Pt requested a Treatment massage, focusing on the Head, Neck, and Shoulders, the Low Back, and the Left Knee.",
         );
         set_header_field_text(
             &mut states,
-            &data.sections,
+            &sections,
             "subjective_section",
             0,
             "2026-04-12: BL Head, Neck, and Shoulders: Pt describes ongoing minor discomfort, tightness (without pain)",
         );
         set_header_field_text(
             &mut states,
-            &data.sections,
+            &sections,
             "treatment_section",
             0,
             "#### ALL - UPPER MIDDLE & LOW BACK\n- General Swedish Techniques\n- Specific Compressions:\n- - Trapezius (Upper Fiber)\n- - Levator Scapula\n- - Teres Major & Minor\n- - Quadratus Lumborum\n- Stretch (Serratus Anterior)\n- Broad Compressions (Triceps Brachii)",
         );
-        set_header_field_explicit_empty(&mut states, &data.sections, "treatment_section", 1);
+        set_header_field_explicit_empty(&mut states, &sections, "treatment_section", 1);
         set_header_field_text(
             &mut states,
-            &data.sections,
+            &sections,
             "treatment_section",
             2,
             "#### POSTERIOR LEGS & FEET (Prone)\n- Broad Compressions\n- Ulnar Kneading\n- - Biceps Femoris\n- - Semitendinosus\n- Knuckle Kneading\n- Fingertip Kneading",
         );
         set_header_field_text(
             &mut states,
-            &data.sections,
+            &sections,
             "objective_section",
             0,
             "2026-04-12: BL Trapezius (Upper Fibers): Increased Resting Muscle Tension",
@@ -807,8 +807,7 @@ mod tests {
 
         let rendered = render_note(
             &data.template,
-            &data.sections,
-            &states,
+            &state_store(&sections, states),
             &HashMap::new(),
             &HashMap::new(),
             &data.boilerplate_texts,

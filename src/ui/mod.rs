@@ -70,7 +70,9 @@ fn map_pane(app: &App) -> Element<'_, Message> {
             .filter_map(|(flat_idx, entry)| (entry.group_index == group_idx).then_some(flat_idx))
             .collect();
         for (group_section_idx, flat_idx) in group_indices.into_iter().enumerate() {
-            let sec = &app.sections[flat_idx];
+            let Some(sec) = app.config_for_index(flat_idx) else {
+                continue;
+            };
             let mut label = sec.map_label.clone();
             if app.section_is_skipped(flat_idx) {
                 label.push_str(" [skip]");
@@ -486,7 +488,9 @@ fn field_display_value(
 }
 
 fn section_header(app: &App) -> Vec<Element<'_, Message>> {
-    let sec = &app.sections[app.current_idx];
+    let Some(sec) = app.config_for_index(app.current_idx) else {
+        return vec![text("Missing section").color(app.ui_theme.error).into()];
+    };
 
     let mut items = vec![text(&sec.name)
         .font(app.ui_theme.font_heading)
@@ -932,14 +936,19 @@ fn render_checklist_state<'a>(
 
 /// Build the center pane: minimal real wizard area for the current section.
 fn wizard_pane(app: &App) -> Element<'_, Message> {
-    if app.sections.is_empty() || app.current_idx >= app.sections.len() {
+    if app.navigation.is_empty() || app.current_idx >= app.navigation.len() {
         return column![text("No sections loaded").color(app.ui_theme.error)]
             .width(Length::Fill)
             .padding(4)
             .into();
     }
 
-    let sec = &app.sections[app.current_idx];
+    let Some(sec) = app.config_for_index(app.current_idx) else {
+        return column![text("Missing runtime section").color(app.ui_theme.error)]
+            .width(Length::Fill)
+            .padding(4)
+            .into();
+    };
     match &app.section_states[app.current_idx] {
         SectionState::Header(state) => render_header_state(app, sec, state),
         SectionState::FreeText(state) => render_free_text_state(app, state),
@@ -1071,7 +1080,10 @@ struct HeaderPreviewLineMatch {
 }
 
 fn match_header_preview_line(app: &App, line: &str) -> Option<HeaderPreviewLineMatch> {
-    for (section_idx, section) in app.sections.iter().enumerate() {
+    for (section_idx, entry) in app.navigation.iter().enumerate() {
+        let Some(section) = app.config_for_node_id(&entry.node_id) else {
+            continue;
+        };
         let Some(SectionState::Header(state)) = app.section_states.get(section_idx) else {
             continue;
         };
@@ -1198,7 +1210,10 @@ fn preview_line_color(app: &App, line: &str, group_idx: Option<usize>) -> Color 
         );
     }
 
-    for (section_idx, section) in app.sections.iter().enumerate() {
+    for (section_idx, entry) in app.navigation.iter().enumerate() {
+        let Some(section) = app.config_for_node_id(&entry.node_id) else {
+            continue;
+        };
         if crate::note::managed_heading_for_section(section).as_deref() == Some(line) {
             return section_preview_color(app, section_idx, in_current_group);
         }
@@ -1219,7 +1234,10 @@ fn preview_group_for_line(app: &App, line: &str) -> Option<usize> {
         }
     }
 
-    for (section_idx, section) in app.sections.iter().enumerate() {
+    for (section_idx, entry) in app.navigation.iter().enumerate() {
+        let Some(section) = app.config_for_node_id(&entry.node_id) else {
+            continue;
+        };
         if crate::note::managed_heading_for_section(section).as_deref() == Some(line) {
             return Some(app.group_idx_for_section(section_idx));
         }
@@ -1363,7 +1381,7 @@ fn map_status_text(app: &App) -> String {
 }
 
 fn wizard_status_text(app: &App) -> String {
-    let Some(sec) = app.sections.get(app.current_idx) else {
+    let Some(sec) = app.config_for_index(app.current_idx) else {
         return "Wizard: no section".to_string();
     };
     let mut parts = vec![format!("Wizard: {}", sec.name)];
@@ -2022,8 +2040,9 @@ fn entry_composition_panel<'a>(
 }
 
 fn entry_composition_panel_width(app: &App, modal_width: f32) -> f32 {
+    let max_width = 980.0_f32.max(modal_width);
     app.viewport_size
-        .map(|size| (size.width * 0.9).clamp(modal_width, 980.0))
+        .map(|size| (size.width * 0.9).clamp(modal_width, max_width))
         .unwrap_or(820.0)
         .max(modal_width)
 }
@@ -2831,9 +2850,10 @@ mod tests {
     use super::{
         build_connected_transition_rendered_unit, build_modal_close_rendered_unit,
         build_modal_open_rendered_unit, collection_preview_metrics, modal_close_shift,
-        modal_open_shift, modal_unit_runway_layout, retained_close_root_width,
-        retained_modal_close_transition, should_render_modal_overlay, simple_modal_unit_root_width,
-        transition_unit_display_width, ModalUnitCardKind, ModalUnitSide,
+        entry_composition_panel_width, modal_open_shift, modal_unit_runway_layout,
+        retained_close_root_width, retained_modal_close_transition, should_render_modal_overlay,
+        simple_modal_unit_root_width, transition_unit_display_width, ModalUnitCardKind,
+        ModalUnitSide,
     };
     use crate::app::{
         App, FocusDirection, ModalArrivalLayer, ModalDepartureLayer, ModalTransitionEasing,
@@ -2843,7 +2863,7 @@ mod tests {
     use crate::data::{
         AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem, HierarchyList, KeyBindings,
         ModalStart, ResolvedCollectionConfig, RuntimeGroup, RuntimeNode, RuntimeNodeKind,
-        RuntimeTemplate, SectionConfig, SectionGroup,
+        RuntimeTemplate, SectionConfig,
     };
     use crate::modal_layout::{
         ModalFocus, ModalListViewSnapshot, ModalStubKind, SimpleModalSequence,
@@ -3016,13 +3036,6 @@ mod tests {
             group_id: "intake".to_string(),
             node_kind: RuntimeNodeKind::Section,
         };
-        let group = SectionGroup {
-            id: "intake".to_string(),
-            num: None,
-            nav_label: "Intake".to_string(),
-            sections: vec![section.clone()],
-            note: GroupNoteMeta::default(),
-        };
         let data = AppData {
             template: RuntimeTemplate {
                 id: "test".to_string(),
@@ -3033,8 +3046,6 @@ mod tests {
                     children: vec![RuntimeNode::Section(section.clone())],
                 }],
             },
-            groups: vec![group],
-            sections: vec![section],
             list_data: HashMap::new(),
             checklist_data: HashMap::new(),
             collection_data: HashMap::new(),
@@ -3271,6 +3282,16 @@ mod tests {
         let (departure, _) =
             retained_modal_close_transition(&app).expect("close transition should be retained");
         assert_eq!(retained_close_root_width(departure), Some(live_width));
+    }
+
+    #[test]
+    fn entry_composition_panel_width_handles_modal_width_larger_than_soft_cap() {
+        let mut app = overlay_test_app();
+        app.viewport_size = Some(iced::Size::new(1391.0, 900.0));
+
+        let panel_width = entry_composition_panel_width(&app, 1252.0);
+
+        assert_eq!(panel_width, 1252.0);
     }
 
     // Helpers shared by the geometry tests below.

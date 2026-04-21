@@ -28,16 +28,6 @@ pub struct HeaderFieldConfig {
     pub max_actives: Option<usize>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SectionGroup {
-    pub id: String,
-    pub num: Option<usize>,
-    pub nav_label: String,
-    pub sections: Vec<SectionConfig>,
-    #[serde(default)]
-    pub note: GroupNoteMeta,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeNodeKind {
@@ -149,8 +139,6 @@ impl Default for KeyBindings {
 pub struct AppData {
     #[allow(dead_code)]
     pub template: RuntimeTemplate,
-    pub groups: Vec<SectionGroup>,
-    pub sections: Vec<SectionConfig>,
     pub list_data: HashMap<String, Vec<ListEntry>>,
     pub checklist_data: HashMap<String, Vec<String>>,
     pub collection_data: HashMap<String, Vec<ResolvedCollectionConfig>>,
@@ -192,8 +180,6 @@ impl AppData {
 
         Ok(Self {
             template: runtime.template,
-            groups: runtime.groups,
-            sections: runtime.sections,
             list_data: runtime.list_data,
             checklist_data: runtime.checklist_data,
             collection_data: runtime.collection_data,
@@ -581,12 +567,19 @@ pub struct NavigationEntry {
 #[derive(Debug, Clone)]
 pub struct RuntimeHierarchy {
     pub template: RuntimeTemplate,
-    pub groups: Vec<SectionGroup>,
-    pub sections: Vec<SectionConfig>,
     pub list_data: HashMap<String, Vec<ListEntry>>,
     pub checklist_data: HashMap<String, Vec<String>>,
     pub collection_data: HashMap<String, Vec<ResolvedCollectionConfig>>,
     pub boilerplate_texts: HashMap<String, String>,
+}
+
+pub fn flat_sections_from_template(template: &RuntimeTemplate) -> Vec<SectionConfig> {
+    template
+        .children
+        .iter()
+        .flat_map(|group| group.children.iter())
+        .map(|node| node.config().clone())
+        .collect()
 }
 
 pub fn runtime_navigation(template: &RuntimeTemplate) -> Vec<NavigationEntry> {
@@ -642,13 +635,11 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
         .collect();
 
     let mut runtime_groups = Vec::new();
-    let mut ui_groups = Vec::new();
-    let mut flat_sections = Vec::new();
     let mut list_data = HashMap::new();
     let mut checklist_data = HashMap::new();
     let mut collection_data = HashMap::new();
 
-    for (group_index, child) in template.contains.iter().enumerate() {
+    for child in &template.contains {
         let HierarchyChildRef::Group { group } = child else {
             return Err("template runtime build expected only group refs".to_string());
         };
@@ -668,8 +659,6 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
             .clone()
             .unwrap_or_else(|| group_nav_label.clone());
         let mut runtime_children = Vec::new();
-        let mut ui_sections = Vec::new();
-
         for child in &hierarchy_group.contains {
             match child {
                 HierarchyChildRef::Section { section } => {
@@ -690,8 +679,6 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
                         &mut list_data,
                         &mut checklist_data,
                     );
-                    ui_sections.push(section_config.clone());
-                    flat_sections.push(section_config);
                 }
                 HierarchyChildRef::Collection { collection } => {
                     let collection_def = collections_by_id
@@ -712,8 +699,6 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
                             &lists_by_id,
                         )?],
                     );
-                    ui_sections.push(collection_config.clone());
-                    flat_sections.push(collection_config);
                 }
                 other => {
                     return Err(format!(
@@ -731,14 +716,6 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
             note: group_note.clone(),
             children: runtime_children,
         });
-
-        ui_groups.push(SectionGroup {
-            id: hierarchy_group.id.clone(),
-            num: Some(group_index + 1),
-            nav_label: group_nav_label,
-            sections: ui_sections,
-            note: group_note,
-        });
     }
 
     let boilerplate_texts = hf
@@ -752,8 +729,6 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
             id: template_id,
             children: runtime_groups,
         },
-        groups: ui_groups,
-        sections: flat_sections,
         list_data,
         checklist_data,
         collection_data,
@@ -1988,8 +1963,11 @@ mod tests {
         validate_merged_hierarchy(&file).expect("nested field hierarchy should validate");
         let runtime = hierarchy_to_runtime(file).expect("runtime build should succeed");
         let request = runtime
-            .sections
+            .template
+            .children
             .iter()
+            .flat_map(|group| group.children.iter())
+            .map(|node| node.config())
             .find(|section| section.id == "appointment")
             .and_then(|section| section.fields.as_ref())
             .and_then(|fields| fields.iter().find(|field| field.id == "request"))
@@ -2145,8 +2123,11 @@ mod tests {
         validate_merged_hierarchy(&file).expect("valid merged hierarchy");
         let runtime = hierarchy_to_runtime(file).expect("runtime build succeeds");
         let collection = runtime
-            .sections
+            .template
+            .children
             .iter()
+            .flat_map(|group| group.children.iter())
+            .map(|node| node.config())
             .find(|section| section.id == "tx_regions")
             .expect("collection exists");
         let list_ids: Vec<&str> = collection
@@ -2173,8 +2154,8 @@ mod tests {
         ));
         validate_merged_hierarchy(&file).expect("valid merged hierarchy");
         let runtime = hierarchy_to_runtime(file).expect("runtime build succeeds");
-        let ids: Vec<&str> = runtime
-            .sections
+        let sections = flat_sections_from_template(&runtime.template);
+        let ids: Vec<&str> = sections
             .iter()
             .map(|section| section.id.as_str())
             .collect();
@@ -2232,17 +2213,17 @@ mod tests {
         let dir = find_data_dir();
         let app_data = AppData::load(dir).expect("real data should load");
         assert!(
-            !app_data.groups.is_empty(),
+            !app_data.template.children.is_empty(),
             "real authored data should load at least one group"
         );
         let group_ids: HashSet<&str> = app_data
-            .groups
+            .template
+            .children
             .iter()
             .map(|group| group.id.as_str())
             .collect();
         assert!(
-            app_data
-                .sections
+            flat_sections_from_template(&app_data.template)
                 .iter()
                 .all(|section| group_ids.contains(section.group_id.as_str())),
             "every runtime section should belong to a loaded runtime group"
@@ -2260,7 +2241,7 @@ mod tests {
             .map(|group| (group.id.as_str(), group))
             .collect();
 
-        for runtime_group in &app_data.groups {
+        for runtime_group in &app_data.template.children {
             let authored_group = authored_groups
                 .get(runtime_group.id.as_str())
                 .expect("runtime group should come from authored group");
