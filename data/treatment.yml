@@ -281,20 +281,20 @@ lists:                                           # BACK PRONE
                  - - No air filter fan.
                  - - For today's appointment, extremely moderated pressure. ("Just saying hello to all the muscles.")
             - id: mod_migraines_ana
-              label: "Chronic Migraines (Ana)"
+              label: "Chronic Migraines (Ana - Lights)"
               output: |
                  - CHRONIC MIGRAINES:
                  - - LOW LIGHT: Pt prefers lights as dimmed as possible.
                  - - EYE MASK: Pt prefers covering the eyes.
             - id: mod_whiplash
-              label: "3 Whiplash"
+              label: "3 Whiplash (Lights)"
               output: |
                  - WHIPLASH: Patient is treated supine only, and pillowed under head and knees.
                  - - Avoid using prone position.
                  - - Dim lighting when possible.
                  - - For today's appointment, extremely moderated pressure. ("Just saying hello to all the muscles.")
             - id: mod_mva_whiplash
-              label: "4 MVA Whiplash"
+              label: "4 MVA Whiplash (Lights)"
               output: |
                  - MVA WHIPLASH: Patient is to be treated supine only, and pillowed under head and knees.
                  - - Avoid using prone position.

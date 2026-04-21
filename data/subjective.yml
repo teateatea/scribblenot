@@ -38,7 +38,7 @@ lists:
    # max_entries: 3
     items:
       - id: empty_space
-        label: "1 (Empty Space)"
+        label: "[EMPTY]"
         output: ""
         # Head Region
       - label: "2 Head, Neck, Shoulders HNS"
@@ -176,34 +176,34 @@ lists:
     default: pt_describes
     items:
       - id: pt_describes
-        label: "Pt describes"
+        label: "Pt describes DD"
         output: "Pt describes"
-      - label: "Pt describes continued dcontinued"
+      - label: "Pt describes continued DC"
         output: "Pt describes continued"
-      - label: "Pt describes intermittent dintermittent"
+      - label: "Pt describes intermittent DI"
         output: "Pt describes intermittent"
-      - label: "Pt describes ongoing dongoing"
+      - label: "Pt describes ongoing DO"
         output: "Pt describes ongoing"
-      - label: "Pt reports"
+      - label: "Pt reports RR"
         output: "Pt reports"
-      - label: "Pt reports continued rcontinued"
+      - label: "Pt reports continued RC"
         output: "Pt reports continued"
-      - label: "Pt reports intermittent rintermittent"
+      - label: "Pt reports intermittent II"
         output: "Pt reports intermittent"
-      - label: "Pt reports ongoing rongoing"
+      - label: "Pt reports ongoing RO"
         output: "Pt reports ongoing"
 
  # -------------------
   - id: subjective_tag
-    label: "[symptoms]"
+    label: "[SYMPTOMS]"
     modal_start: search
     joiner_style: comma_and
     max_entries: 12
     default: empty_space
-    preview: "[symptoms]"
+    preview: "[SYMPTOMS]"
     items:
       - id: empty_space
-        label: "1 (Empty Space)"
+        label: "[EMPTY]"
         output: ""
       # SUBJECTIVE TAGS
       - "discomfort"
@@ -220,6 +220,36 @@ lists:
       - "tightness and pain"
       - "tightness, swelling & inflammation"
       - "pain"
+      - id: pain_1
+        label: "pain 1/10"
+        output: "1/10 Pain"
+      - id: pain_2
+        label: "pain 2/10"
+        output: "2/10 Pain"
+      - id: pain_3
+        label: "pain 3/10"
+        output: "3/10 Pain"
+      - id: pain_4
+        label: "pain 4/10"
+        output: "4/10 Pain"
+      - id: pain_5
+        label: "pain 5/10"
+        output: "5/10 Pain"
+      - id: pain_6
+        label: "pain 6/10"
+        output: "6/10 Pain"
+      - id: pain_7
+        label: "pain 7/10"
+        output: "7/10 Pain"
+      - id: pain_8
+        label: "pain 8/10"
+        output: "8/10 Pain"
+      - id: pain_9
+        label: "pain 9/10"
+        output: "9/10 Pain"
+      - id: pain_10
+        label: "pain 10/10"
+        output: "10/10 Pain"
       - "pain and weakness"
       - "aching pain"
       - "sharp pain"
@@ -283,12 +313,6 @@ lists:
         assigns:
           - list: starting_ago
             item: empty_space
-      - id: since_last_appointment_his
-        label: "since his last appointment"
-        output: ", since his last appointment"
-        assigns:
-          - list: starting_ago
-            item: empty_space
       - id: since_his_last_appointment
         label: "since his last appointment"
         output: ", since his last appointment"
@@ -345,12 +369,6 @@ lists:
             item: empty_space
       # - ago -
       - id: since_last_appointment_his_ago
-        label: "since his last appointment ... ago"
-        output: ", since his last appointment"
-        assigns:
-          - list: starting_ago
-            item: ago
-      - id: since_his_last_appointment_ago
         label: "since his last appointment ... ago"
         output: ", since his last appointment"
         assigns:
@@ -575,7 +593,7 @@ lists:
     label: "[ago]"
     default: empty_space
     modal_start: search
-    preview: " [ago]"
+    preview: ""
    # joiner_style: comma
    # max_entries: 3
     items:
