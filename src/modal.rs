@@ -2280,9 +2280,7 @@ fn apply_item_assignments(
         return;
     };
     for assign in &item.assigns {
-        if !assign.output.is_empty() {
-            assigned.insert(assign.list_id.clone(), assign.output.clone());
-        }
+        assigned.insert(assign.list_id.clone(), assign.output.clone());
     }
 }
 

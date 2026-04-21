@@ -25,6 +25,8 @@ fields:
       - year
       - month
       - day
+      - pluralizer
+      - starting_ago
 
 lists:
   - id: region

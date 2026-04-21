@@ -430,7 +430,7 @@ fn resolve_list_state(
         if display.is_some() {
             any_display = true;
         }
-        let resolved_for_completion = value.values.get(idx).is_some_and(|saved| !saved.is_empty())
+        let resolved_for_completion = value.values.get(idx).is_some()
             || (value.values.is_empty()
                 && value.repeat_values.is_empty()
                 && resolve_list_value(list, assigned_values, sticky_values).is_some());
@@ -657,12 +657,23 @@ fn render_template(
         if !result.contains(&placeholder) {
             continue;
         }
-        let replacement = resolve_list_value(list, assigned_values, sticky_values)
+        let replacement = explicit_or_fallback_list_value(list, assigned_values, sticky_values)
             .or_else(|| list.preview.clone())
             .unwrap_or_default();
         result = result.replace(&placeholder, &replacement);
     }
     result
+}
+
+fn explicit_or_fallback_list_value(
+    list: &HierarchyList,
+    assigned_values: &HashMap<String, String>,
+    sticky_values: &HashMap<String, String>,
+) -> Option<String> {
+    if let Some(value) = assigned_values.get(&list.id) {
+        return Some(value.clone());
+    }
+    resolve_list_value(list, assigned_values, sticky_values)
 }
 
 fn resolve_list_value(
@@ -1015,5 +1026,428 @@ mod tests {
         let label = resolve_field_label(&value, &cfg, &HashMap::new(), &HashMap::new());
 
         assert_eq!(label, "Requested Shoulder");
+    }
+
+    #[test]
+    fn committed_empty_list_part_can_still_resolve_complete_output() {
+        let cfg = HeaderFieldConfig {
+            id: "single_region".to_string(),
+            name: "Requested Region".to_string(),
+            format: Some("{place}{region}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![
+                HierarchyList {
+                    id: "place".to_string(),
+                    label: Some("Place".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: Some("empty_space".to_string()),
+                    modal_start: crate::data::ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        crate::data::HierarchyItem {
+                            id: "empty_space".to_string(),
+                            label: Some("Empty".to_string()),
+                            default_enabled: true,
+                            output: Some(String::new()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                            assigns: Vec::new(),
+                        },
+                        crate::data::HierarchyItem {
+                            id: "left".to_string(),
+                            label: Some("Left".to_string()),
+                            default_enabled: true,
+                            output: Some("Left ".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                            assigns: Vec::new(),
+                        },
+                    ],
+                },
+                HierarchyList {
+                    id: "region".to_string(),
+                    label: Some("Region".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: crate::data::ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![crate::data::HierarchyItem {
+                        id: "shoulder".to_string(),
+                        label: Some("Shoulder".to_string()),
+                        default_enabled: true,
+                        output: Some("Shoulder".to_string()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                        assigns: Vec::new(),
+                    }],
+                },
+            ],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let value = crate::sections::header::HeaderFieldValue::ListState(
+            crate::sections::header::ListFieldValue {
+                values: vec![String::new(), "Shoulder".to_string()],
+                item_ids: vec!["empty_space".to_string(), "shoulder".to_string()],
+                list_idx: 2,
+                repeat_values: Vec::new(),
+                repeat_item_ids: Vec::new(),
+            },
+        );
+
+        let resolved = resolve_multifield_value(&value, &cfg, &HashMap::new(), &HashMap::new());
+
+        assert!(matches!(
+            resolved,
+            ResolvedMultiFieldValue::Complete(value) if value == "Shoulder"
+        ));
+    }
+
+    #[test]
+    fn assigned_format_lists_render_when_declared_on_field() {
+        let cfg = HeaderFieldConfig {
+            id: "subjective".to_string(),
+            name: "Subjective".to_string(),
+            format: Some(
+                "{starting_frequency}{duration_unit}{pluralizer}{starting_ago}".to_string(),
+            ),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![
+                HierarchyList {
+                    id: "starting_frequency".to_string(),
+                    label: Some("Frequency".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: Some("freq_2".to_string()),
+                    modal_start: crate::data::ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![crate::data::HierarchyItem {
+                        id: "freq_2".to_string(),
+                        label: Some("2".to_string()),
+                        default_enabled: true,
+                        output: Some(" 2".to_string()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                        assigns: vec![crate::data::ItemAssignment {
+                            list_id: "pluralizer".to_string(),
+                            item_id: "plural".to_string(),
+                            output: "s".to_string(),
+                        }],
+                    }],
+                },
+                HierarchyList {
+                    id: "duration_unit".to_string(),
+                    label: Some("Unit".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: Some("week".to_string()),
+                    modal_start: crate::data::ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![crate::data::HierarchyItem {
+                        id: "week".to_string(),
+                        label: Some("week{pluralizer}".to_string()),
+                        default_enabled: true,
+                        output: Some(" week".to_string()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                        assigns: Vec::new(),
+                    }],
+                },
+                HierarchyList {
+                    id: "starting_since".to_string(),
+                    label: Some("Since".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: Some("starting".to_string()),
+                    modal_start: crate::data::ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![crate::data::HierarchyItem {
+                        id: "starting".to_string(),
+                        label: Some("starting".to_string()),
+                        default_enabled: true,
+                        output: Some(String::new()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                        assigns: vec![crate::data::ItemAssignment {
+                            list_id: "starting_ago".to_string(),
+                            item_id: "ago".to_string(),
+                            output: " ago".to_string(),
+                        }],
+                    }],
+                },
+            ],
+            collections: Vec::new(),
+            format_lists: vec![
+                HierarchyList {
+                    id: "pluralizer".to_string(),
+                    label: Some("Pluralizer".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: Some("singular".to_string()),
+                    modal_start: crate::data::ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        crate::data::HierarchyItem {
+                            id: "singular".to_string(),
+                            label: Some("singular".to_string()),
+                            default_enabled: true,
+                            output: Some(String::new()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                            assigns: Vec::new(),
+                        },
+                        crate::data::HierarchyItem {
+                            id: "plural".to_string(),
+                            label: Some("plural".to_string()),
+                            default_enabled: true,
+                            output: Some("s".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                            assigns: Vec::new(),
+                        },
+                    ],
+                },
+                HierarchyList {
+                    id: "starting_ago".to_string(),
+                    label: Some("Ago".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: Some("empty_space".to_string()),
+                    modal_start: crate::data::ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        crate::data::HierarchyItem {
+                            id: "empty_space".to_string(),
+                            label: Some("empty".to_string()),
+                            default_enabled: true,
+                            output: Some(String::new()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                            assigns: Vec::new(),
+                        },
+                        crate::data::HierarchyItem {
+                            id: "ago".to_string(),
+                            label: Some("ago".to_string()),
+                            default_enabled: true,
+                            output: Some(" ago".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                            assigns: Vec::new(),
+                        },
+                    ],
+                },
+            ],
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let value = crate::sections::header::HeaderFieldValue::ListState(
+            crate::sections::header::ListFieldValue {
+                values: vec![" 2".to_string(), " week".to_string(), String::new()],
+                item_ids: vec![
+                    "freq_2".to_string(),
+                    "week".to_string(),
+                    "starting".to_string(),
+                ],
+                list_idx: 3,
+                repeat_values: Vec::new(),
+                repeat_item_ids: Vec::new(),
+            },
+        );
+
+        let resolved = resolve_multifield_value_for_confirmed_slot(
+            &value,
+            &cfg,
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+
+        assert!(matches!(
+            resolved,
+            ResolvedMultiFieldValue::Complete(value) if value == " 2 weeks ago"
+        ));
+    }
+
+    #[test]
+    fn empty_assigned_format_lists_clear_placeholder_previews() {
+        let cfg = HeaderFieldConfig {
+            id: "subjective".to_string(),
+            name: "Subjective".to_string(),
+            format: Some("{region}{pluralizer}{starting_ago}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![
+                HierarchyList {
+                    id: "region".to_string(),
+                    label: Some("Region".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: crate::data::ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![crate::data::HierarchyItem {
+                        id: "shoulder".to_string(),
+                        label: Some("Shoulder".to_string()),
+                        default_enabled: true,
+                        output: Some("Shoulder".to_string()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                        assigns: Vec::new(),
+                    }],
+                },
+                HierarchyList {
+                    id: "starting_since".to_string(),
+                    label: Some("Since".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: Some("empty_space".to_string()),
+                    modal_start: crate::data::ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![crate::data::HierarchyItem {
+                        id: "empty_space".to_string(),
+                        label: Some("Empty".to_string()),
+                        default_enabled: true,
+                        output: Some(String::new()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                        assigns: vec![crate::data::ItemAssignment {
+                            list_id: "starting_ago".to_string(),
+                            item_id: "empty_space".to_string(),
+                            output: String::new(),
+                        }],
+                    }],
+                },
+                HierarchyList {
+                    id: "starting_frequency".to_string(),
+                    label: Some("Frequency".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: Some("empty_space".to_string()),
+                    modal_start: crate::data::ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![crate::data::HierarchyItem {
+                        id: "empty_space".to_string(),
+                        label: Some("Empty".to_string()),
+                        default_enabled: true,
+                        output: Some(String::new()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                        assigns: vec![crate::data::ItemAssignment {
+                            list_id: "pluralizer".to_string(),
+                            item_id: "singular".to_string(),
+                            output: String::new(),
+                        }],
+                    }],
+                },
+            ],
+            collections: Vec::new(),
+            format_lists: vec![
+                HierarchyList {
+                    id: "pluralizer".to_string(),
+                    label: Some("Pluralizer".to_string()),
+                    preview: Some(" [plural]".to_string()),
+                    sticky: false,
+                    default: Some("singular".to_string()),
+                    modal_start: crate::data::ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        crate::data::HierarchyItem {
+                            id: "singular".to_string(),
+                            label: Some("singular".to_string()),
+                            default_enabled: true,
+                            output: Some(String::new()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                            assigns: Vec::new(),
+                        },
+                        crate::data::HierarchyItem {
+                            id: "plural".to_string(),
+                            label: Some("plural".to_string()),
+                            default_enabled: true,
+                            output: Some("s".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                            assigns: Vec::new(),
+                        },
+                    ],
+                },
+                HierarchyList {
+                    id: "starting_ago".to_string(),
+                    label: Some("Ago".to_string()),
+                    preview: Some(" [ago]".to_string()),
+                    sticky: false,
+                    default: Some("empty_space".to_string()),
+                    modal_start: crate::data::ModalStart::Search,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        crate::data::HierarchyItem {
+                            id: "empty_space".to_string(),
+                            label: Some("empty".to_string()),
+                            default_enabled: true,
+                            output: Some(String::new()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                            assigns: Vec::new(),
+                        },
+                        crate::data::HierarchyItem {
+                            id: "ago".to_string(),
+                            label: Some("ago".to_string()),
+                            default_enabled: true,
+                            output: Some(" ago".to_string()),
+                            fields: None,
+                            branch_fields: Vec::new(),
+                            assigns: Vec::new(),
+                        },
+                    ],
+                },
+            ],
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let value = crate::sections::header::HeaderFieldValue::ListState(
+            crate::sections::header::ListFieldValue {
+                values: vec!["Shoulder".to_string(), String::new(), String::new()],
+                item_ids: vec![
+                    "shoulder".to_string(),
+                    "empty_space".to_string(),
+                    "empty_space".to_string(),
+                ],
+                list_idx: 3,
+                repeat_values: Vec::new(),
+                repeat_item_ids: Vec::new(),
+            },
+        );
+
+        let resolved = resolve_multifield_value_for_confirmed_slot(
+            &value,
+            &cfg,
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+
+        assert!(matches!(
+            resolved,
+            ResolvedMultiFieldValue::Complete(value) if value == "Shoulder"
+        ));
     }
 }

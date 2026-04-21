@@ -3,7 +3,8 @@
 
 use crate::config::Config;
 use crate::data::{
-    flat_sections_from_template, runtime_navigation, AppData, NavigationEntry, SectionConfig,
+    flat_sections_from_template, runtime_navigation, AppData, HeaderFieldConfig, NavigationEntry,
+    SectionConfig,
 };
 use crate::document::build_initial_document;
 use crate::modal::{
@@ -26,8 +27,8 @@ pub use crate::transition::{
     UnitContentSnapshot, UnitGeometry,
 };
 use iced::keyboard::{key::Named, Key, Modifiers};
-use std::ops::{Index, IndexMut};
 use std::collections::{BTreeMap, HashMap};
+use std::ops::{Index, IndexMut};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -199,7 +200,9 @@ impl SectionStateStore {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &SectionState> {
-        self.order.iter().filter_map(|node_id| self.states.get(node_id))
+        self.order
+            .iter()
+            .filter_map(|node_id| self.states.get(node_id))
     }
 }
 
@@ -829,10 +832,8 @@ impl App {
     }
 
     fn refresh_note_structure(&mut self) {
-        match crate::document::validate_document_structure(
-            &self.editable_note,
-            &self.data.template,
-        ) {
+        match crate::document::validate_document_structure(&self.editable_note, &self.data.template)
+        {
             Ok(()) => {
                 self.note_headings_valid = true;
                 self.note_structure_warning = None;
@@ -1354,6 +1355,19 @@ impl App {
         }
     }
 
+    fn header_value_is_structurally_confirmed(
+        value: &HeaderFieldValue,
+        cfg: &HeaderFieldConfig,
+    ) -> bool {
+        match value {
+            HeaderFieldValue::ExplicitEmpty => true,
+            HeaderFieldValue::Text(_) | HeaderFieldValue::ManualOverride { .. } => true,
+            HeaderFieldValue::ListState(state) => state.list_idx >= cfg.lists.len(),
+            HeaderFieldValue::CollectionState(_) => true,
+            HeaderFieldValue::NestedState(state) => !cfg.fields.is_empty() && state.completed,
+        }
+    }
+
     pub fn reload_theme(&mut self) -> anyhow::Result<()> {
         self.ui_theme = crate::theme::AppTheme::load(&self.data_dir, &self.config.theme)?;
         Ok(())
@@ -1367,10 +1381,15 @@ impl App {
         let data = AppData::load(self.data_dir.clone())?;
         self.navigation = runtime_navigation(&data.template);
         let sections = flat_sections_from_template(&data.template);
-        self.section_states = SectionStateStore::new(&sections, Self::init_states(&sections, &data));
+        self.section_states =
+            SectionStateStore::new(&sections, Self::init_states(&sections, &data));
         self.current_idx = previous_section_id
             .as_ref()
-            .and_then(|id| self.navigation.iter().position(|entry| &entry.node_id == id))
+            .and_then(|id| {
+                self.navigation
+                    .iter()
+                    .position(|entry| &entry.node_id == id)
+            })
             .unwrap_or(0)
             .min(self.navigation.len().saturating_sub(1));
         self.map_cursor = self.current_idx;
@@ -1721,29 +1740,38 @@ impl App {
 
         if self.is_super_confirm(&key) {
             let idx = self.current_idx;
-            let resolved = if let Some(SectionState::Header(s)) = self.section_states.get(idx) {
-                s.field_configs.get(s.field_index).map(|cfg| {
-                    let confirmed = s
-                        .repeated_values
-                        .get(s.field_index)
-                        .and_then(|v| v.last())
-                        .cloned()
-                        .unwrap_or(HeaderFieldValue::Text(String::new()));
-                    crate::sections::multi_field::resolve_multifield_value_for_confirmed_slot(
-                        &confirmed,
-                        cfg,
-                        &self.assigned_values,
-                        &self.config.sticky_values,
-                    )
-                })
-            } else {
-                None
-            };
-            if let Some(crate::sections::multi_field::ResolvedMultiFieldValue::Complete(value)) =
-                resolved
-            {
+            let committed_value =
+                if let Some(SectionState::Header(s)) = self.section_states.get(idx) {
+                    let value_index = s.active_value_index();
+                    s.field_configs.get(s.field_index).and_then(|cfg| {
+                        let confirmed = s
+                            .repeated_values
+                            .get(s.field_index)
+                            .and_then(|values| values.get(value_index))
+                            .cloned();
+                        if let Some(value) = confirmed.as_ref().filter(|value| {
+                            Self::header_value_is_structurally_confirmed(value, cfg)
+                        }) {
+                            return Some(value.clone());
+                        }
+                        match crate::sections::multi_field::resolve_multifield_value(
+                            &HeaderFieldValue::Text(String::new()),
+                            cfg,
+                            &self.assigned_values,
+                            &self.config.sticky_values,
+                        ) {
+                            crate::sections::multi_field::ResolvedMultiFieldValue::Complete(
+                                value,
+                            ) => Some(HeaderFieldValue::Text(value)),
+                            _ => None,
+                        }
+                    })
+                } else {
+                    None
+                };
+            if let Some(committed_value) = committed_value {
                 if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
-                    s.set_current_value(HeaderFieldValue::Text(value));
+                    s.set_current_value(committed_value);
                     let done = s.advance();
                     self.sync_section_into_editable_note(idx);
                     if done {
@@ -4475,6 +4503,35 @@ mod composition_span_tests {
         }
     }
 
+    fn empty_capable_search_field() -> HeaderFieldConfig {
+        HeaderFieldConfig {
+            id: "optional_region".to_string(),
+            name: "Optional Region".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "optional_region".to_string(),
+                label: Some("Optional Region".to_string()),
+                preview: Some("Region".to_string()),
+                sticky: false,
+                default: Some("empty_space".to_string()),
+                modal_start: ModalStart::Search,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![
+                    empty_item("empty_space"),
+                    item("shoulder", "Shoulder", "Shoulder"),
+                ],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        }
+    }
+
     fn collection_field() -> HeaderFieldConfig {
         HeaderFieldConfig {
             id: "regions".to_string(),
@@ -4658,6 +4715,40 @@ mod composition_span_tests {
         app_with_single_field_in_data_dir(field, PathBuf::new())
     }
 
+    fn app_with_fields(fields: Vec<HeaderFieldConfig>) -> App {
+        let section = SectionConfig {
+            id: "request_section".to_string(),
+            name: "Request".to_string(),
+            map_label: "Request".to_string(),
+            section_type: "multi_field".to_string(),
+            show_field_labels: true,
+            data_file: None,
+            fields: Some(fields),
+            lists: Vec::new(),
+            note_label: None,
+            group_id: "intake".to_string(),
+            node_kind: RuntimeNodeKind::Section,
+        };
+        let data = AppData {
+            template: RuntimeTemplate {
+                id: "test".to_string(),
+                children: vec![RuntimeGroup {
+                    id: "intake".to_string(),
+                    nav_label: "Intake".to_string(),
+                    note: GroupNoteMeta::default(),
+                    children: vec![RuntimeNode::Section(section.clone())],
+                }],
+            },
+            list_data: HashMap::new(),
+            checklist_data: HashMap::new(),
+            collection_data: HashMap::new(),
+            boilerplate_texts: HashMap::new(),
+            keybindings: KeyBindings::default(),
+        };
+
+        App::new(data, Config::default(), PathBuf::new())
+    }
+
     fn temp_app_with_single_field(field: HeaderFieldConfig) -> (App, TempDir) {
         let temp = tempfile::tempdir().expect("temp dir");
         let app = app_with_single_field_in_data_dir(field, temp.path().to_path_buf());
@@ -4752,11 +4843,7 @@ mod composition_span_tests {
         app.editable_note = sentinel.to_string();
 
         app.handle_key(AppKey::Char('`'));
-        assert_no_patient_text(
-            &read_saved_config(temp.path()),
-            sentinel,
-            "pane swap save",
-        );
+        assert_no_patient_text(&read_saved_config(temp.path()), sentinel, "pane swap save");
 
         app.open_header_modal();
         app.confirm_modal_value("9".to_string());
@@ -5490,7 +5577,10 @@ mod composition_span_tests {
 
         app.handle_key(AppKey::ShiftEnter);
 
-        assert!(app.modal.is_none(), "shift+enter should commit and close the modal");
+        assert!(
+            app.modal.is_none(),
+            "shift+enter should commit and close the modal"
+        );
         assert!(
             app.editable_note.contains("Region: Manual shoulder"),
             "super confirm should preserve the manual override text"
@@ -5501,6 +5591,51 @@ mod composition_span_tests {
         assert!(matches!(
             state.repeated_values[0].first(),
             Some(HeaderFieldValue::ManualOverride { text, .. }) if text == "Manual shoulder"
+        ));
+    }
+
+    #[test]
+    fn super_confirm_advances_modal_confirmed_empty_value() {
+        let mut app = app_with_fields(vec![
+            empty_capable_search_field(),
+            list_field(ModalStart::List),
+        ]);
+
+        app.open_header_modal();
+        app.confirm_modal_value(String::new());
+
+        let SectionState::Header(state) = &app.section_states[0] else {
+            panic!("expected header state");
+        };
+        assert_eq!(
+            state.field_index, 1,
+            "confirming the empty modal choice should advance to the next field"
+        );
+        assert!(matches!(
+            state.repeated_values[0].first(),
+            Some(HeaderFieldValue::ListState(value))
+                if value.values == vec![String::new()] && value.list_idx == 1
+        ));
+
+        let SectionState::Header(state) = &mut app.section_states[0] else {
+            panic!("expected header state");
+        };
+        state.field_index = 0;
+        state.completed = false;
+
+        app.handle_header_key(AppKey::ShiftEnter);
+
+        let SectionState::Header(state) = &app.section_states[0] else {
+            panic!("expected header state");
+        };
+        assert_eq!(
+            state.field_index, 1,
+            "section-level super confirm should accept the already confirmed empty modal value"
+        );
+        assert!(matches!(
+            state.repeated_values[0].first(),
+            Some(HeaderFieldValue::ListState(value))
+                if value.values == vec![String::new()] && value.list_idx == 1
         ));
     }
 
@@ -5525,7 +5660,8 @@ mod composition_span_tests {
         app.handle_free_text_key(AppKey::Enter);
 
         assert!(
-            app.editable_note.contains("patient reported pain in left shoulder"),
+            app.editable_note
+                .contains("patient reported pain in left shoulder"),
             "editable note should reflect the committed free-text entry"
         );
         assert!(
