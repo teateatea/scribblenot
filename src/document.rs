@@ -1,3 +1,22 @@
+//! Editable document helpers and anchor contract.
+//!
+//! # Anchor contract
+//!
+//! Each runtime-editable section is represented in the document by:
+//!
+//! 1. An optional visible heading (for example `#### SUBJECTIVE`). When present,
+//!    it must appear before the section's start marker.
+//! 2. A start marker: `<!-- scribblenot:section id=<id>:start -->`
+//! 3. A machine-managed body region between the markers.
+//! 4. An end marker: `<!-- scribblenot:section id=<id>:end -->`
+//!
+//! Replacement rewrites only the body between the markers. Text outside the
+//! markers remains untouched. If either marker is missing or out of order, the
+//! document is invalid and targeted replacement must be blocked.
+//!
+//! A section with an empty `note_label` has no heading anchor; its markers are
+//! the stable replacement boundary.
+
 use crate::app::SectionState;
 use crate::data::{RuntimeTemplate, SectionConfig};
 use crate::note::{managed_heading_for_section, render_editable_document};
@@ -6,7 +25,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct SectionAnchorSpec {
     pub section_id: String,
-    pub heading_text: String,
+    pub heading_text: Option<String>,
     pub marker_start: String,
     pub marker_end: String,
 }
@@ -40,36 +59,51 @@ pub fn marker_end(section_id: &str) -> String {
 pub fn editable_section_specs(sections: &[SectionConfig]) -> Vec<SectionAnchorSpec> {
     sections
         .iter()
-        .filter_map(|cfg| {
-            Some(SectionAnchorSpec {
+        .map(|cfg| {
+            let heading = managed_heading_for_section(cfg).filter(|heading| !heading.is_empty());
+            SectionAnchorSpec {
                 section_id: cfg.id.clone(),
-                heading_text: managed_heading_for_section(cfg)?,
+                heading_text: heading,
                 marker_start: marker_start(&cfg.id),
                 marker_end: marker_end(&cfg.id),
-            })
+            }
         })
         .collect()
 }
 
 pub fn validate_section_anchors(document: &str, sections: &[SectionConfig]) -> Result<(), String> {
     for spec in editable_section_specs(sections) {
-        if !document.contains(&spec.heading_text) {
-            return Err(format!(
-                "Missing managed section heading '{}' for '{}'.",
-                spec.heading_text, spec.section_id
-            ));
-        }
-        if !document.contains(&spec.marker_start) {
-            return Err(format!(
+        let start_pos = document.find(&spec.marker_start).ok_or_else(|| {
+            format!(
                 "Missing managed section start marker for '{}'.",
                 spec.section_id
-            ));
-        }
-        if !document.contains(&spec.marker_end) {
-            return Err(format!(
+            )
+        })?;
+        let end_pos = document.find(&spec.marker_end).ok_or_else(|| {
+            format!(
                 "Missing managed section end marker for '{}'.",
                 spec.section_id
+            )
+        })?;
+        if end_pos <= start_pos {
+            return Err(format!(
+                "Managed section markers for '{}' are out of order.",
+                spec.section_id
             ));
+        }
+        if let Some(ref heading) = spec.heading_text {
+            let heading_pos = document.find(heading).ok_or_else(|| {
+                format!(
+                    "Missing managed section heading '{}' for '{}'.",
+                    heading, spec.section_id
+                )
+            })?;
+            if heading_pos > start_pos {
+                return Err(format!(
+                    "Section heading for '{}' appears after its start marker.",
+                    spec.section_id
+                ));
+            }
         }
     }
     Ok(())
@@ -186,12 +220,28 @@ fn compact_blank_lines(lines: &[String]) -> String {
 mod tests {
     use super::*;
     use crate::app::SectionState;
-    use crate::data::AppData;
+    use crate::data::{AppData, RuntimeNodeKind};
     use crate::sections::collection::CollectionState;
     use crate::sections::free_text::FreeTextState;
     use crate::sections::header::HeaderState;
     use crate::sections::list_select::ListSelectState;
     use std::path::PathBuf;
+
+    fn test_section(id: &str, note_label: Option<&str>) -> SectionConfig {
+        SectionConfig {
+            id: id.to_string(),
+            name: "Demo".to_string(),
+            map_label: "Demo".to_string(),
+            section_type: "free_text".to_string(),
+            show_field_labels: true,
+            data_file: None,
+            fields: None,
+            lists: Vec::new(),
+            note_label: note_label.map(str::to_string),
+            group_id: String::new(),
+            node_kind: RuntimeNodeKind::Section,
+        }
+    }
 
     fn states_for_real_data(data: &AppData) -> Vec<SectionState> {
         data.sections
@@ -238,5 +288,32 @@ mod tests {
 
         validate_document_structure(&document, &data.sections)
             .expect("real editable document should validate");
+    }
+
+    #[test]
+    fn headingless_section_validates_with_markers_only() {
+        let section = test_section("foo", Some(""));
+        let document = format!(
+            "{}\nbody\n{}",
+            marker_start(&section.id),
+            marker_end(&section.id)
+        );
+
+        validate_section_anchors(&document, &[section])
+            .expect("empty note_label sections should validate without heading text");
+    }
+
+    #[test]
+    fn heading_after_start_marker_fails_validation() {
+        let section = test_section("foo", Some("#### FOO"));
+        let document = format!(
+            "{}\nmanaged body\n{}\n#### FOO",
+            marker_start(&section.id),
+            marker_end(&section.id)
+        );
+
+        let err = validate_section_anchors(&document, &[section])
+            .expect_err("heading after marker should fail validation");
+        assert!(err.contains("appears after its start marker"));
     }
 }
