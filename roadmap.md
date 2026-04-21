@@ -6,7 +6,7 @@ This file tracks improvement ideas, technical debt, reliability upgrades, securi
 It is not a commitment list. It is a place to keep useful ideas from getting lost.
 
 ## Tracker
-- Next suggestion number: 39
+- Next suggestion number: 42
 - Rule: never reuse or renumber old suggestion IDs, even if an item is completed or removed later.
 - Status values: `open`, `planned`, `in-progress`, `blocked`, `done`, `dropped`
 
@@ -92,6 +92,12 @@ Priority rule of thumb:
 24. [open] [Tooling] [I: 40, D: 60] {GPT-5 Codex}: Preserve source file and line provenance for hierarchy IDs and child refs so validation errors can point to exact authored locations. Why it matters: current validation can explain what is wrong and how to fix it, but merged semantic errors still lose file/line context after deserialization, which slows down debugging in larger YAML edits. Suggested next step: carry source spans for top-level nodes and `contains` refs through parse/merge, then include `path:line` in missing-ref, wrong-kind, and duplicate-id errors.
 13. [open] [Architecture] [I: 40, D: 30] {GPT-5 Codex}: Replace hard-coded layout mode strings with a typed config model before adding more modes. `config.rs` still treats layout choice as string literals, which is fragile if you plan to add more arrangements. Suggested next step: define a small enum or equivalent serialized config shape for layout modes, then update load/save paths to validate modes explicitly.
 14. [open] [Architecture] [I: 35, D: 55] {GPT-5 Codex}: Make column layout and focus order data-driven so future invisible columns are possible. The app likely assumes the fixed map/wizard/preview set in multiple places, which will make hidden scrollable columns awkward to add safely. Suggested next step: audit rendering, sizing, focus movement, and key-handling assumptions about column count and visibility, then design a config model that separates column existence, visibility, and navigation order.
+
+41. [open] [UI] [I: 30, D: 20] {Claude Sonnet 4.6}: Increase the small modal width by 18px to prevent entry text from wrapping to a second line. Why it matters: the small modal is currently just narrow enough that entries at or near the expected max character length break onto a second line, which causes inconsistent row heights and visual noise. Suggested next step: find the small modal width constant and increase it by 18px, then verify that longest real entries stay on a single line.
+
+40. [open] [Features] [I: 40, D: 35] {Claude Sonnet 4.6}: Allow nav_down from the last field in a wizard section to advance into the next section. Why it matters: nav_up from the first field already moves to the previous section, so the absence of the symmetric nav_down behavior is an inconsistency that makes keyboard-only wizard navigation feel incomplete. Suggested next step: find the nav_up boundary check in the wizard field navigation handler and add a matching nav_down boundary check that moves focus to the first field of the next section when the cursor is already on the last field.
+
+39. [open] [Features] [I: 35, D: 45] {Claude Sonnet 4.6}: Wire the Select keybind to open fields in the wizard and to confirm in the map column, instead of hardcoding spacebar in either place. Why it matters: both interactions currently respond to hardcoded keys rather than the resolved Select keybind, so if Select is ever rebound or expanded, wizard open and map confirm will silently diverge. Suggested next step: replace hardcoded spacebar checks in both the wizard field-open handler and the map column confirm handler with lookups against the configured Select keybind.
 
 ## Icebox
 26. [open] [Architecture] [I: 20, D: 30] {Claude Sonnet 4.6}: Consider merging ModalArrivalLayer and ModalDepartureLayer into a single struct. Why it matters: both layers are currently created at the same instant with the same timing settings - the separation exists only to support a planned Part 3 feature where the departure runs on independent timing. If that feature is deferred, a merged struct would reduce complexity. Suggested next step: get a functional baseline first, then evaluate whether Part 3 independent timing is still on the roadmap before committing to the split.
