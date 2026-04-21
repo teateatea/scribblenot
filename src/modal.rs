@@ -4238,7 +4238,7 @@ mod modal_filter_tests {
             reopened
                 .current_part_label(&HashMap::new(), &sticky_values)
                 .as_deref(),
-            Some("place Shoulder")
+            Some("(direction)")
         );
 
         let rendered = crate::sections::multi_field::resolve_multifield_value(
