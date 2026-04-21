@@ -124,7 +124,7 @@ groups:
 sections:
   - id: appointment_section
     label: Appointment
-    nav_label: APPOINTMENT
+    nav_label: "Appointment"
     show_field_labels: false
     contains:
     #  - field: date_field
@@ -156,13 +156,12 @@ fields:
     format: "# {date_month_word_list} {day}, {year} at {start_hour_list}:{start_minute_list}{am_pm_list} ({duration_list} min)"
     lists:
      # - duration_list
-      - date_month_word_list
-      - day
-      - year
       - start_hour_list
       - start_minute_list
       - duration_list
-
+      - day
+      - date_month_word_list
+      - year
    #   - day
    #   - date_month_wor_list
 
@@ -204,6 +203,7 @@ fields:
  #     - pronoun
 
 
+ # ---------------------------------------------------------------
 lists:
   - id: year
     label: "Year"
@@ -516,6 +516,7 @@ lists:
   - id: start_minute_list
     label: "Start Time {start_hour_list}:## [PM (x)]"
     preview: "mm"
+    sticky: true
     default: minute_00
     items:
       - { id: minute_00, label: "{start_hour_list}:00", output: "00" }

@@ -1,7 +1,7 @@
 sections:
   - id: subjective_section
     label: "Subjective"
-    nav_label: "Signs/Symptoms"
+    nav_label: "Symptoms"
     show_field_labels: false
     contains:
       - field: sumuscle_field
@@ -10,14 +10,17 @@ sections:
 
 fields:
   - id: sumuscle_field
-    label: "Muscle Signs & Symptoms"
-    format: "{year}-{month}-{day}: {place}{region}: {patientdescribes} {tag}"
-    repeat_limit: 12
+    label: "Signs / Symptoms"
+    format: "{year}-{month}-{day}: {place}{region}: {patientdescribes} {subjective_tag}{starting_since}{starting_frequency}{duration_unit}{pluralizer}{starting_ago}."
+    max_entries: 12
     lists:
-      - region
       - place
+      - region
       - patientdescribes
-      - tag
+      - subjective_tag
+      - starting_since
+      - starting_frequency
+      - duration_unit
     format_lists:
       - year
       - month
@@ -25,11 +28,12 @@ fields:
 
 lists:
   - id: region
-    label: "{requested_regions} + region"
+    label: "[REGION]"
     default: empty_space
     modal_start: search
+    preview: "[REGION]"
    # joiner_style: comma
-   # repeat_limit: 3
+   # max_entries: 3
     items:
       - id: empty_space
         label: "1 (Empty Space)"
@@ -186,3 +190,354 @@ lists:
         output: "Pt reports intermittent"
       - label: "Pt reports ongoing rongoing"
         output: "Pt reports dongoing"
+
+ # -------------------
+  - id: subjective_tag
+    label: "[symptoms]"
+    modal_start: search
+    joiner_style: comma_and
+    max_entries: 12
+    default: empty_space
+    preview: "[symptoms]"
+    items:
+      - id: empty_space
+        label: "1 (Empty Space)"
+        output: ""
+      # SUBJECTIVE TAGS
+      - "discomfort"
+      - "minor discomfort"
+      - "minor pain"
+      - "mild pain"
+      - "reduced pain"
+      - "significantly reduced pain"
+      - "increased pain"
+      - "irritation"
+      - "pain with activity"
+      - "general tightness"
+      - "tightness"
+      - "tightness and pain"
+      - "tightness, swelling & inflammation"
+      - "pain"
+      - "pain and weakness"
+      - "aching pain"
+      - "sharp pain"
+      - "tingling pain"
+      - "shooting pain"
+      - "burning pain"
+      - "soreness"
+      - "tightness and tenderness"
+      - "tightness without pain"
+      - "significant pain"
+      - "training-related soreness"
+
+
+  - id: starting_since
+    label: "(starting"
+    default: empty_space
+    modal_start: search
+    preview: " (starting"
+   # joiner_style: comma
+   # max_entries: 3
+    items:
+      - id: empty_space
+        label: "1 (Empty Space)"
+        output: ""
+      - id: in_the_past
+        label: "in the past"
+        output: ", in the past"
+      - id: starting
+        label: "starting"
+        output: ", starting"
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: starting_around
+        label: "starting around"
+        output: ", starting around"
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: starting_over
+        label: "starting over"
+        output: ", starting over"
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: every
+        label: "every"
+        output: ", every"
+      - id: progressing_over_the_past
+        label: "progressing over the past"
+        output: ", progressing over the past"
+      - id: since_last_appointment_his
+        label: "since his last appointment"
+        output: ", since his last appointment"
+      - id: since_his_last_appointment
+        label: "since his last appointment"
+        output: ", since his last appointment"
+      - id: since_her_last_appointment
+        label: "since her last appointment"
+        output: ", since her last appointment"
+      - id: since_their_last_appointment
+        label: "since their last appointment"
+        output: ", since their last appointment"
+      - id: since_his_injury
+        label: "since his injury"
+        output: ", since his injury"
+      - id: since_her_injury
+        label: "since her injury"
+        output: ", since her injury"
+      - id: since_their_injury
+        label: "since their injury"
+        output: ", since their injury"
+      - id: since_his_surgery
+        label: "since his surgery"
+        output: ", since his surgery"
+      - id: since_her_surgery
+        label: "since her surgery"
+        output: ", since her surgery"
+      - id: since_their_surgery
+        label: "since their surgery"
+        output: ", since their surgery"
+      # - ago -
+      - id: since_last_appointment_his_ago
+        label: "since his last appointment ... ago"
+        output: ", since his last appointment"
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: since_his_last_appointment_ago
+        label: "since his last appointment ... ago"
+        output: ", since his last appointment"
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: since_her_last_appointment_ago
+        label: "since her last appointment ... ago"
+        output: ", since her last appointment"
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: since_their_last_appointment_ago
+        label: "since their last appointment ... ago"
+        output: ", since their last appointment"
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: since_his_injury_ago
+        label: "since his injury ... ago"
+        output: ", since his injury"
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: since_her_injury_ago
+        label: "since her injury ... ago"
+        output: ", since her injury"
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: since_their_injury_ago
+        label: "since their injury ... ago"
+        output: ", since their injury"
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: since_his_surgery_ago
+        label: "since his surgery ... ago"
+        output: ", since his surgery"
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: since_her_surgery_ago
+        label: "since her surgery ... ago"
+        output: ", since her surgery"
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: since_their_surgery_ago
+        label: "since their surgery ... ago"
+        output: ", since their surgery"
+        assigns:
+          - list: starting_ago
+            item: ago
+
+  - id: starting_frequency
+    label: "[#]"
+    default: empty_space
+    modal_start: search
+    preview: " [#]"
+   # joiner_style: comma
+   # max_entries: 3
+    items:
+      - id: empty_space
+        label: "(Empty Space)"
+        output: ""
+        assigns:
+          - list: pluralizer
+            item: singular
+      - id: freq_1
+        label: "1"
+        output: " 1"
+        assigns:
+          - list: pluralizer
+            item: singular
+      - id: freq_2
+        label: "2"
+        output: " 2"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_3
+        label: "3"
+        output: " 3"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_4
+        label: "4"
+        output: " 4"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_5
+        label: "5"
+        output: " 5"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_6
+        label: "6"
+        output: " 6"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_7
+        label: "7"
+        output: " 7"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_8
+        label: "8"
+        output: " 8"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_9
+        label: "9"
+        output: " 9"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_10
+        label: "10"
+        output: " 10"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_11
+        label: "11"
+        output: " 11"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_12
+        label: "12"
+        output: " 12"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_1_2
+        label: "1-2"
+        output: " 1-2"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_2_3
+        label: "2-3"
+        output: " 2-3"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_3_4
+        label: "3-4"
+        output: " 3-4"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_4_5
+        label: "4-5"
+        output: " 4-5"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_5_6
+        label: "5-6"
+        output: " 5-6"
+        assigns:
+          - list: pluralizer
+            item: plural
+      
+  - id: duration_unit
+    label: "[unit]"
+    default: empty_space
+    modal_start: search
+    preview: " [unit]"
+   # joiner_style: comma
+   # max_entries: 3
+    items:
+      - id: empty_space
+        label: "1 (Empty Space)"
+        output: ""
+      - id: day
+        label: "day{pluralizer}"
+        output: " day"
+      - id: week
+        label: "week{pluralizer}"
+        output: " week"
+      - id: month
+        label: "month{pluralizer}"
+        output: " month"
+      - id: year
+        label: "year{pluralizer}"
+        output: " year"
+      - id: today
+        label: "today"
+        output: " today"
+      - id: yesterday
+        label: "yesterday"
+        output: " yesterday"
+      - id: this_morning
+        label: "this morning"
+        output: " this morning"
+      
+  - id: pluralizer
+    label: "[plural]"
+    default: singular
+    modal_start: search
+    preview: " [plural]"
+   # joiner_style: comma
+   # max_entries: 3
+    items:
+      - id: singular
+        label: "(singular)"
+        output: ""
+      - id: plural
+        label: "s (plural)"
+        output: "s"
+
+        
+  - id: starting_ago
+    label: "[ago]"
+    default: empty_space
+    modal_start: search
+    preview: " [ago]"
+   # joiner_style: comma
+   # max_entries: 3
+    items:
+      - id: empty_space
+        label: "1 (Empty Space)"
+        output: ""
+      - id: ago
+        label: "ago"
+        output: " ago"

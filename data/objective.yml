@@ -235,7 +235,8 @@ lists:
 
 
   - id: place
-    label: "place {region}"
+    label: "(direction)" # {region}"
+    preview: "(direction) "
     modal_start: search
     default: empty_space
     items:
@@ -281,6 +282,8 @@ lists:
         output: "Medial "
       - label: "8 Lumbar Spine L1-L5"
         output: "L1-L5"
+        
+        
   - id: tag
     label: "Objective Tag Desciptions"
     modal_start: search
@@ -288,6 +291,7 @@ lists:
     max_entries: 12
     default: empty_space
     items:
+      # OBJECTIVE TAGS
       - id: empty_space
         label: "1 (Empty Space)"
         output: ""
@@ -383,29 +387,7 @@ lists:
       - "Weakness"
       - "White"
       - "Wound"
-      # SUBJECTIVE TAGS
-      - "discomfort"
-      - "minor discomfort"
-      - "minor pain"
-      - "mild pain"
-      - "reduced pain"
-      - "significantly reduced pain"
-      - "increased pain"
-      - "irritation"
-      - "pain with activity"
-      - "general tightness"
-      - "tightness"
-      - "tightness and pain"
-      - "tightness (without pain)"
-      - "tightness, swelling & inflammation"
-      - "pain"
-      - "pain and weakness"
-      - "aching pain"
-      - "sharp pain"
-      - "tingling pain"
-      - "shooting pain"
-      - "burning pain"
-      - "soreness"
+
 
   - id: ests_mm_list
     label: "muscle erector spinae thoracic spine"
