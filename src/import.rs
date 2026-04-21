@@ -3,6 +3,7 @@ use crate::data::SectionConfig;
 /// Try to parse clipboard text as a prior clinic note.
 /// Returns the recognized note text if the content looks like a structured note,
 /// or None if the clipboard content should be ignored.
+#[allow(dead_code)]
 pub fn try_parse_clipboard_note(_text: &str, _sections: &[SectionConfig]) -> Option<String> {
     None
 }
