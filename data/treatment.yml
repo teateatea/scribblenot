@@ -1,5 +1,17 @@
 sections:
-  - id: treatment_section
+  - id: treatment_modifications
+    label: "Treatment - Prone"
+    nav_label: "MODS"
+    show_field_labels: false
+    contains:
+      - field: tx_mod_field
+      - field: tx_mod_field_adv
+     # - field: prone_glutes_field
+     # - field: prone_legs_field
+    note:
+      note_label: "### MODIFICATIONS" #"#### TREAMENT / PLAN"
+
+  - id: treatment_section_prone
     label: "Treatment - Prone"
     nav_label: "PRONE"
     contains:
@@ -9,9 +21,45 @@ sections:
     note:
       note_label: "" #"#### TREAMENT / PLAN"
 
+  - id: treatment_section_supine
+    label: "Treatment - Supine"
+    nav_label: "SUPINE"
+    contains:
+      - field: ant_legs_field
+      - field: abdomen_field
+      - field: adductors_field
+      - field: pecs_field
+      - field: arms_field
+      - field: hns_field
+    note:
+      note_label: "" #"#### TREAMENT / PLAN"
+
+
 ---
 # BACK PRONE
 fields:                                          # BACK PRONE
+  - id: tx_mod_field
+    label: "MODIFICATIONS"
+   # note_label: "## MODIFICATIONS"
+   # nav_label: "MODLABEL"
+    format: "{tx_pressure}{tx_challenge}{tx_mood}{tx_communication}"
+    contains:
+      - list: tx_pressure
+      - list: tx_challenge
+      - list: tx_mood
+      - list: tx_communication
+     # - collection: back_all_prone_collection
+
+  - id: tx_mod_field_adv
+    label: "Complex Modifications"
+    format: "{tx_mod_complex}"
+   # joiner_style: newline
+   # max_entries: 6
+    contains:
+      - list: tx_mod_complex
+
+
+
   - id: prone_back_field
     label: "BACK"
     max_actives: 1
@@ -19,27 +67,338 @@ fields:                                          # BACK PRONE
      # - list: year
       - collection: back_all_prone_collection
       - collection: back_upper_mid_prone_collection
+      - collection: back_mid_low_prone_collection
       - collection: back_lower_prone_collection
 collections:                                     # BACK PRONE
   - id: back_all_prone_collection
-    label: "ALL - UPPER MIDDLE & LOW BACK"
+    label: "ALL - UPPER MIDDLE & LOW BACK (PRONE)"
     nav_label: "BACKAPC"
+    note_label: "UPPER MIDDLE & LOW BACK (Prone)"
     default_enabled: true
     contains:
       - list: back_all_prone
+    note:
+      note_label: "\n#### UPPER MIDDLE & LOW BACK (Prone)"
   - id: back_upper_mid_prone_collection
-    label: "UPPER, & MIDDLE BACK"
+    label: "UPPER & MIDDLE BACK"
     nav_label: "BACKUMPC"
     default_enabled: false
     contains:
       - list: back_upper_mid_prone
+    note:
+      note_label: "\n#### UPPER & MIDDLE BACK (Prone)"
+  - id: back_mid_low_prone_collection
+    label: "MIDDLE & LOWER BACK"
+    nav_label: "BACKMLPC"
+    default_enabled: false
+    contains:
+      - list: back_mid_low_prone
+    note:
+      note_label: "\n#### MIDDLE & LOWER BACK (Prone)"
   - id: back_lower_prone_collection
     label: "LOWER BACK"
     nav_label: "BACKLPC"
     default_enabled: false
     contains:
       - list: back_lower_prone
+    note:
+      note_label: "\n#### LOW BACK (Prone)"
+    
 lists:                                           # BACK PRONE
+  - id: tx_pressure
+    label: "Pressure"
+    preview: "PRESSURE"
+   # sticky: true
+    default: pressure_regular
+    items:
+      - id: pressure_empty
+        label: "1 (Next)"
+        output: ""
+      - id: pressure_light
+        label: "2 Light Pressure"
+        output: |
+          - LIGHT PRESSURE: Pt prefers much less than Mr. Gormley's usual working pressure.
+      - id: pressure_moderate
+        label: "3 Moderate Pressure"
+        output: |
+          - MODERATE PRESSURE: Pt prefers slightly less than Mr. Gormley's usual working pressure.
+      - id: pressure_regular
+        label: "4 Regular Pressure"
+        output: |
+          - REGULAR PRESSURE: Pt is comfortable with Mr. Gormley's usual working pressure.
+      - id: pressure_firm
+        label: "5 Firm Pressure"
+        output: |
+          - FIRM PRESSURE: Pt prefers slightly more than Mr. Gormley's usual working pressure.
+      - id: pressure_heavy
+        label: "6 Heavy Pressure"
+        output: |
+          - HEAVY PRESSURE: Pt prefers much more than Mr. Gormley's usual pressure.
+      - id: pressure_full
+        label: "7 Full Pressure"
+        output: |
+          - FULL PRESSURE: Pt prefers the maximum pressure that Mr. Gormley can apply safely.
+          - - Consider lowering the massage table.
+  - id: tx_challenge
+    label: "Challenge"
+    preview: "CHALLENGE"
+   # sticky: true
+    default: challenge_comfortable
+    items:
+      - id: challenge_empty
+        label: "0 (Next)"
+        output: ""
+      - id: challenge_very_gentle
+        label: "1 Very Gentle Treatment"
+        output: |
+          - VERY GENTLE TREATMENT: Pt prefers a gentle treatment: Avoid all challenging techniques.
+      - id: challenge_gentle
+        label: "2 Gentle Treatment"
+        output: |
+          - GENTLE TREATMENT: Pt prefers a gentle treatment: Avoid challenging techniques.
+      - id: challenge_relaxed
+        label: "3 Relaxed Treatment"
+        output: |
+          - RELAXED TREATMENT: Pt prefers a relaxed treatment, but may tolerate some challenge.
+      - id: challenge_comfortable
+        label: "4 Comfortable Treatment"
+        output: |
+          - COMFORTABLE TREATMENT: Pt prefers a challenge only when necessary for treatment.
+      - id: challenge_strong
+        label: "5 Strong Treatment"
+        output: |
+          - STRONG TREATMENT: Pt prefers a strong treatment, with some challenge expected.
+      - id: challenge_challenging
+        label: "7 Challenging Treatment"
+        output: |
+          - CHALLENGING TREATMENT: Pt prefers a challenging treatment, with pressure that approaches discomfort.
+      - id: challenge_painful
+        label: "8 Painful Treatment"
+        output: |
+          - CHALLENGING TREATMENT: Pt prefers a very challenging treatment, with discomfort expected.
+  - id: tx_mood
+    label: "Mood (from you)"
+    preview: "MOOD"
+   # sticky: true
+    default: mood_relaxing
+    items:
+      - id: mood_empty
+        label: "1 (Next)"
+        output: ""
+      - id: mood_concise
+        label: "CONCISE Conversation"
+        output: |
+          - CONCISE: Pt responds well to clear, direct language, with limited conversation.
+      - id: mood_introspective
+        label: "INTROSPECTIVE Conversation"
+        output: |
+          - INTROSPECTIVE: Pt responds well to limited conversation.
+          - - Give space for slowing down without distraction.
+      - id: mood_restful
+        label: "RESTFUL - Recovery"
+        output: |
+          - RESTFUL: Pt prefers resting during appointment. Limit conversation, focus on recovery.
+      - id: mood_calming
+        label: "CALMING - Slow Pace"
+        output: |
+          - CALMING: Pt responds well to slow-paced techniques with limited conversation.
+          - - Give time to breathe and feel muscles relax, without distraction!
+      - id: mood_relaxing
+        label: "RELAXING - Limited / Casual Conversation"
+        output: |
+          - RELAXING: Pt responds well to limited or casual conversation.
+      - id: mood_quiet
+        label: "SMALL TALK - Quiet Conversation"
+        output: |
+          - SMALL TALK: Pt responds well to quiet conversation; give space for slowing down.
+      - id: mood_conversational
+        label: "CONVERSATIONAL - Casual Social Conversation"
+        output: |
+          - CONVERSATIONAL: Pt responds well to a social atmosphere during treatment.
+          - - Remember to interrupt conversation for check ins; allow time for quiet.
+      - id: mood_social
+        label: "SOCIAL Conversation - Sociable Chatty"
+        output: |
+          - SOCIAL: Pt responds well to ongoing sociable conversation during treatment.
+          - - If necessary, interrupt conversation to check in!
+  - id: tx_communication
+    label: "Communication (from patient)"
+    preview: "COMMUNICATION"
+   # sticky: true
+    default: communication_communicative
+    items:
+      - id: communication_empty
+        label: "1 (Next)"
+        output: ""
+      - id: communication_stoic
+        label: "STOIC - Pain Response Suppression"
+        output: |
+          - STOIC: Pt may suppress their responses to pain or discomfort. Check in as needed.
+      - id: communication_frequent_checkins
+        label: "FREQUENT Check Ins"
+        output: |
+          - FREQUENT CHECK INS: Pt responds well to frequent verbal check ins.
+          - - Pt may suppress their responses to pain or discomfort.
+      - id: communication_communicative
+        label: "COMMUNICATIVE"
+        output: |
+          - COMMUNICATIVE: Pt speaks up about their needs or discomfort. Check in regularly anyways!
+      - id: communication_controlled
+        label: "CONTROLLED - Frequent Check Ins"
+        output: |
+          - CONTROLLED: Pt prefers a very specific amount of pressure.
+          - - Check in frequently, even with each muscle change.
+  - id: tx_mod_complex
+    label: "Complex Tx Modifications"
+    preview: "(conditions, light, oil)"
+   # sticky: true
+    default: mod_empty
+    modal_start: search
+    joiner_style: newline
+    repeat_limit: 3
+    items:
+            - id: mod_empty
+              label: "1 No"
+              output: ""
+            - id: mod_pregnancy
+              label: "1 Pregnancy"
+              output: |
+                 - PREGNANCY: Patient is treated in sidelying whenever possible, and pillowed under the head, in front of the chest, and between the knees.
+                 - - Patient may be treated in supine for up to 5 minutes.
+                 - - Lower table at the beginning and end of treatment.
+            - id: mod_low_light
+              label: "5 Ashind Dark Lights Off"
+              output: |
+                 - LOW LIGHT: Pt prefers lights as dimmed as possible.
+            - id: mod_post_concussion
+              label: "2 Post-Concussion"
+              output: |
+                 - POST-CONCUSSION: Patient is treated supine only, and pillowed under head and knees.
+                 - - Avoid using prone position.
+                 - - Avoid the neck.
+                 - - Dim lighting when possible.
+                 - - No music.
+                 - - No air filter fan.
+                 - - For today's appointment, extremely moderated pressure. ("Just saying hello to all the muscles.")
+            - id: mod_migraines_ana
+              label: "Chronic Migraines (Ana)"
+              output: |
+                 - CHRONIC MIGRAINES:
+                 - - LOW LIGHT: Pt prefers lights as dimmed as possible.
+                 - - EYE MASK: Pt prefers covering the eyes.
+            - id: mod_whiplash
+              label: "3 Whiplash"
+              output: |
+                 - WHIPLASH: Patient is treated supine only, and pillowed under head and knees.
+                 - - Avoid using prone position.
+                 - - Dim lighting when possible.
+                 - - For today's appointment, extremely moderated pressure. ("Just saying hello to all the muscles.")
+            - id: mod_mva_whiplash
+              label: "4 MVA Whiplash"
+              output: |
+                 - MVA WHIPLASH: Patient is to be treated supine only, and pillowed under head and knees.
+                 - - Avoid using prone position.
+                 - - Dim lighting when possible.
+                 - - For today's appointment, extremely moderated pressure. ("Just saying hello to all the muscles.")
+            - id: mod_ab_pillow_shoulder_bolsters
+              label: "6 Alison - Abdomen Pillow & Shoulder Bolsters"
+              output: |
+                 - AB PILLOW: While prone, pillow under abdomen.
+                 - SHOULDER BOLSTERS: hile prone, bolster under shoulders.
+                 - Allow extra time to settle after changing positions.
+                 - HEAT: Recommend use of heat.
+            - id: mod_vertigo
+              label: "7 Vertigo"
+              output: |
+                 - VERTIGO: Encourage taking time to turn over slowly.
+                 - - Allow extra time to settle after changing positions before continuing treatment.
+                 - - Encourage pausing at each step when sitting up from the massage table.
+            - id: mod_ptsd_adhd
+              label: "6 Jinsol - PTSD / ADHD"
+              output: |
+                 - Pt responds well to slow-paced techniques.
+                 - - Give him time to breathe and feel muscles relax, without distraction!
+            - id: mod_hard_of_hearing
+              label: "7 Klisa - Hard of Hearing"
+              output: |
+                 - SPEAKING VOLUME: Pt may have some challenges with hearing.
+                 - - If you have a quiet voice, remember to speak up!
+            - id: mod_very_tall
+              label: "8 Very Tall"
+              output: |
+                 - TALL: Recommend using height extender on massage table.
+            - id: mod_tall_broad
+              label: "8 Oscar - Tall and Wide Broad"
+              output: |
+                 - TALL: Use height extender on massage table.
+                 - BROAD: Consider lowering the table, and providing additional supports for arms.
+            - id: mod_clothed_no_oil
+              label: "2 Clothed, no oil"
+              output: |
+                 - CLOTHED: Patient prefers to be clothed, using no oil during treatment.
+            - id: mod_timely
+              label: "3 Timely On Time"
+              output: |
+                 - TIMELY: Patient prefers finishing treatment strictly on schedule.
+            - id: mod_head_pillow
+              label: "2 Head Pillow"
+              output: |
+                 - HEAD PILLOW: Pt accepts pillow for head while supine.
+            - id: mod_head_pillow_required
+              label: "22 Head Pillow REQUIRED"
+              output: |
+                 - HEAD PILLOW REQUIRED: Pillow must be immediately available when supine.
+            - id: mod_no_head_pillow
+              label: "3 No Head Pillow when offered"
+              output: |
+                 - NO HEAD PILLOW: Pt declined head pillow while supine.
+            - id: mod_abdominal_pillow
+              label: "2 Abdominal Pillow"
+              output: |
+                 - Pillow under abdomen while prone.
+            - id: mod_ankle_pillow_required
+              label: "22 Ankle Pillow REQUIRED"
+              output: |
+                 - ANKLE PILLOW REQUIRED: Pillow must be immediately available when prone.
+            - id: mod_lower_table
+              label: "2 Lower Table for On/Off"
+              output: |
+                 - LOWER TABLE: Lower massage table before & after treatment.
+            - id: mod_extend_table
+              label: "3 Extend Table while Supine"
+              output: |
+                 - Extend Table for Pt's height while supine.
+            - id: mod_clothed
+              label: "2 Clothed"
+              output: |
+                 - CLOTHED: Pt prefers to be clothed during treatment.
+            - id: mod_no_oil
+              label: "3 No oil"
+              output: |
+                 - NO OIL: Pt prefers using no oil during treatment.
+            - id: mod_fascial_release_wax
+              label: "32 Songbird Fascial Release Wax"
+              output: |
+                 - FASCIAL RELEASE WAX: Recommend for higher grip than oil.
+            - id: mod_clothed_tmj
+              label: "4 Clothed TMJ"
+              output: |
+                 - CLOTHED: RMT recommends being clothed during intraoral treatments.
+            - id: mod_no_prone
+              label: "2 NO PRONE"
+              output: |
+                 - NO PRONE: Do not put Pt in prone position.
+            - id: mod_supine_only
+              label: "3 SUPINE ONLY (NO PRONE)"
+              output: |
+                 - SUPINE ONLY: Treat Pt only in supine position.
+            - id: mod_raynauds
+              label: "Raynaud's Syndrome (offer head pillow / avoid cold)."
+              output: |
+                 - RAYNAUD'S: Pt may be sensitive to cold.
+              
+
+# BACK ALL PRONE
   - id: back_all_prone
     label: "UPPER, MIDDLE & LOWER BACK (Prone)"
     items:
@@ -71,6 +430,23 @@ lists:                                           # BACK PRONE
       - id: muscle_strip_es
         label: "Muscle Stripping (Erector Spinae)"
         output: "- Muscle Stripping (Erector Spinae)"
+  - id: back_mid_low_prone
+    label: "MIDDLE & LOWER BACK (Prone)"
+    items:
+      - id: swedish
+        label: "General Swedish Techniques"
+        output: "- General Swedish Techniques"
+      - id: spec_comp_back
+        label: "Specific Compressions (Quadratus Lumborum)"
+        output: "- Specific Compressions:\n- - Quadratus Lumborum"
+      - id: muscle_strip_es
+        label: "Muscle Stripping (Erector Spinae)"
+        output: "- Muscle Stripping (Erector Spinae)"
+      - id: fascial_l4l5
+        label: "Fascial Techniques (L4-L5)"
+        output: "- Fascial Techniques (L4-L5)"
+      #  default_enabled: false
+
 
   - id: back_lower_prone
     label: "LOWER BACK (Prone)"
@@ -94,9 +470,13 @@ lists:                                           # BACK PRONE
 fields:                                          # GLUTES
   - id: prone_glutes_field
     label: "GLUTES"
+    max_actives: 1
     contains:
       - collection: prone_glutes_collection
-
+      - collection: prone_glutes_collection_rocking
+      - collection: prone_glutes_collection_broad
+      - collection: prone_glutes_collection_oblique
+      
 collections:                                     # GLUTES
 
   - id: prone_glutes_collection
@@ -105,6 +485,33 @@ collections:                                     # GLUTES
     default_enabled: false
     contains:
       - list: glutes_prone
+    note:
+      note_label: "\n#### GLUTEAL MUSCLES / BUTTOCKS (Prone)"
+  - id: prone_glutes_collection_rocking
+    label: "GLUTES ROCKING"
+    nav_label: "GLUTESRPC"
+    default_enabled: false
+    contains:
+      - list: glutes_prone_rocking
+    note:
+      note_label: "\n#### GLUTEAL MUSCLES / BUTTOCKS (Prone)"
+  - id: prone_glutes_collection_broad
+    label: "GLUTES BROAD"
+    nav_label: "GLUTESRPC"
+    default_enabled: false
+    contains:
+      - list: glutes_prone_broad
+    note:
+      note_label: "\n#### GLUTEAL MUSCLES / BUTTOCKS (Prone)"
+  - id: prone_glutes_collection_oblique
+    label: "GLUTES OBLIQUE"
+    nav_label: "GLUTESRPC"
+    note_label: "GLUTES LABEL"
+    default_enabled: false
+    contains:
+      - list: glutes_prone_oblique
+    note:
+      note_label: "\n#### GLUTEAL MUSCLES / BUTTOCKS (Prone)"
 lists:                                           # GLUTES
   - id: glutes_prone
     label: "GLUTEAL MUSCLES / BUTTOCKS (Prone)"
@@ -124,14 +531,61 @@ lists:                                           # GLUTES
       - id: rocking_si
         label: "Rocking & Rhythmic Techniques (SI Joint)"
         output: "- Rocking & Rhythmic Techniques (SI Jt)"
+        default_enabled: false
+
+  - id: glutes_prone_rocking
+    label: "GLUTES ROCKING"
+    items:
+      - id: broad_comp
+        label: "Broad Compressions"
+        output: "- Broad Compressions"
+      - id: ulnar_knead
+        label: "Ulnar Kneading"
+        output: "- Ulnar Kneading"
+      - id: spec_comp_pir_gmed
+        label: "Specific Compressions (Piriformis, Gluteus Medius)"
+        output: "- Specific Compressions (Ulnar border):\n- - Piriformis\n- - Gluteus Medius"
+      - id: pin_stretch_pir
+        label: "Pin + Stretch (Piriformis)"
+        output: "- Pin + Stretch:\n- - Piriformis"
+      - id: rocking_si
+        label: "Rocking & Rhythmic Techniques (SI Joint)"
+        output: "- Rocking & Rhythmic Techniques (SI Jt)"
+  - id: glutes_prone_broad
+    label: "GLUTES BROAD ONLY"
+    items:
+      - id: broad_comp
+        label: "Broad Compressions"
+        output: "- Broad Compressions"
+      - id: ulnar_knead
+        label: "Ulnar Kneading"
+        output: "- Ulnar Kneading"
+  - id: glutes_prone_oblique
+    label: "GLUTES OBLIQUE"
+    items:
+      - id: broad_comp
+        label: "Broad Compressions"
+        output: "- Broad Compressions"
+      - id: ulnar_knead
+        label: "Ulnar Kneading"
+        output: "- Ulnar Kneading"
+      - id: spec_comp_pir_gmed
+        label: "Specific Compressions (Piriformis, Gluteus Medius)"
+        output: "- Specific Compressions (Ulnar border):\n- - Piriformis\n- - Gluteus Medius"
+      - id: pin_stretch_pir
+        label: "Pin + Stretch (Piriformis)"
+        output: "- Pin + Stretch:\n- - Piriformis"
 
 ---
 # POST_LEG
 fields:                                          # POST_LEG
   - id: prone_legs_field
     label: "POST_LEG"
+    max_actives: 1
     contains:
       - collection: prone_legs_collection
+      - collection: prone_legs_collection_upper
+      - collection: prone_legs_collection_lower
 
 collections:                                     # POST_LEG
   - id: prone_legs_collection
@@ -140,10 +594,25 @@ collections:                                     # POST_LEG
     default_enabled: false
     contains:
       - list: post_legs_prone
-      - list: post_upper_legs_prone
       - list: lower_legs_prone
     note:
-      note_label: "#### POSTERIOR LEGS & FEET (Prone)"
+      note_label: "\n#### POSTERIOR LEGS & FEET (Prone)"
+  - id: prone_legs_collection_upper
+    label: "UPPER POSTERIOR LEGS & FEET (Prone)"
+    nav_label: "POST_LEGUPC"
+    default_enabled: false
+    contains:
+      - list: post_upper_legs_prone
+    note:
+      note_label: "\n#### POSTERIOR LEGS & FEET (Prone)"
+  - id: prone_legs_collection_lower
+    label: "LOWER POSTERIOR LEGS & FEET (Prone)"
+    nav_label: "POST_LEGLPC"
+    default_enabled: false
+    contains:
+      - list: lower_legs_prone
+    note:
+      note_label: "\n#### POSTERIOR LEGS & FEET (Prone)"
       
 lists:                                           # POST_LEG
   - id: post_legs_prone
@@ -191,6 +660,43 @@ lists:                                           # POST_LEG
         output: "- Fingertip Kneading"
 
 ---
+# ANT_LEGS
+fields:                                          # ANT_LEGS
+  - id: ant_legs_field
+    label: "ANT_LEG"
+    max_actives: 1
+    contains:
+      - collection: ant_legs_collection
+      - collection: ant_upper_legs_collection
+      - collection: ant_lower_legs_collection
+
+collections:                                     # ANT_LEGS
+  - id: ant_legs_collection
+    label: "ANTERIOR LEGS & HIPS (Supine)"
+    nav_label: "ANT_LEGPC"
+    default_enabled: false
+    contains:
+      - list: ant_legs_hips_supine
+      - list: lower_legs_supine
+    note:
+      note_label: "\n#### ANTERIOR LEGS & HIPS (Supine)"
+  - id: ant_upper_legs_collection
+    label: "ANTERIOR UPPER LEGS / TFL & QUADS (Supine)"
+    nav_label: "ANT_LEGUPC"
+    default_enabled: false
+    contains:
+      - list: ant_hips_upper_legs_supine
+    note:
+      note_label: "\n#### ANTERIOR LEGS & HIPS (Supine)"
+  - id: ant_lower_legs_collection
+    label: "LOWER LEGS & FEET (Supine)"
+    nav_label: "ANT_LEGLPC"
+    default_enabled: false
+    contains:
+      - list: lower_legs_supine
+    note:
+      note_label: "\n#### ANTERIOR LEGS & HIPS (Supine)"
+
 lists:
 
 
@@ -245,6 +751,59 @@ lists:
         label: "Fingertip Kneading"
         output: "- Fingertip Kneading"
 
+
+---
+# ABDOMEN & ADDUCTORS
+fields:                                          # ABDOMEN
+  - id: abdomen_field
+    label: "ABDOMEN"
+    max_actives: 1
+    contains:
+      - collection: abdomen_collection
+      - collection: abdomen_intercostals_collection
+      - collection: abdomen_psoas_collection
+  - id: adductors_field
+    label: "ADDUCTORS"
+    max_actives: 1
+    contains:
+      - collection: adductors_collection
+
+collections:                                     # ABDOMEN & ADDUCTORS
+  - id: abdomen_collection
+    label: "ABDOMEN (Supine)"
+    nav_label: "ABDOMPC"
+    default_enabled: false
+    contains:
+      - list: abdomen_intercostals_supine
+      - list: abdomen_psoas_supine
+    note:
+      note_label: "\n#### ABDOMEN (Supine)"
+  - id: abdomen_intercostals_collection
+    label: "ABDOMEN - INTERCOSTALS (Supine)"
+    nav_label: "ABDOMINTPC"
+    default_enabled: false
+    contains:
+      - list: abdomen_intercostals_supine
+    note:
+      note_label: "\n#### ABDOMEN (Supine)"
+  - id: abdomen_psoas_collection
+    label: "ABDOMEN - PSOAS (Supine)"
+    nav_label: "ABDOMPSPC"
+    default_enabled: false
+    contains:
+      - list: abdomen_psoas_supine
+    note:
+      note_label: "\n#### ABDOMEN (Supine)"
+  - id: adductors_collection
+    label: "ADDUCTORS (Sidelying)"
+    nav_label: "ADDUCTPC"
+    default_enabled: false
+    contains:
+      - list: adductors_sidelying
+    note:
+      note_label: "\n#### ADDUCTORS (Sidelying)"
+
+lists:
   - id: abdomen_intercostals_supine
     label: "ABDOMEN - INTERCOSTALS (Supine)"
     items:
@@ -286,7 +845,27 @@ lists:
       - id: fingertip_knead
         label: "Fingertip Kneading"
         output: "- Fingertip Kneading"
+        
+---
+# PECS
+fields:                                          # PECS
+  - id: pecs_field
+    label: "PECS"
+    max_actives: 1
+    contains:
+      - collection: pecs_collection
 
+collections:                                     # PECS
+  - id: pecs_collection
+    label: "UPPER CHEST WALL / PECS (Supine)"
+    nav_label: "PECSPC"
+    default_enabled: false
+    contains:
+      - list: pecs_supine
+    note:
+      note_label: "\n#### UPPER CHEST WALL / PECS (Supine)"
+
+lists:
   - id: pecs_supine
     label: "UPPER CHEST WALL / PECS (Supine)"
     items:
@@ -302,7 +881,28 @@ lists:
       - id: pin_active_subscap
         label: "Pin & Active Release (Subscapularis)"
         output: "- Pin & Active Release (Subscapularis)"
+        
+        
+---
+# ARMS
+fields:                                          # ARMS
+  - id: arms_field
+    label: "ARMS"
+    max_actives: 1
+    contains:
+      - collection: arms_collection
 
+collections:                                     # ARMS
+  - id: arms_collection
+    label: "ARMS (Supine)"
+    nav_label: "ARMSPC"
+    default_enabled: false
+    contains:
+      - list: arms_supine
+    note:
+      note_label: "\n#### ARMS (Supine)"
+
+lists:
   - id: arms_supine
     label: "ARMS (Supine)"
     items:
@@ -322,6 +922,26 @@ lists:
         label: "Joint Mobilizations (Wrist, Elbow)"
         output: "- Joint Mobilizations (Wrist, Elbow)"
 
+---
+# HNS
+fields:                                          # HNS
+  - id: hns_field
+    label: "HNS"
+    max_actives: 1
+    contains:
+      - collection: hns_collection
+
+collections:                                     # HNS
+  - id: hns_collection
+    label: "HEAD, NECK, & SHOULDERS (Supine)"
+    nav_label: "HNSPC"
+    default_enabled: false
+    contains:
+      - list: hns_supine
+    note:
+      note_label: "\n#### HEAD, NECK, & SHOULDERS (Supine)"
+
+lists:
   - id: hns_supine
     label: "HEAD, NECK, & SHOULDERS (Supine)"
     items:

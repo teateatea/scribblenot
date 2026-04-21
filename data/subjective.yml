@@ -189,7 +189,7 @@ lists:
       - label: "Pt reports intermittent rintermittent"
         output: "Pt reports intermittent"
       - label: "Pt reports ongoing rongoing"
-        output: "Pt reports dongoing"
+        output: "Pt reports ongoing"
 
  # -------------------
   - id: subjective_tag
@@ -242,9 +242,15 @@ lists:
       - id: empty_space
         label: "1 (Empty Space)"
         output: ""
+        assigns:
+          - list: starting_ago
+            item: empty_space
       - id: in_the_past
         label: "in the past"
         output: ", in the past"
+        assigns:
+          - list: starting_ago
+            item: empty_space
       - id: starting
         label: "starting"
         output: ", starting"

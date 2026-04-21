@@ -109,7 +109,9 @@ groups:
     nav_label: TREATMENT
     note_label: "## TREATMENT / PLAN"
     contains:
-      - section: treatment_section
+      - section: treatment_modifications
+      - section: treatment_section_prone
+      - section: treatment_section_supine
      # - collection: back_all_prone_collection
      # - collection: tx_regions
      # - collection: tx_prone_back
