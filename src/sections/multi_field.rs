@@ -65,9 +65,14 @@ fn merged_slot_assigned_values(
     confirmed: &HeaderFieldValue,
     cfg: &HeaderFieldConfig,
     assigned_values: &HashMap<String, String>,
+    sticky_values: &HashMap<String, String>,
 ) -> HashMap<String, String> {
     let mut merged = assigned_values.clone();
-    merged.extend(crate::modal::confirmed_value_assignments(confirmed, cfg));
+    merged.extend(crate::modal::confirmed_value_assignments(
+        confirmed,
+        cfg,
+        sticky_values,
+    ));
     merged
 }
 
@@ -77,7 +82,7 @@ pub fn resolve_multifield_value_for_confirmed_slot(
     assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> ResolvedMultiFieldValue {
-    let merged = merged_slot_assigned_values(confirmed, cfg, assigned_values);
+    let merged = merged_slot_assigned_values(confirmed, cfg, assigned_values, sticky_values);
     resolve_multifield_value(confirmed, cfg, &merged, sticky_values)
 }
 
@@ -180,7 +185,7 @@ pub fn render_note_line_for_confirmed_slot(
     assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> Option<String> {
-    let merged = merged_slot_assigned_values(value, field, assigned_values);
+    let merged = merged_slot_assigned_values(value, field, assigned_values, sticky_values);
     render_note_line(section, field, value, &merged, sticky_values)
 }
 
@@ -305,7 +310,7 @@ pub fn resolve_field_label_for_confirmed_slot(
     assigned_values: &HashMap<String, String>,
     sticky_values: &HashMap<String, String>,
 ) -> String {
-    let merged = merged_slot_assigned_values(confirmed, cfg, assigned_values);
+    let merged = merged_slot_assigned_values(confirmed, cfg, assigned_values, sticky_values);
     resolve_field_label(confirmed, cfg, &merged, sticky_values)
 }
 
@@ -1279,6 +1284,112 @@ mod tests {
         assert!(matches!(
             resolved,
             ResolvedMultiFieldValue::Complete(value) if value == " 2 weeks ago"
+        ));
+    }
+
+    #[test]
+    fn confirmed_assignments_resolve_nested_assignment_templates() {
+        let cfg = HeaderFieldConfig {
+            id: "duration".to_string(),
+            name: "Duration".to_string(),
+            format: Some("{duration_label}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "frequency".to_string(),
+                label: Some("Frequency".to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: crate::data::ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![crate::data::HierarchyItem {
+                    id: "freq_2".to_string(),
+                    label: Some("2".to_string()),
+                    default_enabled: true,
+                    output: Some("2".to_string()),
+                    fields: None,
+                    branch_fields: Vec::new(),
+                    assigns: vec![
+                        crate::data::ItemAssignment {
+                            list_id: "pluralizer".to_string(),
+                            item_id: "plural".to_string(),
+                            output: "s".to_string(),
+                        },
+                        crate::data::ItemAssignment {
+                            list_id: "duration_label".to_string(),
+                            item_id: "week_label".to_string(),
+                            output: "week{pluralizer}".to_string(),
+                        },
+                    ],
+                }],
+            }],
+            collections: Vec::new(),
+            format_lists: vec![
+                HierarchyList {
+                    id: "pluralizer".to_string(),
+                    label: Some("Pluralizer".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: crate::data::ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![crate::data::HierarchyItem {
+                        id: "plural".to_string(),
+                        label: Some("plural".to_string()),
+                        default_enabled: true,
+                        output: Some("s".to_string()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                        assigns: Vec::new(),
+                    }],
+                },
+                HierarchyList {
+                    id: "duration_label".to_string(),
+                    label: Some("Duration Label".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: crate::data::ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![crate::data::HierarchyItem {
+                        id: "week_label".to_string(),
+                        label: Some("week{pluralizer}".to_string()),
+                        default_enabled: true,
+                        output: Some("week{pluralizer}".to_string()),
+                        fields: None,
+                        branch_fields: Vec::new(),
+                        assigns: Vec::new(),
+                    }],
+                },
+            ],
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let value = crate::sections::header::HeaderFieldValue::ListState(
+            crate::sections::header::ListFieldValue {
+                values: vec!["2".to_string()],
+                item_ids: vec!["freq_2".to_string()],
+                list_idx: 1,
+                repeat_values: Vec::new(),
+                repeat_item_ids: Vec::new(),
+            },
+        );
+
+        let resolved = resolve_multifield_value_for_confirmed_slot(
+            &value,
+            &cfg,
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+
+        assert!(matches!(
+            resolved,
+            ResolvedMultiFieldValue::Complete(value) if value == "weeks"
         ));
     }
 

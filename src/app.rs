@@ -1338,7 +1338,13 @@ impl App {
         state
             .field_configs
             .get(state.field_index)
-            .map(|cfg| crate::modal::confirmed_value_assignments(value, cfg))
+            .map(|cfg| {
+                crate::modal::confirmed_value_assignments(
+                    value,
+                    cfg,
+                    &self.config.sticky_values,
+                )
+            })
             .unwrap_or_default()
     }
 
@@ -2897,12 +2903,13 @@ impl App {
             modal.field_flow.list_idx -= 1;
             let list = &modal.field_flow.lists[modal.field_flow.list_idx];
             let mut merged_assigned = self.assigned_values.clone();
-            merged_assigned.extend(modal.assigned_values());
+            merged_assigned.extend(modal.assigned_values(&self.config.sticky_values));
             let labels = resolved_item_labels_for_list(
                 list,
                 &modal.field_flow.values,
                 &modal.field_flow.repeat_values,
                 &modal.field_flow.lists,
+                &modal.field_flow.format_lists,
                 crate::modal::ListValueLookup::new(&merged_assigned, &self.config.sticky_values),
             );
             let outputs: Vec<String> = list
@@ -3410,7 +3417,7 @@ pub fn compute_field_composition_spans(
     }
     let flow = &modal.field_flow;
     let mut merged_assigned = assigned_values.clone();
-    merged_assigned.extend(modal.assigned_values());
+    merged_assigned.extend(modal.assigned_values(sticky_values));
     let lookup = ListValueLookup::new(&merged_assigned, sticky_values);
     let Some(format) = &flow.format else {
         if !flow.values.is_empty() {
@@ -3534,7 +3541,7 @@ fn compute_field_preview(
     }
     let flow = &modal.field_flow;
     let mut merged_assigned = assigned_values.clone();
-    merged_assigned.extend(modal.assigned_values());
+    merged_assigned.extend(modal.assigned_values(sticky_values));
     let lookup = ListValueLookup::new(&merged_assigned, sticky_values);
     let active_value = modal.selected_value().map(str::to_string);
     let Some(format) = &flow.format else {

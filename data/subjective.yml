@@ -274,39 +274,75 @@ lists:
       - id: every
         label: "every"
         output: ", every"
+        assigns:
+          - list: starting_ago
+            item: empty_space
       - id: progressing_over_the_past
         label: "progressing over the past"
         output: ", progressing over the past"
+        assigns:
+          - list: starting_ago
+            item: empty_space
       - id: since_last_appointment_his
         label: "since his last appointment"
         output: ", since his last appointment"
+        assigns:
+          - list: starting_ago
+            item: empty_space
       - id: since_his_last_appointment
         label: "since his last appointment"
         output: ", since his last appointment"
+        assigns:
+          - list: starting_ago
+            item: empty_space
       - id: since_her_last_appointment
         label: "since her last appointment"
         output: ", since her last appointment"
+        assigns:
+          - list: starting_ago
+            item: empty_space
       - id: since_their_last_appointment
         label: "since their last appointment"
         output: ", since their last appointment"
+        assigns:
+          - list: starting_ago
+            item: empty_space
       - id: since_his_injury
         label: "since his injury"
         output: ", since his injury"
+        assigns:
+          - list: starting_ago
+            item: empty_space
       - id: since_her_injury
         label: "since her injury"
         output: ", since her injury"
+        assigns:
+          - list: starting_ago
+            item: empty_space
       - id: since_their_injury
         label: "since their injury"
         output: ", since their injury"
+        assigns:
+          - list: starting_ago
+            item: empty_space
       - id: since_his_surgery
         label: "since his surgery"
         output: ", since his surgery"
+        assigns:
+          - list: starting_ago
+            item: empty_space
       - id: since_her_surgery
         label: "since her surgery"
         output: ", since her surgery"
+        assigns:
+          - list: starting_ago
+            item: empty_space
       - id: since_their_surgery
         label: "since their surgery"
         output: ", since their surgery"
+        assigns:
+          - list: starting_ago
+            item: empty_space
       # - ago -
       - id: since_last_appointment_his_ago
         label: "since his last appointment ... ago"
