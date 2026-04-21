@@ -2,7 +2,9 @@
 // and are re-exported here so callers can use crate::app::* as before.
 
 use crate::config::Config;
-use crate::data::{runtime_navigation, AppData, NavigationEntry, SectionConfig};
+use crate::data::{
+    flat_sections_from_template, runtime_navigation, AppData, NavigationEntry, SectionConfig,
+};
 use crate::document::build_initial_document;
 use crate::modal::{
     joined_repeating_value, resolved_item_labels_for_list, FieldAdvance, ListValueLookup,
@@ -24,6 +26,7 @@ pub use crate::transition::{
     UnitContentSnapshot, UnitGeometry,
 };
 use iced::keyboard::{key::Named, Key, Modifiers};
+use std::ops::{Index, IndexMut};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
@@ -158,6 +161,65 @@ pub enum SectionState {
 }
 
 #[derive(Debug, Clone)]
+pub struct SectionStateStore {
+    order: Vec<String>,
+    states: HashMap<String, SectionState>,
+}
+
+impl SectionStateStore {
+    pub fn new(sections: &[SectionConfig], states: Vec<SectionState>) -> Self {
+        assert_eq!(
+            sections.len(),
+            states.len(),
+            "section state count must match runtime section count"
+        );
+
+        let order = sections.iter().map(|section| section.id.clone()).collect();
+        let states = sections
+            .iter()
+            .map(|section| section.id.clone())
+            .zip(states)
+            .collect();
+
+        Self { order, states }
+    }
+
+    pub fn get(&self, index: usize) -> Option<&SectionState> {
+        let node_id = self.order.get(index)?;
+        self.states.get(node_id)
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut SectionState> {
+        let node_id = self.order.get(index)?.clone();
+        self.states.get_mut(&node_id)
+    }
+
+    pub fn by_id(&self, node_id: &str) -> Option<&SectionState> {
+        self.states.get(node_id)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &SectionState> {
+        self.order.iter().filter_map(|node_id| self.states.get(node_id))
+    }
+}
+
+impl Index<usize> for SectionStateStore {
+    type Output = SectionState;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        self.get(index)
+            .unwrap_or_else(|| panic!("missing section state at index {index}"))
+    }
+}
+
+impl IndexMut<usize> for SectionStateStore {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        self.get_mut(index)
+            .unwrap_or_else(|| panic!("missing section state at index {index}"))
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct StatusMsg {
     pub text: String,
     pub is_error: bool,
@@ -198,15 +260,14 @@ impl StatusMsg {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct AssignmentSourceKey {
-    section_idx: usize,
+    node_id: String,
     field_idx: usize,
     value_idx: usize,
 }
 
 pub struct App {
     pub navigation: Vec<NavigationEntry>,
-    pub sections: Vec<SectionConfig>,
-    pub section_states: Vec<SectionState>,
+    pub section_states: SectionStateStore,
     pub current_idx: usize,
     pub data: AppData,
     pub config: Config,
@@ -291,20 +352,19 @@ pub struct WizardHintLabels {
 
 impl App {
     pub fn new(data: AppData, config: Config, data_dir: PathBuf) -> Self {
-        let sections = data.sections.clone();
+        let sections = flat_sections_from_template(&data.template);
         let navigation = runtime_navigation(&data.template);
-        let section_states = Self::init_states(&sections, &data);
+        let section_states = SectionStateStore::new(&sections, Self::init_states(&sections, &data));
         let pane_swapped = config.is_swapped();
         let editable_note = build_initial_document(
             &data.template,
-            &sections,
             &section_states,
             &HashMap::new(),
             &config.sticky_values,
             &data.boilerplate_texts,
         );
         let note_validation =
-            crate::document::validate_document_structure(&editable_note, &sections);
+            crate::document::validate_document_structure(&editable_note, &data.template);
         let note_headings_valid = note_validation.is_ok();
         let note_structure_warning = note_validation.err();
         let ui_theme =
@@ -314,7 +374,6 @@ impl App {
             });
         Self {
             navigation,
-            sections,
             section_states,
             current_idx: 0,
             data,
@@ -770,7 +829,10 @@ impl App {
     }
 
     fn refresh_note_structure(&mut self) {
-        match crate::document::validate_document_structure(&self.editable_note, &self.sections) {
+        match crate::document::validate_document_structure(
+            &self.editable_note,
+            &self.data.template,
+        ) {
             Ok(()) => {
                 self.note_headings_valid = true;
                 self.note_structure_warning = None;
@@ -792,7 +854,7 @@ impl App {
             return;
         }
 
-        let Some(cfg) = self.sections.get(idx) else {
+        let Some(cfg) = self.config_for_index(idx).cloned() else {
             return;
         };
         let Some(state) = self.section_states.get(idx) else {
@@ -800,7 +862,7 @@ impl App {
         };
 
         let body = crate::note::render_editable_section_body(
-            cfg,
+            &cfg,
             state,
             &self.assigned_values,
             &self.config.sticky_values,
@@ -1128,6 +1190,20 @@ impl App {
             .unwrap_or(0)
     }
 
+    pub fn config_for_node_id(&self, node_id: &str) -> Option<&SectionConfig> {
+        self.data
+            .template
+            .children
+            .iter()
+            .flat_map(|group| group.children.iter())
+            .find_map(|node| (node.config().id == node_id).then_some(node.config()))
+    }
+
+    pub fn config_for_index(&self, flat_idx: usize) -> Option<&SectionConfig> {
+        let node_id = self.navigation.get(flat_idx)?.node_id.as_str();
+        self.config_for_node_id(node_id)
+    }
+
     fn fixed_hint_labels(&self, count: usize) -> Vec<String> {
         crate::data::generate_fixed_length_hints(&self.data.keybindings.hints, count)
     }
@@ -1161,7 +1237,7 @@ impl App {
                 sections: Vec::new(),
             };
         };
-        let Some(group) = self.data.groups.get(group_idx) else {
+        let Some(group) = self.data.template.children.get(group_idx) else {
             return MapHintLabels {
                 sections: Vec::new(),
             };
@@ -1197,8 +1273,13 @@ impl App {
         field_idx: usize,
         value_idx: usize,
     ) -> AssignmentSourceKey {
+        let node_id = self
+            .navigation
+            .get(section_idx)
+            .map(|entry| entry.node_id.clone())
+            .unwrap_or_default();
         AssignmentSourceKey {
-            section_idx,
+            node_id,
             field_idx,
             value_idx,
         }
@@ -1279,16 +1360,19 @@ impl App {
     }
 
     pub fn reload_data(&mut self) -> anyhow::Result<()> {
-        let previous_section_id = self.sections.get(self.current_idx).map(|s| s.id.clone());
+        let previous_section_id = self
+            .navigation
+            .get(self.current_idx)
+            .map(|entry| entry.node_id.clone());
         let data = AppData::load(self.data_dir.clone())?;
-        self.sections = data.sections.clone();
-        self.section_states = Self::init_states(&self.sections, &data);
         self.navigation = runtime_navigation(&data.template);
+        let sections = flat_sections_from_template(&data.template);
+        self.section_states = SectionStateStore::new(&sections, Self::init_states(&sections, &data));
         self.current_idx = previous_section_id
             .as_ref()
-            .and_then(|id| self.sections.iter().position(|section| &section.id == id))
+            .and_then(|id| self.navigation.iter().position(|entry| &entry.node_id == id))
             .unwrap_or(0)
-            .min(self.sections.len().saturating_sub(1));
+            .min(self.navigation.len().saturating_sub(1));
         self.map_cursor = self.current_idx;
         self.map_return_idx = None;
         self.map_hint_level = MapHintLevel::Sections(self.group_idx_for_section(self.current_idx));
@@ -1300,7 +1384,6 @@ impl App {
         self.assigned_contributions.clear();
         self.editable_note = build_initial_document(
             &data.template,
-            &self.sections,
             &self.section_states,
             &self.assigned_values,
             &self.config.sticky_values,
@@ -1320,7 +1403,7 @@ impl App {
     }
 
     fn preview_scroll_line_for_index(&self, idx: usize) -> u16 {
-        let Some(section) = self.sections.get(idx) else {
+        let Some(section) = self.config_for_index(idx) else {
             return 0;
         };
         let preview = crate::document::export_editable_document(&self.editable_note);
@@ -1342,7 +1425,7 @@ impl App {
         let Some(group) = self
             .navigation
             .get(idx)
-            .and_then(|entry| self.data.groups.get(entry.group_index))
+            .and_then(|entry| self.data.template.children.get(entry.group_index))
         else {
             return 0;
         };
@@ -3657,7 +3740,7 @@ mod tests {
         };
         let mut app = App::new(data, Config::default(), PathBuf::new());
         app.handle_header_key(AppKey::ShiftEnter);
-        if let Some(SectionState::Header(s)) = app.section_states.first() {
+        if let Some(SectionState::Header(s)) = app.section_states.get(0) {
             assert_eq!(
                 s.repeated_values[0]
                     .last()
@@ -3721,7 +3804,7 @@ mod tests {
         };
         let mut app = App::new(data, Config::default(), PathBuf::new());
         app.handle_header_key(AppKey::ShiftEnter);
-        if let Some(SectionState::Header(s)) = app.section_states.first() {
+        if let Some(SectionState::Header(s)) = app.section_states.get(0) {
             assert_eq!(
                 s.field_index, 0,
                 "field_index should stay at 0 when no default"
@@ -4124,9 +4207,10 @@ mod composition_span_tests {
     };
     use crate::config::Config;
     use crate::data::{
-        AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem, HierarchyList, ItemAssignment,
-        JoinerStyle, KeyBindings, ModalStart, ResolvedCollectionConfig, RuntimeGroup, RuntimeNode,
-        RuntimeNodeKind, RuntimeTemplate, SectionConfig, SectionGroup,
+        flat_sections_from_template, AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem,
+        HierarchyList, ItemAssignment, JoinerStyle, KeyBindings, ModalStart,
+        ResolvedCollectionConfig, RuntimeGroup, RuntimeNode, RuntimeNodeKind, RuntimeTemplate,
+        SectionConfig,
     };
     use crate::modal::SearchModal;
     use crate::modal_layout::ModalFocus;
@@ -4550,13 +4634,6 @@ mod composition_span_tests {
             group_id: "intake".to_string(),
             node_kind: RuntimeNodeKind::Section,
         };
-        let group = SectionGroup {
-            id: "intake".to_string(),
-            num: None,
-            nav_label: "Intake".to_string(),
-            sections: vec![section.clone()],
-            note: GroupNoteMeta::default(),
-        };
         let data = AppData {
             template: RuntimeTemplate {
                 id: "test".to_string(),
@@ -4567,8 +4644,6 @@ mod composition_span_tests {
                     children: vec![RuntimeNode::Section(section.clone())],
                 }],
             },
-            groups: vec![group],
-            sections: vec![section],
             list_data: HashMap::new(),
             checklist_data: HashMap::new(),
             collection_data: HashMap::new(),
@@ -4590,16 +4665,6 @@ mod composition_span_tests {
     }
 
     fn app_with_free_text_sections(sections: Vec<SectionConfig>) -> App {
-        let groups = sections
-            .iter()
-            .map(|section| SectionGroup {
-                id: section.group_id.clone(),
-                num: None,
-                nav_label: section.name.clone(),
-                sections: vec![section.clone()],
-                note: GroupNoteMeta::default(),
-            })
-            .collect::<Vec<_>>();
         let template_children = sections
             .iter()
             .map(|section| RuntimeGroup {
@@ -4614,8 +4679,6 @@ mod composition_span_tests {
                 id: "test".to_string(),
                 children: template_children,
             },
-            groups,
-            sections,
             list_data: HashMap::new(),
             checklist_data: HashMap::new(),
             collection_data: HashMap::new(),
@@ -4788,23 +4851,6 @@ mod composition_span_tests {
                     },
                 ],
             },
-            groups: vec![
-                SectionGroup {
-                    id: "group_a".to_string(),
-                    num: None,
-                    nav_label: "GROUP A".to_string(),
-                    sections: vec![first.clone()],
-                    note: GroupNoteMeta::default(),
-                },
-                SectionGroup {
-                    id: "group_b".to_string(),
-                    num: None,
-                    nav_label: "GROUP B".to_string(),
-                    sections: vec![second.clone()],
-                    note: GroupNoteMeta::default(),
-                },
-            ],
-            sections: vec![first, second],
             list_data: HashMap::new(),
             checklist_data: HashMap::new(),
             collection_data: HashMap::new(),
@@ -4816,6 +4862,51 @@ mod composition_span_tests {
 
         assert_eq!(app.group_idx_for_section(0), 0);
         assert_eq!(app.group_idx_for_section(1), 1);
+    }
+
+    #[test]
+    fn app_new_derives_flat_section_view_from_runtime_template_order() {
+        let first = free_text_section("first", "First", "group_a");
+        let second = free_text_section("second", "Second", "group_a");
+        let data = AppData {
+            template: RuntimeTemplate {
+                id: "test".to_string(),
+                children: vec![RuntimeGroup {
+                    id: "group_a".to_string(),
+                    nav_label: "GROUP A".to_string(),
+                    note: GroupNoteMeta::default(),
+                    children: vec![
+                        RuntimeNode::Section(first.clone()),
+                        RuntimeNode::Section(second.clone()),
+                    ],
+                }],
+            },
+            list_data: HashMap::new(),
+            checklist_data: HashMap::new(),
+            collection_data: HashMap::new(),
+            boilerplate_texts: HashMap::new(),
+            keybindings: KeyBindings::default(),
+        };
+
+        let app = App::new(data, Config::default(), PathBuf::new());
+
+        assert_eq!(app.navigation[0].node_id, "first");
+        assert_eq!(app.navigation[1].node_id, "second");
+        assert_eq!(
+            flat_sections_from_template(&app.data.template)
+                .iter()
+                .map(|section| section.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["first", "second"]
+        );
+        assert_eq!(
+            app.config_for_index(0).map(|section| section.id.as_str()),
+            Some("first")
+        );
+        assert_eq!(
+            app.config_for_index(1).map(|section| section.id.as_str()),
+            Some("second")
+        );
     }
 
     #[test]
@@ -5302,13 +5393,6 @@ mod composition_span_tests {
             group_id: "intake".to_string(),
             node_kind: RuntimeNodeKind::Section,
         };
-        let group = SectionGroup {
-            id: "intake".to_string(),
-            num: None,
-            nav_label: "Intake".to_string(),
-            sections: vec![section.clone()],
-            note: GroupNoteMeta::default(),
-        };
         let data = AppData {
             template: RuntimeTemplate {
                 id: "test".to_string(),
@@ -5319,8 +5403,6 @@ mod composition_span_tests {
                     children: vec![RuntimeNode::Section(section.clone())],
                 }],
             },
-            groups: vec![group],
-            sections: vec![section],
             list_data: HashMap::new(),
             checklist_data: HashMap::new(),
             collection_data: HashMap::new(),
