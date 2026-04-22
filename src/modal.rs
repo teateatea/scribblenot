@@ -2,8 +2,8 @@ use crate::data::{
     HeaderFieldConfig, HierarchyList, JoinerStyle, ModalStart, ResolvedCollectionConfig,
 };
 use crate::modal_layout::{
-    build_simple_modal_unit_layout, ModalFocus, ModalListViewSnapshot, SimpleModalSequence,
-    SimpleModalUnitLayout,
+    build_simple_modal_unit_layout, ModalFocus, ModalListViewSnapshot, ModalStubKind,
+    SimpleModalSequence, SimpleModalUnitLayout,
 };
 use crate::sections::collection::CollectionState;
 use crate::sections::header::{
@@ -85,6 +85,12 @@ pub struct CollectionPreviewSnapshot {
 pub struct CollectionPreviewStrip {
     pub previews: Vec<CollectionPreviewSnapshot>,
     pub focused_index: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModalEdgeSemantics {
+    pub left: ModalStubKind,
+    pub right: ModalStubKind,
 }
 
 #[derive(Clone, Copy)]
@@ -358,6 +364,134 @@ impl SearchModal {
                 .enumerate()
                 .all(|(idx, entry_idx)| idx == *entry_idx)
             && !self.field_flow.lists.is_empty()
+    }
+
+    fn semantic_choice_for_current_list(
+        &self,
+        lookup: ListValueLookup<'_>,
+    ) -> (Option<String>, Option<String>) {
+        let selected_value = self.selected_value().map(str::to_string);
+        let selected_item_id = self.selected_item_id().map(str::to_string);
+        if selected_value.is_some() || selected_item_id.is_some() {
+            return (selected_value, selected_item_id);
+        }
+
+        let list_idx = self.field_flow.list_idx;
+        let (session_value, session_item_id) = self.session_choice_for_list(list_idx);
+        if session_value.is_some() || session_item_id.is_some() {
+            return (
+                session_value.map(str::to_string),
+                session_item_id.map(str::to_string),
+            );
+        }
+
+        let (confirmed_value, confirmed_item_id) = self.confirmed_choice_for_list(list_idx);
+        if confirmed_value.is_some() || confirmed_item_id.is_some() {
+            return (
+                confirmed_value.map(str::to_string),
+                confirmed_item_id.map(str::to_string),
+            );
+        }
+
+        (
+            current_list_fallback_value(self, lookup),
+            current_list_fallback_item_id(self, lookup),
+        )
+    }
+
+    fn can_go_back_semantically(
+        &self,
+        assigned_values: &HashMap<String, String>,
+        sticky_values: &HashMap<String, String>,
+    ) -> bool {
+        let mut preview = self.clone();
+        if preview.collection_back() {
+            return true;
+        }
+        if preview.go_back_one_step(assigned_values, sticky_values, self.window_size) {
+            return true;
+        }
+        if preview.field_flow.list_idx > 0 {
+            return true;
+        }
+        preview.restore_parent_branch(assigned_values, sticky_values, self.window_size)
+    }
+
+    fn fallback_right_stub_for_ambiguous_choice(&self, list: &HierarchyList) -> ModalStubKind {
+        if !self.nested_stack.is_empty()
+            || !self.branch_stack.is_empty()
+            || self.field_flow.list_idx + 1 < self.field_flow.lists.len()
+            || list.items.iter().any(|item| !item.branch_fields.is_empty())
+        {
+            ModalStubKind::NavRight
+        } else {
+            ModalStubKind::Confirm
+        }
+    }
+
+    fn semantic_right_stub(
+        &self,
+        assigned_values: &HashMap<String, String>,
+        sticky_values: &HashMap<String, String>,
+    ) -> ModalStubKind {
+        if let Some(state) = self.collection_state.as_ref() {
+            return if state.in_items() {
+                ModalStubKind::Confirm
+            } else {
+                ModalStubKind::NavRight
+            };
+        }
+
+        let Some(list) = self.field_flow.lists.get(self.field_flow.list_idx) else {
+            return ModalStubKind::Confirm;
+        };
+        let lookup = ListValueLookup::new(assigned_values, sticky_values);
+        let (value, item_id) = self.semantic_choice_for_current_list(lookup);
+
+        let mut preview = self.clone();
+        let assigned_preview = assigned_values.clone();
+        let mut sticky_preview = sticky_values.clone();
+        let advance = if effective_joiner_style(list).is_some() {
+            preview.finish_repeating_current_list(
+                value,
+                item_id,
+                &assigned_preview,
+                &mut sticky_preview,
+                self.window_size,
+            )
+        } else if let Some(value) = value {
+            Some(preview.advance_field(
+                value,
+                &assigned_preview,
+                &mut sticky_preview,
+                self.window_size,
+            ))
+        } else {
+            None
+        };
+
+        match advance {
+            Some(FieldAdvance::Complete(_)) => ModalStubKind::Confirm,
+            Some(FieldAdvance::NextList) | Some(FieldAdvance::StayOnList) => {
+                ModalStubKind::NavRight
+            }
+            None => self.fallback_right_stub_for_ambiguous_choice(list),
+        }
+    }
+
+    pub fn edge_semantics(
+        &self,
+        assigned_values: &HashMap<String, String>,
+        sticky_values: &HashMap<String, String>,
+    ) -> ModalEdgeSemantics {
+        ModalEdgeSemantics {
+            left: if self.can_go_back_semantically(assigned_values, sticky_values) {
+                ModalStubKind::NavLeft
+            } else {
+                ModalStubKind::Exit
+            },
+            right: self.semantic_right_stub(assigned_values, sticky_values),
+        }
     }
 
     fn go_back_simple_list(
@@ -2954,6 +3088,7 @@ fn term_matches_label(term: &str, normalized_label: &str, words: &[String]) -> b
 mod modal_filter_tests {
     use super::*;
     use crate::data::{HeaderFieldConfig, HierarchyItem, HierarchyList, ModalStart};
+    use crate::modal_layout::ModalStubKind;
 
     #[test]
     fn modal_query_matches_terms_out_of_order() {
@@ -3227,6 +3362,25 @@ mod modal_filter_tests {
         assert!(modal
             .peek_next_list_views(&HashMap::new(), &sticky_values, 2)
             .is_empty());
+    }
+
+    #[test]
+    fn repeat_joiner_semantics_stay_nav_right_when_query_hides_simple_teasers() {
+        let mut modal = SearchModal::new_field(
+            0,
+            repeating_joiner_field_with_downstream_list(),
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            5,
+        );
+        modal.query = "trap".to_string();
+        modal.update_filter();
+
+        let semantics = modal.edge_semantics(&HashMap::new(), &HashMap::new());
+
+        assert_eq!(semantics.left, ModalStubKind::Exit);
+        assert_eq!(semantics.right, ModalStubKind::NavRight);
     }
 
     #[test]
@@ -4168,6 +4322,32 @@ mod modal_filter_tests {
     }
 
     #[test]
+    fn nested_semantics_remain_navigational_before_leaf_completion() {
+        let request = request_field_with_repeating_regions();
+        let mut sticky_values = HashMap::new();
+        let mut modal =
+            SearchModal::new_field(0, request, None, &HashMap::new(), &sticky_values, 5);
+
+        let _ = modal.advance_field(
+            "Treatment massage".to_string(),
+            &HashMap::new(),
+            &mut sticky_values,
+            5,
+        );
+        let _ = modal.advance_field(
+            "Shoulder".to_string(),
+            &HashMap::new(),
+            &mut sticky_values,
+            5,
+        );
+
+        let semantics = modal.edge_semantics(&HashMap::new(), &sticky_values);
+
+        assert_eq!(semantics.left, ModalStubKind::NavLeft);
+        assert_eq!(semantics.right, ModalStubKind::NavRight);
+    }
+
+    #[test]
     fn nested_partial_leaf_progress_survives_dismiss_and_reopen() {
         let request = request_field_with_repeating_regions();
         let mut sticky_values = HashMap::new();
@@ -4717,6 +4897,7 @@ mod assignment_tests {
 mod branch_field_tests {
     use super::*;
     use crate::data::{HeaderFieldConfig, HierarchyItem, HierarchyList, ModalStart};
+    use crate::modal_layout::ModalStubKind;
 
     fn item(id: &str, label: &str, output: Option<&str>) -> HierarchyItem {
         HierarchyItem {
@@ -4798,12 +4979,56 @@ mod branch_field_tests {
         assert_eq!(modal.field_flow.repeat_values, vec!["T1-T12".to_string()]);
         assert!(modal.branch_stack.is_empty());
     }
+
+    #[test]
+    fn branch_semantics_stay_nav_right_when_preview_layout_is_unavailable() {
+        let child_list = HierarchyList {
+            id: "child_list".to_string(),
+            label: None,
+            preview: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::List,
+            joiner_style: None,
+            max_entries: None,
+            items: vec![item("t1", "T1-T12", None)],
+        };
+        let child_field = single_list_field("ests_mm_field", child_list);
+        let mut branch_item = item(
+            "ests_mm_item",
+            "Erector Thoracic MM",
+            Some("{ests_mm_field}"),
+        );
+        branch_item.branch_fields = vec![child_field];
+        let parent_list = HierarchyList {
+            id: "muscle".to_string(),
+            label: None,
+            preview: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::Search,
+            joiner_style: None,
+            max_entries: None,
+            items: vec![branch_item],
+        };
+        let parent_field = single_list_field("muscle_field", parent_list);
+        let mut modal =
+            SearchModal::new_field(0, parent_field, None, &HashMap::new(), &HashMap::new(), 5);
+        modal.query = "erector".to_string();
+        modal.update_filter();
+
+        let semantics = modal.edge_semantics(&HashMap::new(), &HashMap::new());
+
+        assert_eq!(semantics.left, ModalStubKind::Exit);
+        assert_eq!(semantics.right, ModalStubKind::NavRight);
+    }
 }
 
 #[cfg(test)]
 mod collection_field_tests {
     use super::*;
     use crate::data::{HierarchyItem, HierarchyList, ModalStart, ResolvedCollectionConfig};
+    use crate::modal_layout::ModalStubKind;
 
     fn item(id: &str, label: &str, output: &str) -> HierarchyItem {
         HierarchyItem {
@@ -4862,6 +5087,33 @@ mod collection_field_tests {
 
         assert!(modal.is_collection_mode());
         assert_eq!(modal.all_entries, vec!["Neck".to_string()]);
+    }
+
+    #[test]
+    fn collection_semantics_switch_from_enter_to_confirm_inside_items() {
+        let field = HeaderFieldConfig {
+            id: "regions".to_string(),
+            name: "Regions".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: Vec::new(),
+            collections: vec![collection("neck", "Neck", Some(JoinerStyle::CommaAnd))],
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+
+        let mut modal = SearchModal::new_field(0, field, None, &HashMap::new(), &HashMap::new(), 5);
+        let root_semantics = modal.edge_semantics(&HashMap::new(), &HashMap::new());
+        assert_eq!(root_semantics.left, ModalStubKind::Exit);
+        assert_eq!(root_semantics.right, ModalStubKind::NavRight);
+
+        modal.collection_enter();
+        let item_semantics = modal.edge_semantics(&HashMap::new(), &HashMap::new());
+        assert_eq!(item_semantics.left, ModalStubKind::NavLeft);
+        assert_eq!(item_semantics.right, ModalStubKind::Confirm);
     }
 
     #[test]

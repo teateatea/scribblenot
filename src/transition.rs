@@ -6,6 +6,7 @@ use crate::modal::SearchModal;
 use crate::modal_layout::{
     modal_list_view_dimensions, ModalListViewSnapshot, ModalStubKind, SimpleModalUnitLayout,
 };
+use std::collections::HashMap;
 use std::time::Instant;
 
 // LESSON 1: Labels which way the user navigated (Forward or Backward). The strip slides
@@ -73,14 +74,17 @@ impl UnitGeometry {
         layout: &SimpleModalUnitLayout,
         unit_index: usize,
         modal: &SearchModal,
+        assigned_values: &HashMap<String, String>,
+        sticky_values: &HashMap<String, String>,
         effective_spacer_width: f32,
     ) -> Option<Self> {
         let unit = layout.units.get(unit_index)?;
         let n = layout.sequence.snapshots.len();
+        let semantics = modal.edge_semantics(assigned_values, sticky_values);
 
         let leading_stub_kind = if unit.shows_stubs {
             Some(if unit.start == 0 {
-                ModalStubKind::Exit
+                semantics.left
             } else {
                 ModalStubKind::NavLeft
             })
@@ -89,7 +93,7 @@ impl UnitGeometry {
         };
         let trailing_stub_kind = if unit.shows_stubs {
             Some(if unit.end + 1 >= n {
-                ModalStubKind::Confirm
+                semantics.right
             } else {
                 ModalStubKind::NavRight
             })
