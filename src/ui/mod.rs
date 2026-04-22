@@ -1352,7 +1352,7 @@ fn panel_status_text(app: &App) -> String {
                 CollectionFocus::Items(_) => "items",
             };
             return format!(
-                "Modal: {focus} | Enter toggles | Space/Right moves in | Left/Esc moves out | Shift+Enter confirms"
+                "Modal: {focus} | Confirm toggles | Select switches sides | Left/Esc moves out | Right enters or commits | Super-confirm commits"
             );
         }
         let focus = match modal.focus {

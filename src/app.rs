@@ -2179,13 +2179,25 @@ impl App {
                 .is_some_and(|modal| modal.collection_back())
             {
                 self.update_collection_modal_preview();
+            } else {
+                self.composite_go_back();
             }
             return;
         }
 
         if self.is_nav_right(&key) {
             self.hint_buffer.clear();
-            let _ = self.confirm_modal_from_confirmed_state();
+            let in_items = self
+                .modal
+                .as_ref()
+                .and_then(|modal| modal.collection_state.as_ref())
+                .is_some_and(|state| state.in_items());
+            if in_items {
+                let _ = self.confirm_modal_from_confirmed_state();
+            } else if let Some(modal) = self.modal.as_mut() {
+                modal.collection_enter();
+                self.update_collection_modal_preview();
+            }
             return;
         }
 
@@ -5177,16 +5189,99 @@ mod composition_span_tests {
     }
 
     #[test]
-    fn collection_modal_nav_right_confirms_instead_of_entering_items() {
+    fn collection_modal_nav_left_from_collection_list_dismisses_modal() {
+        let mut app = app_with_single_field(collection_field());
+        app.open_header_modal();
+
+        app.handle_key(AppKey::Char('h'));
+
+        assert!(
+            app.modal.is_none(),
+            "nav_left from the collection list should leave the modal"
+        );
+    }
+
+    #[test]
+    fn collection_modal_nav_right_enters_items_from_collection_list() {
         let mut app = app_with_single_field(collection_field());
         app.open_header_modal();
 
         app.handle_key(AppKey::Char('i'));
 
+        let state = app
+            .modal
+            .as_ref()
+            .and_then(|modal| modal.collection_state.as_ref())
+            .expect("collection state should remain open");
+        assert!(state.in_items(), "nav_right should enter the right-hand pane");
+    }
+
+    #[test]
+    fn collection_modal_nav_right_from_items_confirms_without_cursor_fallback() {
+        let mut app = app_with_single_field(collection_field());
+        app.open_header_modal();
+
+        app.handle_key(AppKey::Char('i'));
+        app.handle_key(AppKey::Char('n'));
+        app.handle_key(AppKey::Char('i'));
+
         assert!(
             app.modal.is_none(),
-            "nav_right should commit and close the modal"
+            "nav_right from the right-hand pane should commit and close the modal"
         );
+
+        let SectionState::Header(state) = &app.section_states[0] else {
+            panic!("expected header state");
+        };
+        let Some(HeaderFieldValue::CollectionState(value)) = state.repeated_values[0].first() else {
+            panic!("expected confirmed collection state");
+        };
+        assert!(
+            crate::modal::active_collection_ids(value).is_empty(),
+            "cursor position alone must not imply an active collection"
+        );
+
+        app.open_header_modal();
+        let reopened_state = app
+            .modal
+            .as_ref()
+            .and_then(|modal| modal.collection_state.as_ref())
+            .expect("collection state should restore");
+        assert!(
+            !reopened_state.collections[0].active,
+            "reopening should preserve the explicit inactive collection state"
+        );
+        assert!(
+            reopened_state.in_items(),
+            "reopening should still restore the focused side"
+        );
+        assert_eq!(reopened_state.item_cursor, 1);
+    }
+
+    #[test]
+    fn collection_modal_uses_configured_select_binding_for_side_switch() {
+        let mut app = app_with_single_field(collection_field());
+        app.data.keybindings.select = vec!["x".to_string()];
+        app.open_header_modal();
+
+        app.handle_key(AppKey::Space);
+        let state = app
+            .modal
+            .as_ref()
+            .and_then(|modal| modal.collection_state.as_ref())
+            .expect("collection state should stay open");
+        assert!(
+            !state.in_items(),
+            "space should not side-switch once select is rebound"
+        );
+
+        app.handle_key(AppKey::Char('x'));
+        let state = app
+            .modal
+            .as_ref()
+            .and_then(|modal| modal.collection_state.as_ref())
+            .expect("collection state should remain available");
+        assert!(state.in_items(), "configured select binding should enter items");
     }
 
     #[test]
