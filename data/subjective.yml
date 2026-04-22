@@ -3,6 +3,7 @@ sections:
     label: "Subjective"
     nav_label: "Symptoms"
     show_field_labels: false
+    hotkey: z
     contains:
       - field: sumuscle_field
     note:

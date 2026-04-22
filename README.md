@@ -255,6 +255,44 @@ Global rules:
 - `repeating` is rejected; use `joiner_style`.
 - `repeat_limit` and `format_lists` are ignored by the parser.
 
+### Authored `hotkey`
+
+You can add an optional single-character `hotkey:` to:
+
+- `section`
+- `field`
+- object-form list `item`
+
+Example:
+
+```yaml
+sections:
+  - id: subjective_section
+    label: Subjective
+    hotkey: "s"
+
+fields:
+  - id: requested_regions
+    label: Requested Regions
+    hotkey: "r"
+
+lists:
+  - id: region
+    items:
+      - id: glutes
+        label: Glutes
+        output: Glutes
+        hotkey: "g"
+```
+
+Rules:
+
+- `hotkey` must be exactly one character.
+- Shorthand string items like `- Shoulder` cannot carry `hotkey`; use object form instead.
+- Duplicate authored hotkeys in the same live hint scope are expanded into multi-character labels automatically.
+- In modal search bars and other text-entry contexts, typed characters still go to text entry instead of firing item hotkeys.
+- Collection-name rows still use generated hints in this version; only item-backed rows inside collection modals can use authored `hotkey`.
+
 ### Section Type Inference
 
 The runtime decides section type from resolved contents:

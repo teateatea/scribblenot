@@ -208,11 +208,6 @@ impl SectionStateStore {
         self.states.get(node_id)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &SectionState> {
-        self.order
-            .iter()
-            .filter_map(|node_id| self.states.get(node_id))
-    }
 }
 
 impl Index<usize> for SectionStateStore {
@@ -1114,6 +1109,30 @@ impl App {
     }
 
     fn handle_map_key(&mut self, key: AppKey) {
+        if let AppKey::Char(c) = key {
+            let ch_str = self.normalize_hint_char(c);
+            let assignments = self.section_hint_assignments_only();
+            if self.should_prioritize_authored_hints(&assignments, &ch_str) {
+                self.hint_buffer.push_str(&ch_str);
+                let typed = self.hint_buffer.clone();
+                match self.resolve_hint_assignments(&assignments, &typed) {
+                    crate::data::HintResolveResult::Exact(flat_idx) => {
+                        self.current_idx = flat_idx;
+                        self.map_cursor = flat_idx;
+                        self.map_hint_level =
+                            MapHintLevel::Sections(self.group_idx_for_section(flat_idx));
+                        self.update_note_scroll();
+                        self.hint_buffer.clear();
+                    }
+                    crate::data::HintResolveResult::Partial(_) => {}
+                    crate::data::HintResolveResult::NoMatch => {
+                        self.hint_buffer.clear();
+                    }
+                }
+                return;
+            }
+        }
+
         if self.is_nav_down(&key) {
             self.hint_buffer.clear();
             if self.map_cursor + 1 < self.navigation.len() {
@@ -1156,28 +1175,11 @@ impl App {
 
         // Hint key navigation
         if let AppKey::Char(c) = key {
-            let case_sensitive = self.config.hint_labels_case_sensitive;
-            let ch_str: String = if case_sensitive {
-                c.to_string()
-            } else {
-                c.to_ascii_lowercase().to_string()
-            };
+            let ch_str = self.normalize_hint_char(c);
             self.hint_buffer.push_str(&ch_str);
             let typed = self.hint_buffer.clone();
-
-            let section_refs_owned: Vec<String> = self
-                .section_hint_labels()
-                .iter()
-                .map(|h| {
-                    if case_sensitive {
-                        h.to_string()
-                    } else {
-                        h.to_ascii_lowercase().to_string()
-                    }
-                })
-                .collect();
-            let section_refs: Vec<&str> = section_refs_owned.iter().map(String::as_str).collect();
-            match crate::data::resolve_hint(&section_refs, &typed) {
+            let assignments = self.section_hint_assignments_only();
+            match self.resolve_hint_assignments(&assignments, &typed) {
                 crate::data::HintResolveResult::Exact(flat_idx) => {
                     self.current_idx = flat_idx;
                     self.map_cursor = flat_idx;
@@ -1215,29 +1217,80 @@ impl App {
         self.config_for_node_id(node_id)
     }
 
-    fn fixed_hint_labels(&self, count: usize) -> Vec<String> {
-        crate::data::generate_fixed_length_hints(&self.data.keybindings.hints, count)
-    }
-
-    fn max_header_field_count(&self) -> usize {
-        self.section_states
+    fn section_hint_assignments_only(&self) -> Vec<crate::data::HintLabelAssignment> {
+        let explicit_prefixes: Vec<Option<&str>> = self
+            .navigation
             .iter()
-            .filter_map(|state| match state {
-                SectionState::Header(header) => Some(header.visible_row_count()),
-                _ => None,
-            })
-            .max()
-            .unwrap_or(0)
+            .map(|entry| self.data.hotkeys.section(&entry.node_id))
+            .collect();
+        crate::data::assign_hint_labels(
+            &self.data.keybindings.hints,
+            &explicit_prefixes,
+            self.config.hint_labels_case_sensitive,
+        )
     }
 
-    fn navigation_hint_labels(&self) -> Vec<String> {
-        self.fixed_hint_labels(self.navigation.len() + self.max_header_field_count())
+    fn visible_header_field_hotkeys<'a>(
+        &'a self,
+        state: &'a HeaderState,
+    ) -> Vec<Option<&'a str>> {
+        (0..state.visible_row_count())
+            .map(|row_idx| {
+                let (field_idx, repeat_idx) = state.field_index_for_visible_row(row_idx)?;
+                let field = state.field_configs.get(field_idx)?;
+                let hotkey = self.data.hotkeys.field(&field.id)?;
+                if field.max_entries.is_some() {
+                    let active_repeat = state.repeat_counts.get(field_idx).copied().unwrap_or(0);
+                    (repeat_idx == active_repeat).then_some(hotkey)
+                } else {
+                    Some(hotkey)
+                }
+            })
+            .collect()
+    }
+
+    fn current_wizard_hint_assignments(
+        &self,
+    ) -> Option<(
+        Vec<crate::data::HintLabelAssignment>,
+        Vec<crate::data::HintLabelAssignment>,
+    )> {
+        let SectionState::Header(state) = self.section_states.get(self.current_idx)? else {
+            return None;
+        };
+        let section_prefixes: Vec<Option<&str>> = self
+            .navigation
+            .iter()
+            .map(|entry| self.data.hotkeys.section(&entry.node_id))
+            .collect();
+        let field_prefixes = self.visible_header_field_hotkeys(state);
+        let field_start = section_prefixes.len();
+        let mut explicit_prefixes = section_prefixes;
+        explicit_prefixes.extend(field_prefixes);
+        let assignments = crate::data::assign_hint_labels(
+            &self.data.keybindings.hints,
+            &explicit_prefixes,
+            self.config.hint_labels_case_sensitive,
+        );
+        Some((
+            assignments[..field_start].to_vec(),
+            assignments[field_start..].to_vec(),
+        ))
+    }
+
+    fn current_section_hint_assignments(&self) -> Vec<crate::data::HintLabelAssignment> {
+        if self.modal.is_none() && self.focus == Focus::Wizard {
+            if let Some((sections, _fields)) = self.current_wizard_hint_assignments() {
+                return sections;
+            }
+        }
+        self.section_hint_assignments_only()
     }
 
     pub fn section_hint_labels(&self) -> Vec<String> {
-        self.navigation_hint_labels()
+        self.current_section_hint_assignments()
             .into_iter()
-            .take(self.navigation.len())
+            .map(|assignment| assignment.label)
             .collect()
     }
 
@@ -1262,16 +1315,130 @@ impl App {
         }
     }
 
-    pub fn wizard_hint_labels(&self, field_count: usize) -> WizardHintLabels {
-        let labels = self.navigation_hint_labels();
-        let field_start = self.navigation.len();
+    pub fn wizard_hint_labels(&self) -> WizardHintLabels {
+        let labels = self
+            .current_wizard_hint_assignments()
+            .map(|(_sections, fields)| fields)
+            .unwrap_or_default();
         WizardHintLabels {
-            fields: labels
-                .into_iter()
-                .skip(field_start)
-                .take(field_count)
-                .collect(),
+            fields: labels.into_iter().map(|assignment| assignment.label).collect(),
         }
+    }
+
+    fn normalize_hint_input(&self, value: &str) -> String {
+        if self.config.hint_labels_case_sensitive {
+            value.to_string()
+        } else {
+            value.to_ascii_lowercase()
+        }
+    }
+
+    fn normalize_hint_char(&self, c: char) -> String {
+        self.normalize_hint_input(&c.to_string())
+    }
+
+    fn resolve_hint_assignments(
+        &self,
+        assignments: &[crate::data::HintLabelAssignment],
+        typed: &str,
+    ) -> crate::data::HintResolveResult {
+        let folded_labels: Vec<String> = assignments
+            .iter()
+            .map(|assignment| self.normalize_hint_input(&assignment.label))
+            .collect();
+        let refs: Vec<&str> = folded_labels.iter().map(String::as_str).collect();
+        crate::data::resolve_hint(&refs, typed)
+    }
+
+    fn should_prioritize_authored_hints(
+        &self,
+        assignments: &[crate::data::HintLabelAssignment],
+        ch_str: &str,
+    ) -> bool {
+        if !self.hint_buffer.is_empty() {
+            return true;
+        }
+        assignments
+            .iter()
+            .filter(|assignment| assignment.authored)
+            .map(|assignment| self.normalize_hint_input(&assignment.label))
+            .any(|label| label.starts_with(ch_str))
+    }
+
+    fn visible_modal_hint_assignments(&self) -> Vec<crate::data::HintLabelAssignment> {
+        let Some(modal) = self.modal.as_ref() else {
+            return Vec::new();
+        };
+        let Some(list) = modal.field_flow.lists.get(modal.field_flow.list_idx) else {
+            return Vec::new();
+        };
+        let end = (modal.list_scroll + modal.window_size).min(modal.filtered.len());
+        let explicit_prefixes: Vec<Option<&str>> = (modal.list_scroll..end)
+            .filter_map(|window_pos| modal.filtered.get(window_pos))
+            .map(|&item_idx| {
+                list.items
+                    .get(item_idx)
+                    .and_then(|item| self.data.hotkeys.item(&list.id, &item.id))
+            })
+            .collect();
+        crate::data::assign_hint_labels(
+            &self.data.keybindings.hints,
+            &explicit_prefixes,
+            self.config.hint_labels_case_sensitive,
+        )
+    }
+
+    pub fn visible_modal_hint_labels(&self) -> Vec<String> {
+        self.visible_modal_hint_assignments()
+            .into_iter()
+            .map(|assignment| assignment.label)
+            .collect()
+    }
+
+    fn collection_modal_hint_assignments(&self) -> Vec<crate::data::HintLabelAssignment> {
+        let Some(modal) = self.modal.as_ref() else {
+            return Vec::new();
+        };
+        let Some(state) = modal.collection_state.as_ref() else {
+            return Vec::new();
+        };
+
+        let mut explicit_prefixes = Vec::new();
+        let hint_pool = self.data.keybindings.hints.len().max(1);
+        let left_range =
+            modal_hint_window(state.collection_cursor, state.collections.len(), hint_pool);
+        explicit_prefixes.extend(left_range.clone().map(|_| None));
+
+        let remaining = hint_pool.saturating_sub(left_range.end.saturating_sub(left_range.start));
+        if remaining > 0 {
+            let collection_idx = state.collection_cursor;
+            let Some(collection) = state.collections.get(collection_idx) else {
+                return crate::data::assign_hint_labels(
+                    &self.data.keybindings.hints,
+                    &explicit_prefixes,
+                    self.config.hint_labels_case_sensitive,
+                );
+            };
+            let item_range = modal_hint_window(state.item_cursor, collection.items.len(), remaining);
+            explicit_prefixes.extend(item_range.map(|item_idx| {
+                let list_id = collection.item_list_ids.get(item_idx)?;
+                let item = collection.items.get(item_idx)?;
+                self.data.hotkeys.item(list_id, &item.id)
+            }));
+        }
+
+        crate::data::assign_hint_labels(
+            &self.data.keybindings.hints,
+            &explicit_prefixes,
+            self.config.hint_labels_case_sensitive,
+        )
+    }
+
+    pub fn collection_modal_hint_labels(&self) -> Vec<String> {
+        self.collection_modal_hint_assignments()
+            .into_iter()
+            .map(|assignment| assignment.label)
+            .collect()
     }
 
     fn update_note_scroll(&mut self) {
@@ -1667,48 +1834,15 @@ impl App {
     fn handle_header_key(&mut self, key: AppKey) {
         // Hint key handling: group/section hint -> return to map, field hints -> jump to field
         if let AppKey::Char(c) = key {
-            let case_sensitive = self.config.hint_labels_case_sensitive;
-            let ch_str: String = if case_sensitive {
-                c.to_string()
-            } else {
-                c.to_ascii_lowercase().to_string()
-            };
+            let ch_str = self.normalize_hint_char(c);
             self.hint_buffer.push_str(&ch_str);
             let typed = self.hint_buffer.clone();
 
             let idx = self.current_idx;
-            let n_fields = match self.section_states.get(idx) {
-                Some(SectionState::Header(s)) => s.visible_row_count(),
-                _ => 0,
-            };
-            let labels = self.wizard_hint_labels(n_fields);
-
-            let folded_fields: Vec<String> = labels
-                .fields
-                .iter()
-                .map(|h| {
-                    if case_sensitive {
-                        h.to_string()
-                    } else {
-                        h.to_ascii_lowercase().to_string()
-                    }
-                })
-                .collect();
-            let field_refs: Vec<&str> = folded_fields.iter().map(String::as_str).collect();
-
-            let section_refs_owned: Vec<String> = self
-                .section_hint_labels()
-                .iter()
-                .map(|h| {
-                    if case_sensitive {
-                        h.to_string()
-                    } else {
-                        h.to_ascii_lowercase().to_string()
-                    }
-                })
-                .collect();
-            let section_refs: Vec<&str> = section_refs_owned.iter().map(String::as_str).collect();
-            match crate::data::resolve_hint(&section_refs, &typed) {
+            let (section_assignments, field_assignments) = self
+                .current_wizard_hint_assignments()
+                .unwrap_or_default();
+            match self.resolve_hint_assignments(&section_assignments, &typed) {
                 crate::data::HintResolveResult::Exact(flat_idx) => {
                     self.current_idx = flat_idx;
                     self.map_cursor = flat_idx;
@@ -1723,7 +1857,7 @@ impl App {
             }
 
             // Build the candidate list for field hints and resolve
-            match crate::data::resolve_hint(&field_refs, &typed) {
+            match self.resolve_hint_assignments(&field_assignments, &typed) {
                 crate::data::HintResolveResult::Exact(row_idx) => {
                     if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                         if let Some((field_idx, repeat_idx)) =
@@ -2046,6 +2180,33 @@ impl App {
                 return;
             }
             ModalFocus::List => {
+                if let AppKey::Char(c) = key {
+                    let ch_str = self.normalize_hint_char(c);
+                    let assignments = self.visible_modal_hint_assignments();
+                    if self.should_prioritize_authored_hints(&assignments, &ch_str) {
+                        self.hint_buffer.push_str(&ch_str);
+                        let typed = self.hint_buffer.clone();
+                        match self.resolve_hint_assignments(&assignments, &typed) {
+                            crate::data::HintResolveResult::Exact(hint_pos) => {
+                                self.hint_buffer.clear();
+                                if let Some(val) = self
+                                    .modal
+                                    .as_ref()
+                                    .and_then(|modal| modal.hint_value(hint_pos))
+                                    .map(String::from)
+                                {
+                                    self.confirm_modal_value(val);
+                                }
+                            }
+                            crate::data::HintResolveResult::Partial(_) => {}
+                            crate::data::HintResolveResult::NoMatch => {
+                                self.hint_buffer.clear();
+                            }
+                        }
+                        return;
+                    }
+                }
+
                 if matches!(key, AppKey::Backspace) {
                     self.hint_buffer.clear();
                     let can_go_back = self
@@ -2105,49 +2266,25 @@ impl App {
                 }
 
                 if let AppKey::Char(c) = key {
-                    let case_sensitive = self.config.hint_labels_case_sensitive;
-                    let ch_str: String = if case_sensitive {
-                        c.to_string()
-                    } else {
-                        c.to_ascii_lowercase().to_string()
-                    };
-                    let visible_count = self
-                        .modal
-                        .as_ref()
-                        .map(|modal| {
-                            let end =
-                                (modal.list_scroll + modal.window_size).min(modal.filtered.len());
-                            end.saturating_sub(modal.list_scroll)
-                        })
-                        .unwrap_or(0);
-                    let labels: Vec<String> = self
-                        .data
-                        .keybindings
-                        .hints
-                        .iter()
-                        .take(visible_count)
-                        .cloned()
-                        .collect();
-                    let folded_labels: Vec<String> = labels
-                        .iter()
-                        .map(|h| {
-                            if case_sensitive {
-                                h.to_string()
-                            } else {
-                                h.to_ascii_lowercase()
+                    let ch_str = self.normalize_hint_char(c);
+                    self.hint_buffer.push_str(&ch_str);
+                    let typed = self.hint_buffer.clone();
+                    let assignments = self.visible_modal_hint_assignments();
+                    match self.resolve_hint_assignments(&assignments, &typed) {
+                        crate::data::HintResolveResult::Exact(hint_pos) => {
+                            self.hint_buffer.clear();
+                            if let Some(val) = self
+                                .modal
+                                .as_ref()
+                                .and_then(|modal| modal.hint_value(hint_pos))
+                                .map(String::from)
+                            {
+                                self.confirm_modal_value(val);
                             }
-                        })
-                        .collect();
-                    if let Some(hint_pos) = folded_labels.iter().position(|label| label == &ch_str)
-                    {
-                        if let Some(val) = self
-                            .modal
-                            .as_ref()
-                            .unwrap()
-                            .hint_value(hint_pos)
-                            .map(String::from)
-                        {
-                            self.confirm_modal_value(val);
+                        }
+                        crate::data::HintResolveResult::Partial(_) => return,
+                        crate::data::HintResolveResult::NoMatch => {
+                            self.hint_buffer.clear();
                         }
                     }
                     return;
@@ -2169,6 +2306,27 @@ impl App {
                 self.dismiss_modal();
             }
             return;
+        }
+
+        if let AppKey::Char(c) = key {
+            let ch_str = self.normalize_hint_char(c);
+            let assignments = self.collection_modal_hint_assignments();
+            if self.should_prioritize_authored_hints(&assignments, &ch_str) {
+                self.hint_buffer.push_str(&ch_str);
+                let typed = self.hint_buffer.clone();
+                match self.resolve_hint_assignments(&assignments, &typed) {
+                    crate::data::HintResolveResult::Exact(hint_pos) => {
+                        self.hint_buffer.clear();
+                        self.toggle_collection_modal_hint(hint_pos);
+                        self.update_collection_modal_preview();
+                    }
+                    crate::data::HintResolveResult::Partial(_) => {}
+                    crate::data::HintResolveResult::NoMatch => {
+                        self.hint_buffer.clear();
+                    }
+                }
+                return;
+            }
         }
 
         if self.is_nav_left(&key) {
@@ -2258,41 +2416,33 @@ impl App {
         }
 
         if let AppKey::Char(c) = key {
-            let case_sensitive = self.config.hint_labels_case_sensitive;
-            let ch_str: String = if case_sensitive {
-                c.to_string()
-            } else {
-                c.to_ascii_lowercase().to_string()
-            };
-            let visible_count = self.collection_modal_visible_count();
-            let labels: Vec<String> = self
-                .data
-                .keybindings
-                .hints
-                .iter()
-                .take(visible_count)
-                .cloned()
-                .collect();
-            let folded_labels: Vec<String> = labels
-                .iter()
-                .map(|h| {
-                    if case_sensitive {
-                        h.to_string()
-                    } else {
-                        h.to_ascii_lowercase()
-                    }
-                })
-                .collect();
-            if let Some(hint_pos) = folded_labels.iter().position(|label| label == &ch_str) {
-                self.hint_buffer.clear();
-                self.toggle_collection_modal_hint(hint_pos);
-                self.update_collection_modal_preview();
+            let ch_str = self.normalize_hint_char(c);
+            self.hint_buffer.push_str(&ch_str);
+            let typed = self.hint_buffer.clone();
+            let assignments = self.collection_modal_hint_assignments();
+            match self.resolve_hint_assignments(&assignments, &typed) {
+                crate::data::HintResolveResult::Exact(hint_pos) => {
+                    self.hint_buffer.clear();
+                    self.toggle_collection_modal_hint(hint_pos);
+                    self.update_collection_modal_preview();
+                }
+                crate::data::HintResolveResult::Partial(_) => return,
+                crate::data::HintResolveResult::NoMatch => {
+                    self.hint_buffer.clear();
+                }
             }
         }
     }
 
-    fn collection_modal_visible_count(&self) -> usize {
-        self.collection_modal_hint_targets().len()
+    pub fn collection_modal_left_hint_count(&self) -> usize {
+        let Some(modal) = self.modal.as_ref() else {
+            return 0;
+        };
+        let Some(state) = modal.collection_state.as_ref() else {
+            return 0;
+        };
+        let hint_pool = self.data.keybindings.hints.len();
+        modal_hint_window(state.collection_cursor, state.collections.len(), hint_pool).len()
     }
 
     fn collection_modal_hint_targets(&self) -> Vec<CollectionHintTarget> {
@@ -2855,28 +3005,11 @@ impl App {
     /// Returns true if navigation happened.
     fn try_navigate_to_map_via_hint(&mut self, key: &AppKey) -> bool {
         if let AppKey::Char(c) = *key {
-            let case_sensitive = self.config.hint_labels_case_sensitive;
-            let ch_str: String = if case_sensitive {
-                c.to_string()
-            } else {
-                c.to_ascii_lowercase().to_string()
-            };
+            let ch_str = self.normalize_hint_char(c);
             self.hint_buffer.push_str(&ch_str);
             let typed = self.hint_buffer.clone();
-
-            let section_refs_owned: Vec<String> = self
-                .section_hint_labels()
-                .iter()
-                .map(|h| {
-                    if case_sensitive {
-                        h.to_string()
-                    } else {
-                        h.to_ascii_lowercase().to_string()
-                    }
-                })
-                .collect();
-            let section_refs: Vec<&str> = section_refs_owned.iter().map(String::as_str).collect();
-            match crate::data::resolve_hint(&section_refs, &typed) {
+            let assignments = self.section_hint_assignments_only();
+            match self.resolve_hint_assignments(&assignments, &typed) {
                 crate::data::HintResolveResult::Exact(flat_idx) => {
                     self.current_idx = flat_idx;
                     self.map_cursor = flat_idx;
@@ -4750,6 +4883,7 @@ mod composition_span_tests {
             collection_data: HashMap::new(),
             boilerplate_texts: HashMap::new(),
             keybindings: KeyBindings::default(),
+            hotkeys: Default::default(),
         };
 
         App::new(data, Config::default(), data_dir)
@@ -4788,6 +4922,7 @@ mod composition_span_tests {
             collection_data: HashMap::new(),
             boilerplate_texts: HashMap::new(),
             keybindings: KeyBindings::default(),
+            hotkeys: Default::default(),
         };
 
         App::new(data, Config::default(), PathBuf::new())
@@ -4819,6 +4954,7 @@ mod composition_span_tests {
             collection_data: HashMap::new(),
             boilerplate_texts: HashMap::new(),
             keybindings: KeyBindings::default(),
+            hotkeys: Default::default(),
         };
 
         App::new(data, Config::default(), PathBuf::new())
@@ -4987,6 +5123,7 @@ mod composition_span_tests {
             collection_data: HashMap::new(),
             boilerplate_texts: HashMap::new(),
             keybindings: KeyBindings::default(),
+            hotkeys: Default::default(),
         };
 
         let app = App::new(data, Config::default(), PathBuf::new());
@@ -5017,6 +5154,7 @@ mod composition_span_tests {
             collection_data: HashMap::new(),
             boilerplate_texts: HashMap::new(),
             keybindings: KeyBindings::default(),
+            hotkeys: Default::default(),
         };
 
         let app = App::new(data, Config::default(), PathBuf::new());
@@ -5149,6 +5287,110 @@ mod composition_span_tests {
         let modal = app.modal.as_ref().expect("modal should remain open");
         assert_eq!(modal.focus, ModalFocus::SearchBar);
         assert_eq!(modal.query, "h ");
+    }
+
+    #[test]
+    fn map_authored_hotkey_overrides_nav_alias() {
+        let mut app = app_with_free_text_sections(vec![
+            free_text_section("first", "First", "group_a"),
+            free_text_section("second", "Second", "group_a"),
+            free_text_section("third", "Third", "group_a"),
+        ]);
+        app.focus = Focus::Map;
+        app.current_idx = 0;
+        app.map_cursor = 0;
+        app.data
+            .hotkeys
+            .sections
+            .insert("third".to_string(), "n".to_string());
+
+        app.handle_key(AppKey::Char('n'));
+
+        assert_eq!(app.current_idx, 2);
+        assert_eq!(app.map_cursor, 2);
+    }
+
+    #[test]
+    fn wizard_duplicate_authored_prefixes_wait_for_second_character() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+        app.data
+            .hotkeys
+            .sections
+            .insert("request_section".to_string(), "n".to_string());
+        app.data
+            .hotkeys
+            .fields
+            .insert("region".to_string(), "n".to_string());
+
+        let section_label = app.section_hint_labels()[0].clone();
+        let field_label = app.wizard_hint_labels().fields[0].clone();
+        assert!(section_label.starts_with('n'));
+        assert!(field_label.starts_with('n'));
+        assert_ne!(section_label, field_label);
+        assert!(field_label.len() > 1);
+
+        app.handle_key(AppKey::Char('n'));
+        assert!(app.modal.is_none(), "shared prefix should remain partial");
+        assert_eq!(app.hint_buffer, "n");
+
+        let second_char = field_label.chars().nth(1).expect("field hint needs suffix");
+        app.handle_key(AppKey::Char(second_char));
+        assert!(app.modal.is_some(), "full field hint should open the modal");
+        assert!(app.hint_buffer.is_empty());
+    }
+
+    #[test]
+    fn modal_list_authored_hotkey_overrides_nav_alias() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+        app.data.hotkeys.items.insert(
+            "region".to_string(),
+            HashMap::from([("hip".to_string(), "n".to_string())]),
+        );
+        app.open_header_modal();
+
+        app.handle_key(AppKey::Char('n'));
+
+        assert!(app.modal.is_none(), "authored item hotkey should confirm immediately");
+        let SectionState::Header(state) = &app.section_states[0] else {
+            panic!("expected header state");
+        };
+        assert!(matches!(
+            state.repeated_values[0].first(),
+            Some(HeaderFieldValue::ListState(value))
+                if value.values == vec!["Hip".to_string()] && value.item_ids == vec!["hip".to_string()]
+        ));
+    }
+
+    #[test]
+    fn collection_modal_item_hotkey_overrides_nav_alias() {
+        let mut app = app_with_single_field(collection_field());
+        app.data.hotkeys.items.insert(
+            "neck_list".to_string(),
+            HashMap::from([("two".to_string(), "n".to_string())]),
+        );
+        app.open_header_modal();
+        app.handle_key(AppKey::Space);
+
+        app.handle_key(AppKey::Char('n'));
+
+        let state = app
+            .modal
+            .as_ref()
+            .and_then(|modal| modal.collection_state.as_ref())
+            .expect("collection state should stay open");
+        let collection = state
+            .collections
+            .first()
+            .expect("collection should still exist");
+        assert_eq!(state.item_cursor, 1, "hotkey should target the authored row");
+        assert!(
+            collection.active,
+            "authored item hotkey should activate the collection"
+        );
+        assert!(
+            !collection.item_enabled[1],
+            "authored item hotkey should toggle the targeted item state"
+        );
     }
 
     #[test]
@@ -5650,6 +5892,7 @@ mod composition_span_tests {
             collection_data: HashMap::new(),
             boilerplate_texts: HashMap::new(),
             keybindings: KeyBindings::default(),
+            hotkeys: Default::default(),
         };
 
         let mut app = App::new(data, Config::default(), PathBuf::new());

@@ -453,11 +453,7 @@ fn themed_scrollable<'a>(
 }
 
 fn header_field_hint_labels(app: &App) -> Vec<String> {
-    let field_count = match app.section_states.get(app.current_idx) {
-        Some(SectionState::Header(state)) => state.visible_row_count(),
-        _ => 0,
-    };
-    app.wizard_hint_labels(field_count).fields
+    app.wizard_hint_labels().fields
 }
 
 fn wizard_window(app: &App, cursor: usize, len: usize) -> std::ops::Range<usize> {
@@ -1663,14 +1659,7 @@ fn preview_simple_modal_content<'a>(
     items.push(preview_modal_search_strip(app, query, alpha).into());
 
     let end = (snapshot.list_scroll + app.modal_window_size().max(1)).min(snapshot.filtered.len());
-    let modal_hints: Vec<String> = app
-        .data
-        .keybindings
-        .hints
-        .iter()
-        .take(end.saturating_sub(snapshot.list_scroll))
-        .cloned()
-        .collect();
+    let modal_hints = app.visible_modal_hint_labels();
     for window_pos in snapshot.list_scroll..end {
         let Some(&entry_idx) = snapshot.filtered.get(window_pos) else {
             continue;
@@ -1818,14 +1807,7 @@ fn active_simple_modal_content<'a>(
     );
 
     let end = (modal.list_scroll + modal.window_size).min(modal.filtered.len());
-    let modal_hints: Vec<String> = app
-        .data
-        .keybindings
-        .hints
-        .iter()
-        .take(end.saturating_sub(modal.list_scroll))
-        .cloned()
-        .collect();
+    let modal_hints = app.visible_modal_hint_labels();
     let mut list_items: Vec<Element<'a, Message>> = Vec::new();
     let confirmed_row = modal.confirmed_row_for_current_list();
     for window_pos in modal.list_scroll..end {
@@ -2498,14 +2480,12 @@ fn render_modal_rows<'a>(
     hints_active: bool,
     target: crate::app::ModalPaneTarget,
 ) {
-    let modal_hints: Vec<String> = app
-        .data
-        .keybindings
-        .hints
-        .iter()
-        .take(range.end.saturating_sub(range.start))
-        .cloned()
-        .collect();
+    let modal_hints = app.collection_modal_hint_labels();
+    let left_visible = app.collection_modal_left_hint_count();
+    let modal_hints: Vec<String> = match target {
+        crate::app::ModalPaneTarget::Left => modal_hints.into_iter().take(range.len()).collect(),
+        crate::app::ModalPaneTarget::Right => modal_hints.into_iter().skip(left_visible).collect(),
+    };
 
     for window_pos in range.clone() {
         let Some(label) = rows.get(window_pos).cloned() else {
@@ -2625,13 +2605,10 @@ fn collection_preview_row_elements<'a>(
 ) -> Vec<Element<'a, Message>> {
     let range_start = range.start;
     let modal_hints: Vec<String> = app
-        .data
-        .keybindings
-        .hints
-        .iter()
+        .collection_modal_hint_labels()
+        .into_iter()
         .skip(hint_offset)
         .take(range.end.saturating_sub(range.start))
-        .cloned()
         .collect();
     let mut items = Vec::new();
 
@@ -3353,6 +3330,7 @@ mod tests {
             collection_data: HashMap::new(),
             boilerplate_texts: HashMap::new(),
             keybindings: KeyBindings::default(),
+            hotkeys: Default::default(),
         };
 
         App::new(data, Config::default(), PathBuf::new())
