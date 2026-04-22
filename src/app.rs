@@ -143,6 +143,15 @@ pub enum ModalPaneTarget {
     Right,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CollectionHintTarget {
+    Collection(usize),
+    Item {
+        collection_idx: usize,
+        item_idx: usize,
+    },
+}
+
 #[derive(Debug, Clone)]
 struct ModalRestoreSnapshot {
     field_idx: usize,
@@ -824,7 +833,8 @@ impl App {
                 state.enter_collection();
                 state.item_cursor = row_index;
                 if activate && was_focused && same_row {
-                    state.toggle_current_item();
+                    let evicted = state.toggle_current_item();
+                    self.flash_evicted_collections(evicted);
                 }
             }
         }
@@ -1339,11 +1349,7 @@ impl App {
             .field_configs
             .get(state.field_index)
             .map(|cfg| {
-                crate::modal::confirmed_value_assignments(
-                    value,
-                    cfg,
-                    &self.config.sticky_values,
-                )
+                crate::modal::confirmed_value_assignments(value, cfg, &self.config.sticky_values)
             })
             .unwrap_or_default()
     }
@@ -2179,14 +2185,11 @@ impl App {
 
         if self.is_nav_right(&key) {
             self.hint_buffer.clear();
-            if let Some(modal) = self.modal.as_mut() {
-                modal.collection_enter();
-            }
-            self.update_collection_modal_preview();
+            let _ = self.confirm_modal_from_confirmed_state();
             return;
         }
 
-        if matches!(key, AppKey::Space) {
+        if self.is_select(&key) {
             self.hint_buffer.clear();
             let in_items = self
                 .modal
@@ -2277,59 +2280,81 @@ impl App {
     }
 
     fn collection_modal_visible_count(&self) -> usize {
+        self.collection_modal_hint_targets().len()
+    }
+
+    fn collection_modal_hint_targets(&self) -> Vec<CollectionHintTarget> {
         let Some(modal) = self.modal.as_ref() else {
-            return 0;
+            return Vec::new();
         };
         let Some(state) = modal.collection_state.as_ref() else {
-            return 0;
+            return Vec::new();
         };
-        let len = match state.focus {
-            crate::sections::collection::CollectionFocus::Collections => state.collections.len(),
-            crate::sections::collection::CollectionFocus::Items(collection_idx) => state
+        let hint_pool = self.data.keybindings.hints.len();
+        let mut targets = Vec::new();
+        let left_range =
+            modal_hint_window(state.collection_cursor, state.collections.len(), hint_pool);
+        targets.extend(left_range.clone().map(CollectionHintTarget::Collection));
+
+        let remaining = hint_pool.saturating_sub(targets.len());
+        if remaining > 0 {
+            let collection_idx = state.collection_cursor;
+            let item_len = state
                 .collections
                 .get(collection_idx)
                 .map(|collection| collection.items.len())
-                .unwrap_or(0),
-        };
-        let cursor = match state.focus {
-            crate::sections::collection::CollectionFocus::Collections => state.collection_cursor,
-            crate::sections::collection::CollectionFocus::Items(_) => state.item_cursor,
-        };
-        let range = modal_hint_window(cursor, len, self.data.keybindings.hints.len());
-        range.end.saturating_sub(range.start)
+                .unwrap_or(0);
+            let item_range = modal_hint_window(state.item_cursor, item_len, remaining);
+            targets.extend(item_range.map(|item_idx| CollectionHintTarget::Item {
+                collection_idx,
+                item_idx,
+            }));
+        }
+        targets
     }
 
     fn toggle_collection_modal_hint(&mut self, hint_pos: usize) {
+        let Some(target) = self.collection_modal_hint_targets().get(hint_pos).copied() else {
+            return;
+        };
         let Some(modal) = self.modal.as_mut() else {
             return;
         };
         let Some(state) = modal.collection_state.as_mut() else {
             return;
         };
-        let hint_pool = self.data.keybindings.hints.len();
-        match state.focus {
-            crate::sections::collection::CollectionFocus::Collections => {
-                let range =
-                    modal_hint_window(state.collection_cursor, state.collections.len(), hint_pool);
-                let target = range.start + hint_pos;
-                if target < state.collections.len() {
-                    state.collection_cursor = target;
+        match target {
+            CollectionHintTarget::Collection(collection_idx) => {
+                if collection_idx < state.collections.len() {
+                    state.collection_cursor = collection_idx;
                     let evicted = state.toggle_current_collection();
                     self.flash_evicted_collections(evicted);
                 }
             }
-            crate::sections::collection::CollectionFocus::Items(collection_idx) => {
+            CollectionHintTarget::Item {
+                collection_idx,
+                item_idx,
+            } => {
                 let item_len = state
                     .collections
                     .get(collection_idx)
                     .map(|collection| collection.items.len())
                     .unwrap_or(0);
-                let range = modal_hint_window(state.item_cursor, item_len, hint_pool);
-                let target = range.start + hint_pos;
-                if target < item_len {
-                    state.item_cursor = target;
-                    state.toggle_current_item();
+                if item_idx >= item_len {
+                    return;
                 }
+                let restore_to_collections = matches!(
+                    state.focus,
+                    crate::sections::collection::CollectionFocus::Collections
+                );
+                state.collection_cursor = collection_idx;
+                state.enter_collection();
+                state.item_cursor = item_idx;
+                let evicted = state.toggle_current_item();
+                if restore_to_collections {
+                    state.exit_items();
+                }
+                self.flash_evicted_collections(evicted);
             }
         }
     }
@@ -2688,7 +2713,7 @@ impl App {
             }
             if self.is_select(&key) {
                 if let SectionState::Collection(s) = &mut self.section_states[idx] {
-                    s.toggle_current_item();
+                    let _ = s.toggle_current_item();
                 }
                 self.sync_section_into_editable_note(idx);
                 return;
@@ -5115,17 +5140,17 @@ mod composition_span_tests {
     }
 
     #[test]
-    fn collection_modal_nav_aliases_enter_move_and_back() {
+    fn collection_modal_select_moves_focus_and_nav_left_returns() {
         let mut app = app_with_single_field(collection_field());
         app.open_header_modal();
 
-        app.handle_key(AppKey::Char('i'));
+        app.handle_key(AppKey::Space);
         let state = app
             .modal
             .as_ref()
             .and_then(|modal| modal.collection_state.as_ref())
             .expect("collection state should exist after opening");
-        assert!(state.in_items(), "nav_right should enter collection items");
+        assert!(state.in_items(), "select should enter collection items");
         assert_eq!(state.item_cursor, 0);
 
         app.handle_key(AppKey::Char('n'));
@@ -5148,6 +5173,34 @@ mod composition_span_tests {
         assert!(
             !state.in_items(),
             "nav_left should return to the collection list"
+        );
+    }
+
+    #[test]
+    fn collection_modal_nav_right_confirms_instead_of_entering_items() {
+        let mut app = app_with_single_field(collection_field());
+        app.open_header_modal();
+
+        app.handle_key(AppKey::Char('i'));
+
+        assert!(
+            app.modal.is_none(),
+            "nav_right should commit and close the modal"
+        );
+    }
+
+    #[test]
+    fn collection_modal_select_keeps_same_combined_hint_targets() {
+        let mut app = app_with_single_field(collection_field());
+        app.open_header_modal();
+
+        let before = app.collection_modal_hint_targets();
+        app.handle_key(AppKey::Space);
+        let after = app.collection_modal_hint_targets();
+
+        assert_eq!(
+            before, after,
+            "pane switching should not renumber collection hints"
         );
     }
 

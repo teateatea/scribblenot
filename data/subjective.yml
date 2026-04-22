@@ -25,6 +25,7 @@ fields:
       - year
       - month
       - day
+      - summ_pluralizer
       - pluralizer
       - starting_ago
 
@@ -41,12 +42,12 @@ lists:
         label: "[EMPTY]"
         output: ""
         # Head Region
-      - label: "2 Head, Neck, Shoulders HNS"
+      - label: "Head, Neck, Shoulders HNS"
         output: "Head, Neck, Shoulders"
-      - label: "3 Head, Neck, and Shoulders HNS"
+      - label: "Head, Neck, and Shoulders HNS"
         output: "Head, Neck, and Shoulders"
-      - label: "1 Shoulder Unilateral GH"
-        output: "Shoulder"
+      - label: "Shoulder{summ_pluralizer} Unilateral GH"
+        output: "Shoulder{summ_pluralizer}"
       - label: "2 ShoulderS Bilateral GHS"
         output: "Shoulders"
       - label: "Head Only HNS"
@@ -577,6 +578,21 @@ lists:
     label: "[plural]"
     default: singular
     modal_start: search
+    preview: " [plural]"
+   # joiner_style: comma
+   # max_entries: 3
+    items:
+      - id: singular
+        label: "(singular)"
+        output: ""
+      - id: plural
+        label: "s (plural)"
+        output: "s"
+        
+  - id: summ_pluralizer
+    label: ""
+    default: singular
+   # modal_start: search
     preview: " [plural]"
    # joiner_style: comma
    # max_entries: 3

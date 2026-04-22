@@ -246,6 +246,9 @@ lists:
       - id: bilateral
         label: "Bilateral BB"
         output: "BL "
+        assigns:
+          - list: summ_pluralizer
+            item: plural
       - label: "Bilateral (Left > R) BL"
         output: "BL (L > R) "
       - label: "Bilateral (Right > L) BR"

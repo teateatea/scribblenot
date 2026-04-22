@@ -2155,10 +2155,7 @@ mod tests {
         validate_merged_hierarchy(&file).expect("valid merged hierarchy");
         let runtime = hierarchy_to_runtime(file).expect("runtime build succeeds");
         let sections = flat_sections_from_template(&runtime.template);
-        let ids: Vec<&str> = sections
-            .iter()
-            .map(|section| section.id.as_str())
-            .collect();
+        let ids: Vec<&str> = sections.iter().map(|section| section.id.as_str()).collect();
         assert_eq!(ids, vec!["a", "c", "b"]);
     }
 

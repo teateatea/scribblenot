@@ -61,7 +61,7 @@ fields:                                          # BACK PRONE
 
 
   - id: prone_back_field
-    label: "BACK"
+    label: "BACK (Prone)"
     max_actives: 1
     contains:
      # - list: year
@@ -71,7 +71,7 @@ fields:                                          # BACK PRONE
       - collection: back_lower_prone_collection
 collections:                                     # BACK PRONE
   - id: back_all_prone_collection
-    label: "ALL - UPPER MIDDLE & LOW BACK (PRONE)"
+    label: "UPPER, MIDDLE & LOWER BACK"
     nav_label: "BACKAPC"
     note_label: "UPPER MIDDLE & LOW BACK (Prone)"
     default_enabled: true
@@ -405,14 +405,26 @@ lists:                                           # BACK PRONE
       - id: swedish
         label: "General Swedish Techniques"
         output: "- General Swedish Techniques"
-      - id: spec_comp_back
-        label: "Specific Compressions (Trapezius, LS, Teres, QL)"
-        output: "- Specific Compressions:\n- - Trapezius (Upper Fiber)\n- - Levator Scapula\n- - Teres Major & Minor\n- - Quadratus Lumborum"
+      - id: back_spec_comp
+        label: "Specific Compressions:" # (Trapezius, LS, Teres, QL)"
+        output: "- Specific Compressions:" #\n- - Trapezius (Upper Fiber)\n- - Levator Scapula\n- - Teres Major & Minor\n- - Quadratus Lumborum"
+      - id: back_spcomp_trapezius
+        label: "- Trapezius"
+        output: "  - Trapezius (Upper Fibers)"
+      - id: back_spcomp_levscap
+        label: "- Levator Scapula"
+        output: "  - Levator Scapula"
+      - id: back_spcomp_teres
+        label: "- Teres Major & Minor"
+        output: "  - Teres Major & Minor"
+      - id: back_spcomp_ql
+        label: "- Quadratus Lumborum"
+        output: "  - Quadratus Lumborum"
       - id: stretch_sa
         label: "Stretch (Serratus Anterior)"
         output: "- Stretch (Serratus Anterior)"
       - id: broad_comp_triceps
-        label: "Broad Compressions (Triceps Brachii)"
+        label: "Broad Compressions (Triceps)"
         output: "- Broad Compressions (Triceps Brachii)"
       - id: muscle_strip_es
         label: "Muscle Stripping (Erector Spinae)"
@@ -424,9 +436,21 @@ lists:                                           # BACK PRONE
       - id: swedish
         label: "General Swedish Techniques"
         output: "- General Swedish Techniques"
-      - id: spec_comp_back
-        label: "Specific Compressions (Trapezius, Teres)"
-        output: "- Specific Compressions:\n- - Trapezius (Upper Fiber)\n- - Teres Major & Minor"
+      - id: back_spec_comp
+        label: "Specific Compressions:"
+        output: "- Specific Compressions:"
+      - id: back_spcomp_trapezius
+        label: "- Trapezius"
+        output: "  - Trapezius (Upper Fibers)"
+      - id: back_spcomp_levscap
+        label: "- Levator Scapula"
+        output: "  - Levator Scapula"
+      - id: back_spcomp_teres
+        label: "- Teres Major & Minor"
+        output: "  - Teres Major & Minor"
+      - id: stretch_sa
+        label: "Stretch (Serratus Anterior)"
+        output: "- Stretch (Serratus Anterior)"
       - id: muscle_strip_es
         label: "Muscle Stripping (Erector Spinae)"
         output: "- Muscle Stripping (Erector Spinae)"
@@ -438,14 +462,14 @@ lists:                                           # BACK PRONE
         output: "- General Swedish Techniques"
       - id: spec_comp_back
         label: "Specific Compressions (Quadratus Lumborum)"
-        output: "- Specific Compressions:\n- - Quadratus Lumborum"
+        output: "- Specific Compressions:\n  - Quadratus Lumborum"
       - id: muscle_strip_es
         label: "Muscle Stripping (Erector Spinae)"
         output: "- Muscle Stripping (Erector Spinae)"
       - id: fascial_l4l5
         label: "Fascial Techniques (L4-L5)"
         output: "- Fascial Techniques (L4-L5)"
-      #  default_enabled: false
+        default_enabled: false
 
 
   - id: back_lower_prone
@@ -463,7 +487,7 @@ lists:                                           # BACK PRONE
       - id: fascial_l4l5
         label: "Fascial Techniques (L4-L5)"
         output: "- Fascial Techniques (L4-L5)"
-        default_enabled: false
+       # default_enabled: false
 
 ---
 # GLUTES

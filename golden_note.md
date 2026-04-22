@@ -15,6 +15,13 @@ _______________
 
 ## TREATMENT / PLAN
 
+### MODIFICATIONS
+- REGULAR PRESSURE: Pt is comfortable with Mr. Gormley's usual working pressure.
+- COMFORTABLE TREATMENT: Pt prefers a challenge only when necessary for treatment.
+- RELAXING: Pt responds well to limited or casual conversation.
+- COMMUNICATIVE: Pt speaks up about their needs or discomfort. Check in regularly anyways!
+
+
 
 #### ALL - UPPER MIDDLE & LOW BACK
 - General Swedish Techniques
@@ -32,6 +39,8 @@ _______________
 - - Semitendinosus
 - Knuckle Kneading
 - Fingertip Kneading
+
+
 
 
 _______________

@@ -547,6 +547,7 @@ pub(super) fn transition_unit_display_width(
 // the resulting node at x_offset (can be negative). The clip envelope is explicit.
 pub(super) struct ClipTranslate<'a, M, T, R> {
     x_offset: f32,
+    y_offset: f32,
     width: f32,
     height: Option<f32>,
     content: Element<'a, M, T, R>,
@@ -561,6 +562,23 @@ impl<'a, M, T, R> ClipTranslate<'a, M, T, R> {
     ) -> Self {
         Self {
             x_offset,
+            y_offset: 0.0,
+            width,
+            height: Some(height),
+            content: content.into(),
+        }
+    }
+
+    pub(super) fn new_2d(
+        x_offset: f32,
+        y_offset: f32,
+        width: f32,
+        height: f32,
+        content: impl Into<Element<'a, M, T, R>>,
+    ) -> Self {
+        Self {
+            x_offset,
+            y_offset,
             width,
             height: Some(height),
             content: content.into(),
@@ -574,6 +592,7 @@ impl<'a, M, T, R> ClipTranslate<'a, M, T, R> {
     ) -> Self {
         Self {
             x_offset,
+            y_offset: 0.0,
             width,
             height: None,
             content: content.into(),
@@ -605,7 +624,7 @@ where
             .content
             .as_widget()
             .layout(&mut tree.children[0], renderer, &content_limits)
-            .move_to(Point::new(self.x_offset, 0.0));
+            .move_to(Point::new(self.x_offset, self.y_offset));
         let node_height = self
             .height
             .map(|_| effective_height)
