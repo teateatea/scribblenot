@@ -82,10 +82,9 @@ pub struct CollectionPreviewSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct CollectionPreviewNeighbors {
-    pub previous: Option<CollectionPreviewSnapshot>,
-    pub current: CollectionPreviewSnapshot,
-    pub next: Option<CollectionPreviewSnapshot>,
+pub struct CollectionPreviewStrip {
+    pub previews: Vec<CollectionPreviewSnapshot>,
+    pub focused_index: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -415,7 +414,12 @@ impl SearchModal {
         if !self.nested_stack.is_empty() {
             if let Some(root) = self.synced_nested_root_state(sticky_values) {
                 if let Some(frame) = self.nested_stack.first() {
-                    collect_assignments_from_state(&root, &frame.field, sticky_values, &mut assigned);
+                    collect_assignments_from_state(
+                        &root,
+                        &frame.field,
+                        sticky_values,
+                        &mut assigned,
+                    );
                 }
             }
             return assigned;
@@ -1031,29 +1035,27 @@ impl SearchModal {
         state.collections.get(idx)
     }
 
-    pub fn collection_preview_neighbors(&self) -> Option<CollectionPreviewNeighbors> {
+    pub fn collection_preview_strip(&self) -> Option<CollectionPreviewStrip> {
         let state = self.collection_state.as_ref()?;
-        let current_idx = self.current_collection_preview_index()?;
-        let current_collection = state.collections.get(current_idx)?;
-
-        Some(CollectionPreviewNeighbors {
-            previous: current_idx
-                .checked_sub(1)
-                .and_then(|idx| state.collections.get(idx))
-                .map(|collection| collection_preview_snapshot(collection, None)),
-            current: collection_preview_snapshot(
-                current_collection,
-                matches!(
-                    state.focus,
-                    crate::sections::collection::CollectionFocus::Items(collection_idx)
-                        if collection_idx == current_idx
-                )
-                .then_some(state.item_cursor),
-            ),
-            next: state
+        let focused_index = self.current_collection_preview_index()?;
+        Some(CollectionPreviewStrip {
+            previews: state
                 .collections
-                .get(current_idx + 1)
-                .map(|collection| collection_preview_snapshot(collection, None)),
+                .iter()
+                .enumerate()
+                .map(|(idx, collection)| {
+                    collection_preview_snapshot(
+                        collection,
+                        matches!(
+                            state.focus,
+                            crate::sections::collection::CollectionFocus::Items(collection_idx)
+                                if collection_idx == idx
+                        )
+                        .then_some(state.item_cursor),
+                    )
+                })
+                .collect(),
+            focused_index,
         })
     }
 
@@ -2153,8 +2155,7 @@ impl SearchModal {
     pub fn collection_toggle_current(&mut self) -> Vec<String> {
         if let Some(state) = self.collection_state.as_mut() {
             if state.in_items() {
-                state.toggle_current_item();
-                return Vec::new();
+                return state.toggle_current_item();
             } else {
                 return state.toggle_current_collection();
             }
@@ -2639,6 +2640,15 @@ pub fn active_collection_ids(value: &CollectionFieldValue) -> Vec<String> {
 }
 
 fn collection_field_value_from_state(state: &CollectionState) -> CollectionFieldValue {
+    let focused_collection_id = state
+        .collections
+        .get(state.collection_cursor)
+        .map(|collection| collection.id.clone());
+    let focused_item_id = state
+        .collections
+        .get(state.collection_cursor)
+        .and_then(|collection| collection.items.get(state.item_cursor))
+        .map(|item| item.id.clone());
     CollectionFieldValue {
         collections: state
             .collections
@@ -2660,6 +2670,9 @@ fn collection_field_value_from_state(state: &CollectionState) -> CollectionField
             .filter_map(|&idx| state.collections.get(idx))
             .map(|collection| collection.id.clone())
             .collect(),
+        focused_collection_id,
+        focused_item_id,
+        items_focused: state.in_items(),
     }
 }
 
@@ -2708,6 +2721,40 @@ fn restore_collection_state(state: &mut CollectionState, value: &CollectionField
             }
         }
     }
+    if let Some(collection_id) = value.focused_collection_id.as_ref() {
+        if let Some(idx) = state
+            .collections
+            .iter()
+            .position(|collection| &collection.id == collection_id)
+        {
+            state.collection_cursor = idx;
+            state.item_collection_cursor = idx;
+        }
+    }
+    if let Some(collection) = state.collections.get(state.collection_cursor) {
+        if let Some(item_id) = value.focused_item_id.as_ref() {
+            if let Some(idx) = collection.items.iter().position(|item| &item.id == item_id) {
+                state.item_cursor = idx;
+            } else {
+                state.item_cursor = state
+                    .item_cursor
+                    .min(collection.items.len().saturating_sub(1));
+            }
+        } else {
+            state.item_cursor = state
+                .item_cursor
+                .min(collection.items.len().saturating_sub(1));
+        }
+    } else {
+        state.collection_cursor = 0;
+        state.item_collection_cursor = 0;
+        state.item_cursor = 0;
+    }
+    state.focus = if value.items_focused && !state.collections.is_empty() {
+        crate::sections::collection::CollectionFocus::Items(state.collection_cursor)
+    } else {
+        crate::sections::collection::CollectionFocus::Collections
+    };
     true
 }
 
@@ -3414,7 +3461,7 @@ mod modal_filter_tests {
     }
 
     #[test]
-    fn collection_preview_neighbors_follow_focused_collection() {
+    fn collection_preview_strip_follows_focused_collection() {
         let sticky_values = HashMap::new();
         let field = HeaderFieldConfig {
             id: "regions".to_string(),
@@ -3515,26 +3562,20 @@ mod modal_filter_tests {
         state.enter_collection();
         state.item_cursor = 0;
 
-        let neighbors = modal
-            .collection_preview_neighbors()
-            .expect("collection neighbors should exist");
+        let strip = modal
+            .collection_preview_strip()
+            .expect("collection preview strip should exist");
 
+        assert_eq!(strip.focused_index, 1);
         assert_eq!(
-            neighbors
-                .previous
-                .as_ref()
-                .map(|snapshot| snapshot.title.as_str()),
-            Some("Neck")
+            strip
+                .previews
+                .iter()
+                .map(|snapshot| snapshot.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Neck", "Back", "Glutes"]
         );
-        assert_eq!(neighbors.current.title, "Back");
-        assert_eq!(neighbors.current.item_cursor, Some(0));
-        assert_eq!(
-            neighbors
-                .next
-                .as_ref()
-                .map(|snapshot| snapshot.title.as_str()),
-            Some("Glutes")
-        );
+        assert_eq!(strip.previews[1].item_cursor, Some(0));
     }
 
     #[test]
@@ -4571,8 +4612,7 @@ mod assignment_tests {
         };
 
         let mut sticky_values = HashMap::new();
-        let mut modal =
-            SearchModal::new_field(0, field, None, &HashMap::new(), &sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, field, None, &HashMap::new(), &sticky_values, 5);
 
         let advance = modal.advance_field("2".to_string(), &HashMap::new(), &mut sticky_values, 5);
 
@@ -4664,8 +4704,7 @@ mod assignment_tests {
         };
 
         let mut sticky_values = HashMap::new();
-        let mut modal =
-            SearchModal::new_field(0, field, None, &HashMap::new(), &sticky_values, 5);
+        let mut modal = SearchModal::new_field(0, field, None, &HashMap::new(), &sticky_values, 5);
 
         let advance = modal.advance_field("1".to_string(), &HashMap::new(), &mut sticky_values, 5);
 
@@ -4915,6 +4954,50 @@ mod collection_field_tests {
             .collection_state
             .as_ref()
             .is_some_and(|state| state.collections[0].active));
+    }
+
+    #[test]
+    fn collection_field_reopens_with_saved_focus_and_item_cursor() {
+        let field = HeaderFieldConfig {
+            id: "regions".to_string(),
+            name: "Regions".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: Vec::new(),
+            collections: vec![
+                collection("neck", "Neck", Some(JoinerStyle::CommaAnd)),
+                collection("back", "Back", Some(JoinerStyle::CommaAnd)),
+            ],
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+
+        let mut modal =
+            SearchModal::new_field(0, field.clone(), None, &HashMap::new(), &HashMap::new(), 5);
+        let state = modal.collection_state.as_mut().expect("collection modal");
+        state.collection_cursor = 1;
+        let _ = state.toggle_current_collection();
+        state.enter_collection();
+        state.item_cursor = 1;
+
+        let value = modal.preview_field_value(&HashMap::new());
+        let reopened =
+            SearchModal::new_field(0, field, Some(&value), &HashMap::new(), &HashMap::new(), 5);
+        let state = reopened
+            .collection_state
+            .as_ref()
+            .expect("collection state should restore");
+
+        assert_eq!(state.collection_cursor, 1);
+        assert_eq!(state.item_cursor, 1);
+        assert!(matches!(
+            state.focus,
+            crate::sections::collection::CollectionFocus::Items(1)
+        ));
+        assert!(state.collections[1].active);
     }
 
     #[test]

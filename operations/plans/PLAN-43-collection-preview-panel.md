@@ -146,7 +146,8 @@ This UI plan must honor the `#42` contract:
 - toggling an item in an inactive collection auto-activates that collection
 - `Select` switches between collection list and item list
 - `nav_left` backs out
-- `nav_right` advances without using cursor fallback
+- `nav_right` from the collection list enters the item/preview pane
+- `nav_right` from the item/preview pane advances without using cursor fallback
 - final confirm/super-confirm use only toggled state
 
 ## Separation From `#36`

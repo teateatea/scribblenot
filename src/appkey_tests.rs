@@ -120,8 +120,10 @@ mod appkey_conversion_tests {
 
     #[test]
     fn ctrl_uppercase_letter_normalizes_to_lowercase_ctrl_char() {
-        let result =
-            appkey_from_iced(Key::Character("R".into()), Modifiers::CTRL | Modifiers::SHIFT);
+        let result = appkey_from_iced(
+            Key::Character("R".into()),
+            Modifiers::CTRL | Modifiers::SHIFT,
+        );
         assert_eq!(
             result,
             AppKey::CtrlChar('r'),

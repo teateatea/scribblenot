@@ -9,7 +9,7 @@ help: ['?']
 quit: [ctrl+q]
 nav_left: [left, h]
 nav_right: [right, i]
-hints: [a, r, s, t, q, w, f, p, 1, 2, 3, 4]
+hints: [a, r, s, t, p, f, w, q, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0]
 super_confirm: [shift+enter]
 copy_note: [c]
 

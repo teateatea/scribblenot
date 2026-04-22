@@ -261,12 +261,12 @@ fn is_skipped(state: &SectionState) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::SectionStateStore;
     use crate::data::{
         flat_sections_from_template, AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem,
         HierarchyList, ItemAssignment, ModalStart, ResolvedCollectionConfig, RuntimeGroup,
         RuntimeNode, RuntimeNodeKind, RuntimeTemplate, SectionConfig,
     };
-    use crate::app::SectionStateStore;
     use crate::sections::collection::CollectionState;
     use crate::sections::free_text::FreeTextState;
     use crate::sections::header::{HeaderFieldValue, HeaderState, ListFieldValue};
@@ -785,15 +785,15 @@ mod tests {
         set_header_field_text(
             &mut states,
             &sections,
-            "treatment_section",
+            "treatment_section_prone",
             0,
             "#### ALL - UPPER MIDDLE & LOW BACK\n- General Swedish Techniques\n- Specific Compressions:\n- - Trapezius (Upper Fiber)\n- - Levator Scapula\n- - Teres Major & Minor\n- - Quadratus Lumborum\n- Stretch (Serratus Anterior)\n- Broad Compressions (Triceps Brachii)",
         );
-        set_header_field_explicit_empty(&mut states, &sections, "treatment_section", 1);
+        set_header_field_explicit_empty(&mut states, &sections, "treatment_section_prone", 1);
         set_header_field_text(
             &mut states,
             &sections,
-            "treatment_section",
+            "treatment_section_prone",
             2,
             "#### POSTERIOR LEGS & FEET (Prone)\n- Broad Compressions\n- Ulnar Kneading\n- - Biceps Femoris\n- - Semitendinosus\n- Knuckle Kneading\n- Fingertip Kneading",
         );

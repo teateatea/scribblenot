@@ -1,7 +1,7 @@
 # Plan: Collection Modal Interaction Contract (#42)
 
 **Date:** 2026-04-21
-**Status:** Proposed from product discussion
+**Status:** Implemented in code on 2026-04-22
 **Scope:** Product contract and interaction rules
 **Related roadmap items:** `#42`, `#43`, `#28`, `#36`
 
@@ -103,11 +103,12 @@ Directional meaning should be:
 - `nav_up` / `nav_down`: move within the currently focused list
 - `nav_left` from item list: return to the collection list
 - `nav_left` from collection list: go to the previous modal, or return to the wizard if this is the first modal
-- `nav_right` from either side: advance to the next modal without using cursor location as implicit confirmation
+- `nav_right` from collection list: move into the item/preview pane for the focused collection
+- `nav_right` from item list: advance to the next modal without using cursor location as implicit confirmation
 
 If the current modal is the last modal in the field:
 
-- `nav_right` should confirm the field using the actual toggled collection/item state only
+- `nav_right` from the item list should confirm the field using the actual toggled collection/item state only
 
 No cursor-fallback behavior should exist for collections.
 
@@ -166,19 +167,17 @@ If deeper chained follow-up input is needed later, that should remain a `#36`-st
 - `src/app.rs`
 - `src/ui/mod.rs`
 
-## Implementation Notes From Current Code
+## Implementation Status In Current Code
 
-- `src/sections/collection.rs::toggle_current_item()` currently flips item state without auto-activating an inactive parent collection first. That contradicts Rule 3 and should be fixed in the underlying state logic rather than only in UI call sites.
-- `src/app.rs::handle_collection_modal_key()` currently uses hardcoded `Space` handling for side-switch behavior. Implementation should route the resolved `Select` keybinding through the collection handler instead of tying the contract to a physical key.
-- `src/app.rs::handle_collection_modal_key()` currently routes `nav_right` into `collection_enter()`, which means "go into item list" instead of "advance". Rule 5 requires those to become separate actions.
-- `CollectionFieldValue` currently persists collection activation and enabled item IDs, but not enough focus metadata to restore "right where I left it" behavior. Rule 7 therefore requires extending the persisted collection-state shape so reopen can restore side ownership and cursor position.
+- `src/sections/collection.rs::toggle_current_item()` auto-activates an inactive parent collection before toggling the item, and still honors `max_actives` plus FIFO eviction.
+- `src/app.rs::handle_collection_modal_key()` routes side-switching through the resolved `Select` keybinding, also lets `nav_right` enter the item/preview pane from the collection list, uses `nav_right` from the item pane for advance/commit, and delegates `nav_left` on the collection list into the normal modal back/exit path instead of silently no-oping.
+- `CollectionFieldValue` persists activation order, focused collection, focused item, and side ownership so reopening can restore the prior collection-modal state closely.
+- Focused regressions now cover configured `Select` routing, collection-list `nav_left` exit, collection-list `nav_right` entry into the item/preview pane, cursor-free `nav_right` confirmation from the item pane, auto-activation, FIFO eviction, and reopen restoration.
 
-## Suggested Implementation Order
+## Validation Snapshot
 
-1. Extend the persisted collection-state shape so focus side and cursor position can be recorded before behavior changes start depending on them.
-2. Add auto-activation on item toggle in the collection-state layer, making sure it still respects `max_actives` and FIFO eviction.
-3. Separate "enter item list" from "advance" so `nav_right` can follow Rule 5 without overloading the old drill-in path.
-4. Route the resolved `Select` keybinding through the collection handler for side switching, avoiding hardcoded key assumptions.
+- `cargo test --quiet collection_`
+- Contract-specific regressions in `src/app.rs`, `src/modal.rs`, and `src/sections/collection.rs`
 
 ## Validation Expectations
 
@@ -188,7 +187,7 @@ When this contract is implemented and enforced, validation should cover:
 2. Toggling an item in an inactive collection auto-activates that collection.
 3. Auto-activation respects `max_actives` and FIFO eviction.
 4. `Select` switches between collection list and item list without toggling.
-5. `nav_right` advances or terminal-confirms using toggled state only.
+5. `nav_right` enters the item/preview pane from the collection list, then advances or terminal-confirms from the item pane using toggled state only.
 6. Reopening restores toggles plus focus position.
 
 ## Recommendation To Follow-On Work

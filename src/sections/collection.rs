@@ -82,6 +82,7 @@ pub struct CollectionState {
     pub activation_order: Vec<usize>,
     pub collection_cursor: usize,
     pub item_cursor: usize,
+    pub item_collection_cursor: usize,
     pub focus: CollectionFocus,
     pub skipped: bool,
     pub completed: bool,
@@ -127,6 +128,7 @@ impl CollectionState {
             activation_order,
             collection_cursor: 0,
             item_cursor: 0,
+            item_collection_cursor: 0,
             focus: CollectionFocus::Collections,
             skipped: false,
             completed: false,
@@ -174,11 +176,19 @@ impl CollectionState {
         if self.collections.is_empty() {
             return;
         }
+        if self.collection_cursor != self.item_collection_cursor {
+            self.item_cursor = 0;
+        }
+        self.item_collection_cursor = self.collection_cursor;
+        self.clamp_item_cursor();
         self.focus = CollectionFocus::Items(self.collection_cursor);
-        self.item_cursor = 0;
     }
 
     pub fn exit_items(&mut self) {
+        if let CollectionFocus::Items(collection_idx) = self.focus {
+            self.collection_cursor = collection_idx;
+            self.item_collection_cursor = collection_idx;
+        }
         self.focus = CollectionFocus::Collections;
     }
 
@@ -187,43 +197,29 @@ impl CollectionState {
             return Vec::new();
         }
 
-        let was_active = self
-            .collections
-            .get(self.collection_cursor)
-            .is_some_and(|collection| collection.active);
-        if let Some(collection) = self.collections.get_mut(self.collection_cursor) {
-            collection.toggle_active();
-        }
+        let was_active = self.collections[self.collection_cursor].active;
 
         if was_active {
+            if let Some(collection) = self.collections.get_mut(self.collection_cursor) {
+                collection.toggle_active();
+            }
             self.activation_order
                 .retain(|&idx| idx != self.collection_cursor);
             return Vec::new();
         }
 
-        self.activation_order
-            .retain(|&idx| idx != self.collection_cursor);
-        self.activation_order.push(self.collection_cursor);
-
-        let mut evicted_ids = Vec::new();
-        if let Some(limit) = self.max_actives.filter(|limit| *limit > 0) {
-            while self.activation_order.len() > limit {
-                let evicted = self.activation_order.remove(0);
-                if let Some(collection) = self.collections.get_mut(evicted) {
-                    evicted_ids.push(collection.id.clone());
-                    collection.reset();
-                }
-            }
-        }
-        evicted_ids
+        self.activate_collection(self.collection_cursor, true)
     }
 
-    pub fn toggle_current_item(&mut self) {
+    pub fn toggle_current_item(&mut self) -> Vec<String> {
         if let CollectionFocus::Items(collection_idx) = self.focus {
+            let evicted_ids = self.activate_collection(collection_idx, false);
             if let Some(collection) = self.collections.get_mut(collection_idx) {
                 collection.toggle_item(self.item_cursor);
             }
+            return evicted_ids;
         }
+        Vec::new()
     }
 
     pub fn reset_current_collection(&mut self) {
@@ -245,6 +241,47 @@ impl CollectionState {
 
     pub fn has_any_active_collection(&self) -> bool {
         self.collections.iter().any(|collection| collection.active)
+    }
+
+    fn activate_collection(&mut self, collection_idx: usize, refresh_order: bool) -> Vec<String> {
+        if collection_idx >= self.collections.len() {
+            return Vec::new();
+        }
+        let was_active = self.collections[collection_idx].active;
+        if !was_active {
+            if let Some(collection) = self.collections.get_mut(collection_idx) {
+                if !collection.initialized {
+                    collection.item_enabled = collection.item_default_enabled.clone();
+                    collection.initialized = true;
+                }
+                collection.active = true;
+            }
+        }
+        if !was_active || refresh_order {
+            self.activation_order.retain(|&idx| idx != collection_idx);
+            self.activation_order.push(collection_idx);
+        }
+
+        let mut evicted_ids = Vec::new();
+        if let Some(limit) = self.max_actives.filter(|limit| *limit > 0) {
+            while self.activation_order.len() > limit {
+                let evicted = self.activation_order.remove(0);
+                if let Some(collection) = self.collections.get_mut(evicted) {
+                    evicted_ids.push(collection.id.clone());
+                    collection.reset();
+                }
+            }
+        }
+        evicted_ids
+    }
+
+    fn clamp_item_cursor(&mut self) {
+        let max_idx = self
+            .collections
+            .get(self.collection_cursor)
+            .map(|collection| collection.items.len().saturating_sub(1))
+            .unwrap_or(0);
+        self.item_cursor = self.item_cursor.min(max_idx);
     }
 }
 
@@ -433,5 +470,65 @@ mod tests {
         assert!(state.collections[1].active);
         assert!(state.collections[2].active);
         assert_eq!(state.activation_order, vec![1, 2]);
+    }
+
+    #[test]
+    fn toggling_item_auto_activates_inactive_collection() {
+        let mut state = CollectionState::new(vec![collection(
+            "neck",
+            "Neck",
+            vec![item("a", "A", false), item("b", "B", false)],
+        )]);
+
+        state.enter_collection();
+        let _ = state.toggle_current_item();
+
+        assert!(state.collections[0].active);
+        assert_eq!(state.activation_order, vec![0]);
+        assert_eq!(state.collections[0].item_enabled, vec![true, false]);
+    }
+
+    #[test]
+    fn item_auto_activation_respects_fifo_eviction() {
+        let mut state = CollectionState::new_with_limits(
+            vec![
+                collection("neck", "Neck", vec![item("a", "A", true)]),
+                collection("back", "Back", vec![item("b", "B", true)]),
+            ],
+            true,
+            Some(1),
+        );
+
+        let _ = state.toggle_current_collection();
+        state.collection_cursor = 1;
+        state.enter_collection();
+        let evicted = state.toggle_current_item();
+
+        assert_eq!(evicted, vec!["neck".to_string()]);
+        assert!(!state.collections[0].active);
+        assert!(state.collections[1].active);
+        assert_eq!(state.activation_order, vec![1]);
+    }
+
+    #[test]
+    fn reentering_same_collection_preserves_item_cursor() {
+        let mut state = CollectionState::new(vec![collection(
+            "neck",
+            "Neck",
+            vec![
+                item("a", "A", true),
+                item("b", "B", true),
+                item("c", "C", true),
+            ],
+        )]);
+
+        state.enter_collection();
+        state.navigate_down();
+        state.navigate_down();
+        state.exit_items();
+        state.enter_collection();
+
+        assert_eq!(state.item_cursor, 2);
+        assert!(matches!(state.focus, CollectionFocus::Items(0)));
     }
 }

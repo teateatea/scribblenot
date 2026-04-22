@@ -11,6 +11,9 @@ pub struct CollectionSelection {
 pub struct CollectionFieldValue {
     pub collections: Vec<CollectionSelection>,
     pub activation_order: Vec<String>,
+    pub focused_collection_id: Option<String>,
+    pub focused_item_id: Option<String>,
+    pub items_focused: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
