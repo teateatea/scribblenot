@@ -71,7 +71,6 @@
 #      output?              # note/export text; falls back to label
 #      default_enabled?     # collection items default true when omitted
 #      fields[]?            # optional referenced field ids for item-driven branching
-#      branch_fields[]?     # optional inline field objects for modal branching
 #
 #  - boilerplate:
 #    id
@@ -117,7 +116,7 @@ lists:
       - id: Fever
         label: "fever"
         output: "Fever item"
-        branch_fields: [appointment_date_field]
+        fields: [appointment_date_field]
       - Open wound
       - New rash
       - Dizziness

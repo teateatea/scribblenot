@@ -11,8 +11,8 @@ The hierarchy has six levels: template, group, section/collection, field, list, 
 Each level has a `contains` (or equivalent) that determines what it accepts.
 The runtime infers behaviour from what's present - no explicit `body:` or `type:` needed.
 
-All levels are validated at load time - invalid child kinds are a hard error - except `item.fields`,
-which is an untyped string list with no existence check.
+All levels are validated at load time. Invalid child kinds are a hard error, and `item.fields`
+now resolves against authored field IDs rather than acting as an unchecked string list.
 
 **Global rule:** no level may contain a `template`. There is exactly one template and it is the root.
 
@@ -158,7 +158,7 @@ block rather than a `section` block.
 
 ## `field`
 
-**Parents:** `section`; `field` sub-field; `item` (now, via `fields:` once validated); `group` (later); `item.branch_fields` (escape hatch, to be removed)
+**Parents:** `section`; `field` sub-field; `item` (via `fields:`); `group` (later)
 
 **Accepts in `contains`:** `field` refs, `list` refs, `collection` refs
 
@@ -198,8 +198,6 @@ fields:
 **Gaps / open questions:**
 - A field with no children, no lists, and no format is not validated. Silently becomes
   a `HeaderFieldConfig` with empty everything. Intended behaviour is undefined.
-- `item.branch_fields` bypasses the `contains` path entirely - it injects fully-resolved
-  `HeaderFieldConfig` objects directly, skipping parse/resolve/validate.
 
 ---
 
@@ -261,7 +259,7 @@ items:
     assigns:
       - list: some_other_list
         item: some_item_id
-    fields: [field_id_one, field_id_two]       # item-driven branching (unvalidated)
+    fields: [field_id_one, field_id_two]       # item-driven branching
 ```
 
 **Contains (functional, not via `contains:` key):**
@@ -281,17 +279,9 @@ items:
 `fields:`
 - Intended to reference existing authored field blocks by ID and activate them as sub-fields
   when this item is chosen.
-- Currently a stub: IDs are parsed into `Vec<String>` but never resolved, never validated,
-  and never read at runtime. Authoring `fields:` on an item is a silent no-op.
-- `branch_fields` is the only working mechanism for item-driven sub-fields right now.
-- (now): implement resolution and wiring, then validate field IDs at load time with a hard
-  error on missing IDs. Once done, `branch_fields` can be removed.
-
-`branch_fields:`
-- Inline fully-resolved runtime `HeaderFieldConfig` objects. Bypasses the entire authored
-  schema - no parse, resolve, or validate.
-- (now): remove entirely. `fields:` referencing authored blocks is the correct path.
-  `branch_fields` is a raw runtime escape hatch that should not exist in authored YAML.
+- Resolved and validated at load time. Missing IDs and wrong-kind IDs are hard errors.
+- At runtime, the chosen authored fields are wired into the branch flow in authored order.
+- `branch_fields` is no longer part of the authored schema; `fields:` is the supported path.
 
 ---
 
@@ -303,6 +293,6 @@ items:
 | group | Yes | validated |
 | section | Mostly | `checklist` dead; `list_select` search mode not wired |
 | collection | Yes | list-only by design |
-| field | Mostly | bare-field case unvalidated; `branch_fields` bypasses schema |
+| field | Mostly | bare-field case unvalidated |
 | list | Partially | `modal_start: search` parsed but not wired |
-| item | No | `fields` unvalidated; `branch_fields` bypasses schema entirely |
+| item | Mostly | `fields` is validated and wired; assigns scoping still has open design work |

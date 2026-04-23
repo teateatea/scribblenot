@@ -540,7 +540,6 @@ items:
 | `output` | no | Exported text |
 | `default_enabled` | no | Initial enabled state inside collections |
 | `fields` | no | Referenced branch field IDs |
-| `branch_fields` | no | Inline branch field definitions |
 
 ### `collection` block
 
