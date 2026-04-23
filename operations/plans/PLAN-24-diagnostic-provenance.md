@@ -4,6 +4,33 @@
 ## Implement before #44
 This plan should land before `#44` (the error modal). `#44` depends on an `ErrorReport` type carrying source location and specific `ErrorKind` variants. Both come from this work. Once this plan is complete, `#44`'s two-pass parse approach is no longer needed and can be removed from that plan.
 
+## 2026-04-23 Scope Note
+This task was split out of branch A (`inference-contract-hardening`) into a dedicated exploratory worktree so the source-span strategy can be evaluated without blocking the narrower schema-contract tasks.
+
+The recommendation for that exploratory worktree is to prefer a parser-level span pass first ("option 1"), not the simpler branch-A-friendly source-index heuristic. The reason is not that the heuristic is bad; it is that `#24` is the foundation for `#44`, and the stronger parser-level path is the better long-term base if it proves maintainable.
+
+That said, this area is fragile. The current loader in `src/data.rs` is built around straightforward typed deserialization, and the repo is on `serde_yaml 0.9`, which is deprecated. So the exploratory worktree should treat parser-event code as a deliberate architectural experiment: stronger foundation if it works cleanly, but higher implementation risk.
+
+## Recommended Direction For The Separate Worktree
+
+### Option 1 - Parser-level span pass
+Use a low-level YAML event/token walk ahead of typed deserialization to capture exact source marks for top-level authored blocks, and ideally for the keys that define their kind. This is the preferred direction for the dedicated `#24` worktree.
+
+Why prefer it there:
+- it is the strongest foundation for future diagnostics
+- it can support richer source reporting than just top-level line numbers
+- it avoids project-specific heuristics becoming the permanent provenance model
+
+Why it was not kept on branch A:
+- it widens the loader change substantially
+- it leans on parser-shaped code in a sensitive area
+- it is easier to destabilize than the narrower contract-hardening work on `#45`, `#50`, `#51`, and `#64`
+
+### Important correction to the earlier plan
+The earlier Step 2 assumed `serde_yaml::Value` would carry enough public source-location metadata to recover per-node lines after deserialization. That assumption is likely too optimistic in this repo's current `serde_yaml` setup. Parse errors expose locations, but ordinary deserialized `Value`s do not appear to provide a clean public API for "this mapping started on line N".
+
+So if the goal is a true long-term provenance layer, the exploratory worktree should plan on capturing positions during parsing, not after plain `Value` deserialization.
+
 ## Context
 Current validation errors explain what is wrong and suggest a fix, but two things are missing:
 
@@ -79,21 +106,27 @@ pub struct SourceIndex {
 
 `SourceIndex` is what gets threaded through validation. It is not part of `AppData` and does not persist beyond the load call.
 
-### Step 2 - Two-pass parse in `parse_hierarchy_file_documents`
-Change the function to accept the file path and deserialize to `serde_yaml::Value` first. Walk the Value to extract spans:
+### Step 2 - Parser-level span pass in `parse_hierarchy_file_documents`
+Change the function to accept the file path and perform a parser-level pre-pass that captures source marks before normal typed deserialization. The implementation details can vary, but the key requirement is: collect source locations during parsing rather than assuming they are recoverable later from plain `serde_yaml::Value`.
+
+Conceptually:
 
 ```rust
 // pseudocode
-for doc in serde_yaml::Deserializer::from_str(content) {
-    let value = serde_yaml::Value::deserialize(doc)?;
-    // walk value.get("lists"), value.get("sections"), etc.
-    // for each entry, read its "id" key and the Mark (line) on that mapping
-    // store SourceNode { file, line, raw: entry.clone() } into a local index
-    // then proceed with typed deserialization of value as before
+for doc in yaml_documents(content) {
+    let parsed_doc = parser_span_pass(doc)?;
+    // walk events/nodes while marks are still available
+    // find top-level block arrays such as lists / sections / fields
+    // for each mapping entry, capture:
+    // - the mapping start mark or `id:` key mark
+    // - the raw sub-tree needed for fingerprint inspection
+    // store SourceNode { file, line, raw } into a local index
+    //
+    // then run the existing typed deserialization path for the same document
 }
 ```
 
-`serde_yaml::Value` carries location info through its internal representation. The line of an entry's mapping start is the most useful anchor — it points to the `- id: foo` line in the authored YAML.
+The line of an entry's mapping start or `id:` key is still the best anchor because it points the author to the actual block definition. If the parser-layer implementation makes quoted-line capture cheap, record that during this same pass as well.
 
 ### Step 3 - Merge `SourceIndex` alongside `HierarchyFile` in `read_hierarchy_dir`
 Return `(HierarchyFile, SourceIndex, usize)` from `read_hierarchy_dir` and from `load_hierarchy_dir`. Thread the index into all callers.
