@@ -453,11 +453,7 @@ fn themed_scrollable<'a>(
 }
 
 fn header_field_hint_labels(app: &App) -> Vec<String> {
-    let field_count = match app.section_states.get(app.current_idx) {
-        Some(SectionState::Header(state)) => state.visible_row_count(),
-        _ => 0,
-    };
-    app.wizard_hint_labels(field_count).fields
+    app.wizard_hint_labels().fields
 }
 
 fn wizard_window(app: &App, cursor: usize, len: usize) -> std::ops::Range<usize> {
@@ -1380,7 +1376,7 @@ fn map_status_text(app: &App) -> String {
     if !app.hint_buffer.is_empty() {
         parts.push(format!("Hint: {}", app.hint_buffer));
     }
-    parts.push("Enter previews | Esc returns".to_string());
+    parts.push("Select enters section | Esc returns".to_string());
     parts.join(" | ")
 }
 
@@ -1406,7 +1402,7 @@ fn wizard_status_text(app: &App) -> String {
                     ));
                 }
             }
-            parts.push("Enter opens choices".to_string());
+            parts.push("Select opens choices".to_string());
         }
         Some(SectionState::FreeText(state)) => {
             let mode = match state.mode {
@@ -1426,12 +1422,14 @@ fn wizard_status_text(app: &App) -> String {
                 CollectionFocus::Items(_) => "items",
             };
             parts.push(format!("Mode: {mode}"));
-            parts.push("Space toggles | Enter opens | Backspace resets | Esc confirms".to_string());
+            parts.push(
+                "Select toggles | Confirm opens | Backspace resets | Esc confirms".to_string(),
+            );
         }
         Some(SectionState::Checklist(state)) => {
             let checked = state.checked.iter().filter(|&&checked| checked).count();
             parts.push(format!("Checked: {checked}"));
-            parts.push("Space toggles | Enter confirms".to_string());
+            parts.push("Select toggles | Confirm confirms".to_string());
         }
         Some(SectionState::Pending) | None => {}
     }
@@ -1712,14 +1710,7 @@ fn preview_simple_modal_content<'a>(
     items.push(preview_modal_search_strip(app, query, alpha).into());
 
     let end = (snapshot.list_scroll + app.modal_window_size().max(1)).min(snapshot.filtered.len());
-    let modal_hints: Vec<String> = app
-        .data
-        .keybindings
-        .hints
-        .iter()
-        .take(end.saturating_sub(snapshot.list_scroll))
-        .cloned()
-        .collect();
+    let modal_hints = app.visible_modal_hint_labels();
     for window_pos in snapshot.list_scroll..end {
         let Some(&entry_idx) = snapshot.filtered.get(window_pos) else {
             continue;
@@ -1867,14 +1858,7 @@ fn active_simple_modal_content<'a>(
     );
 
     let end = (modal.list_scroll + modal.window_size).min(modal.filtered.len());
-    let modal_hints: Vec<String> = app
-        .data
-        .keybindings
-        .hints
-        .iter()
-        .take(end.saturating_sub(modal.list_scroll))
-        .cloned()
-        .collect();
+    let modal_hints = app.visible_modal_hint_labels();
     let mut list_items: Vec<Element<'a, Message>> = Vec::new();
     let confirmed_row = modal.confirmed_row_for_current_list();
     for window_pos in modal.list_scroll..end {
@@ -2563,14 +2547,12 @@ fn render_modal_rows<'a>(
     hints_active: bool,
     target: crate::app::ModalPaneTarget,
 ) {
-    let modal_hints: Vec<String> = app
-        .data
-        .keybindings
-        .hints
-        .iter()
-        .take(range.end.saturating_sub(range.start))
-        .cloned()
-        .collect();
+    let modal_hints = app.collection_modal_hint_labels();
+    let left_visible = app.collection_modal_left_hint_count();
+    let modal_hints: Vec<String> = match target {
+        crate::app::ModalPaneTarget::Left => modal_hints.into_iter().take(range.len()).collect(),
+        crate::app::ModalPaneTarget::Right => modal_hints.into_iter().skip(left_visible).collect(),
+    };
 
     for window_pos in range.clone() {
         let Some(label) = rows.get(window_pos).cloned() else {
@@ -2690,13 +2672,10 @@ fn collection_preview_row_elements<'a>(
 ) -> Vec<Element<'a, Message>> {
     let range_start = range.start;
     let modal_hints: Vec<String> = app
-        .data
-        .keybindings
-        .hints
-        .iter()
+        .collection_modal_hint_labels()
+        .into_iter()
         .skip(hint_offset)
         .take(range.end.saturating_sub(range.start))
-        .cloned()
         .collect();
     let mut items = Vec::new();
 
@@ -3482,6 +3461,7 @@ mod tests {
             collection_data: HashMap::new(),
             boilerplate_texts: HashMap::new(),
             keybindings: KeyBindings::default(),
+            hotkeys: Default::default(),
         };
 
         App::new(data, Config::default(), PathBuf::new())
@@ -3900,7 +3880,7 @@ mod tests {
     fn retained_close_transition_keeps_overlay_visible_after_modal_clears() {
         let mut app = overlay_test_app();
 
-        app.handle_key(crate::app::AppKey::Enter);
+        app.handle_key(crate::app::AppKey::Space);
         app.dismiss_modal();
 
         assert!(app.modal.is_none());
@@ -3914,7 +3894,7 @@ mod tests {
     #[test]
     fn retained_close_root_width_matches_live_active_modal_width() {
         let mut app = overlay_test_app();
-        app.handle_key(crate::app::AppKey::Enter);
+        app.handle_key(crate::app::AppKey::Space);
 
         let live_width = app
             .modal_unit_layout

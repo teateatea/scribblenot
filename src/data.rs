@@ -144,6 +144,31 @@ pub struct AppData {
     pub collection_data: HashMap<String, Vec<ResolvedCollectionConfig>>,
     pub boilerplate_texts: HashMap<String, String>,
     pub keybindings: KeyBindings,
+    pub hotkeys: AuthoredHotkeys,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AuthoredHotkeys {
+    pub sections: HashMap<String, String>,
+    pub fields: HashMap<String, String>,
+    pub items: HashMap<String, HashMap<String, String>>,
+}
+
+impl AuthoredHotkeys {
+    pub fn section(&self, section_id: &str) -> Option<&str> {
+        self.sections.get(section_id).map(String::as_str)
+    }
+
+    pub fn field(&self, field_id: &str) -> Option<&str> {
+        self.fields.get(field_id).map(String::as_str)
+    }
+
+    pub fn item(&self, list_id: &str, item_id: &str) -> Option<&str> {
+        self.items
+            .get(list_id)
+            .and_then(|items| items.get(item_id))
+            .map(String::as_str)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,6 +186,7 @@ pub struct DataValidationSummary {
 impl AppData {
     pub fn load(data_dir: PathBuf) -> Result<Self> {
         let hierarchy = load_hierarchy_dir(&data_dir).map_err(anyhow::Error::msg)?;
+        let hotkeys = collect_authored_hotkeys(&hierarchy);
         let runtime = hierarchy_to_runtime(hierarchy).map_err(anyhow::Error::msg)?;
 
         let kb_path = data_dir.join("keybindings.yml");
@@ -185,6 +211,7 @@ impl AppData {
             collection_data: runtime.collection_data,
             boilerplate_texts: runtime.boilerplate_texts,
             keybindings,
+            hotkeys,
         })
     }
 }
@@ -405,6 +432,8 @@ pub struct HierarchySection {
     pub label: Option<String>,
     #[serde(default)]
     pub nav_label: Option<String>,
+    #[serde(default)]
+    pub hotkey: Option<String>,
     #[serde(default = "default_show_field_labels")]
     pub show_field_labels: bool,
     #[serde(default)]
@@ -434,6 +463,8 @@ pub struct HierarchyCollection {
 pub struct HierarchyField {
     pub id: String,
     pub label: String,
+    #[serde(default)]
+    pub hotkey: Option<String>,
     #[serde(default)]
     pub format: Option<String>,
     #[serde(default)]
@@ -514,6 +545,8 @@ pub struct HierarchyFile {
     pub lists: Vec<HierarchyList>,
     #[serde(default)]
     pub boilerplate: Vec<BoilerplateEntry>,
+    #[serde(skip)]
+    pub item_hotkeys: HashMap<String, HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1235,6 +1268,7 @@ fn parse_hierarchy_file_documents(content: &str, path: &Path) -> Result<Hierarch
                 doc_idx + 1
             ));
         }
+        let raw_value = value.clone();
         let mut file = HierarchyFile::deserialize(value).map_err(|err| {
             format!(
                 "failed to parse '{}' document {}: {err}",
@@ -1243,6 +1277,7 @@ fn parse_hierarchy_file_documents(content: &str, path: &Path) -> Result<Hierarch
             )
         })?;
         normalize_items(&mut file);
+        file.item_hotkeys = extract_item_hotkeys_from_value(&raw_value, &file);
 
         if file.template.is_some() {
             if merged.template.is_some() {
@@ -1260,6 +1295,13 @@ fn parse_hierarchy_file_documents(content: &str, path: &Path) -> Result<Hierarch
         merged.fields.extend(file.fields);
         merged.lists.extend(file.lists);
         merged.boilerplate.extend(file.boilerplate);
+        for (list_id, item_hotkeys) in file.item_hotkeys {
+            merged
+                .item_hotkeys
+                .entry(list_id)
+                .or_default()
+                .extend(item_hotkeys);
+        }
     }
 
     Ok(merged)
@@ -1302,6 +1344,83 @@ fn normalize_items(file: &mut HierarchyFile) {
             }
         }
     }
+}
+
+fn extract_item_hotkeys_from_value(
+    value: &serde_yaml::Value,
+    file: &HierarchyFile,
+) -> HashMap<String, HashMap<String, String>> {
+    let mut item_hotkeys = HashMap::new();
+    let Some(root) = value.as_mapping() else {
+        return item_hotkeys;
+    };
+    let Some(raw_lists) = root
+        .get(serde_yaml::Value::String("lists".to_string()))
+        .and_then(serde_yaml::Value::as_sequence)
+    else {
+        return item_hotkeys;
+    };
+
+    for (list_idx, raw_list) in raw_lists.iter().enumerate() {
+        let Some(list) = file.lists.get(list_idx) else {
+            continue;
+        };
+        let Some(raw_items) = raw_list
+            .as_mapping()
+            .and_then(|mapping| mapping.get(serde_yaml::Value::String("items".to_string())))
+            .and_then(serde_yaml::Value::as_sequence)
+        else {
+            continue;
+        };
+
+        let mut hotkeys_for_list = HashMap::new();
+        for (item_idx, raw_item) in raw_items.iter().enumerate() {
+            let Some(item) = list.items.get(item_idx) else {
+                continue;
+            };
+            let Some(mapping) = raw_item.as_mapping() else {
+                continue;
+            };
+            let Some(hotkey) = mapping
+                .get(serde_yaml::Value::String("hotkey".to_string()))
+                .and_then(serde_yaml::Value::as_str)
+            else {
+                continue;
+            };
+            hotkeys_for_list.insert(item.id.clone(), hotkey.to_string());
+        }
+
+        if !hotkeys_for_list.is_empty() {
+            item_hotkeys.insert(list.id.clone(), hotkeys_for_list);
+        }
+    }
+
+    item_hotkeys
+}
+
+fn collect_authored_hotkeys(file: &HierarchyFile) -> AuthoredHotkeys {
+    let mut hotkeys = AuthoredHotkeys::default();
+
+    for section in &file.sections {
+        if let Some(hotkey) = section.hotkey.clone() {
+            hotkeys.sections.insert(section.id.clone(), hotkey);
+        }
+    }
+
+    for field in &file.fields {
+        if let Some(hotkey) = field.hotkey.clone() {
+            hotkeys.fields.insert(field.id.clone(), hotkey);
+        }
+    }
+
+    for list in &file.lists {
+        let item_hotkeys = file.item_hotkeys.get(&list.id).cloned().unwrap_or_default();
+        if !item_hotkeys.is_empty() {
+            hotkeys.items.insert(list.id.clone(), item_hotkeys);
+        }
+    }
+
+    hotkeys
 }
 
 fn resolve_runtime_list(
@@ -1396,6 +1515,28 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
             &collection.contains,
             &global_ids,
         )?;
+    }
+
+    for section in &file.sections {
+        validate_explicit_hotkey(
+            &format!("section '{}'", section.id),
+            section.hotkey.as_deref(),
+        )?;
+    }
+
+    for field in &file.fields {
+        validate_explicit_hotkey(&format!("field '{}'", field.id), field.hotkey.as_deref())?;
+    }
+
+    for list in &file.lists {
+        for item in &list.items {
+            let hotkey = file
+                .item_hotkeys
+                .get(&list.id)
+                .and_then(|items| items.get(&item.id))
+                .map(String::as_str);
+            validate_explicit_hotkey(&format!("list '{}' item '{}'", list.id, item.id), hotkey)?;
+        }
     }
 
     for field in &file.fields {
@@ -1671,6 +1812,27 @@ where
     Ok(())
 }
 
+fn validate_explicit_hotkey(owner: &str, hotkey: Option<&str>) -> Result<(), String> {
+    let Some(hotkey) = hotkey else {
+        return Ok(());
+    };
+
+    if hotkey.is_empty() {
+        return Err(format!(
+            "{owner} has an empty hotkey. Fix: use a single visible character such as `g`, or remove `hotkey`."
+        ));
+    }
+
+    if hotkey.chars().count() != 1 {
+        return Err(format!(
+            "{owner} has invalid hotkey '{}'. Fix: use exactly one character in `hotkey`.",
+            hotkey
+        ));
+    }
+
+    Ok(())
+}
+
 fn validate_children(
     owner: &str,
     expected: &[TypeTag],
@@ -1747,6 +1909,12 @@ pub enum HintResolveResult {
     NoMatch,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HintLabelAssignment {
+    pub label: String,
+    pub authored: bool,
+}
+
 pub fn resolve_hint(hints: &[&str], typed: &str) -> HintResolveResult {
     let matches: Vec<usize> = hints
         .iter()
@@ -1758,6 +1926,194 @@ pub fn resolve_hint(hints: &[&str], typed: &str) -> HintResolveResult {
         [] => HintResolveResult::NoMatch,
         [idx] if hints[*idx] == typed => HintResolveResult::Exact(*idx),
         _ => HintResolveResult::Partial(matches),
+    }
+}
+
+pub fn assign_hint_labels(
+    base: &[String],
+    explicit_prefixes: &[Option<&str>],
+    case_sensitive: bool,
+) -> Vec<HintLabelAssignment> {
+    if explicit_prefixes.is_empty() {
+        return Vec::new();
+    }
+
+    let generation_base = hint_generation_alphabet(base, case_sensitive);
+    let mut assignments: Vec<Option<HintLabelAssignment>> = vec![None; explicit_prefixes.len()];
+    let mut used_labels = HashSet::new();
+    let mut reserved_prefixes = Vec::new();
+    let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut group_order = Vec::new();
+
+    for (idx, prefix) in explicit_prefixes.iter().enumerate() {
+        let Some(prefix) = prefix else {
+            continue;
+        };
+        let normalized = normalize_hint_value(prefix, case_sensitive);
+        if !groups.contains_key(&normalized) {
+            reserved_prefixes.push(normalized.clone());
+            group_order.push(normalized.clone());
+        }
+        groups.entry(normalized).or_default().push(idx);
+    }
+
+    for prefix in group_order {
+        let Some(group_indices) = groups.get(&prefix) else {
+            continue;
+        };
+        if group_indices.len() == 1 {
+            let label = prefix.clone();
+            used_labels.insert(label.clone());
+            assignments[group_indices[0]] = Some(HintLabelAssignment {
+                label,
+                authored: true,
+            });
+            continue;
+        }
+
+        let suffixes = take_available_generated_labels(
+            &generation_base,
+            group_indices.len(),
+            &[],
+            &HashSet::new(),
+        );
+        for (idx, suffix) in group_indices.iter().zip(suffixes.into_iter()) {
+            let label = format!("{prefix}{suffix}");
+            used_labels.insert(label.clone());
+            assignments[*idx] = Some(HintLabelAssignment {
+                label,
+                authored: true,
+            });
+        }
+    }
+
+    let generated_needed = assignments.iter().filter(|entry| entry.is_none()).count();
+    let generated = take_available_generated_labels(
+        &generation_base,
+        generated_needed,
+        &reserved_prefixes,
+        &used_labels,
+    );
+    let mut generated_iter = generated.into_iter();
+    for entry in &mut assignments {
+        if entry.is_none() {
+            let label = generated_iter.next().unwrap_or_default();
+            *entry = Some(HintLabelAssignment {
+                label,
+                authored: false,
+            });
+        }
+    }
+
+    assignments
+        .into_iter()
+        .map(|entry| {
+            entry.unwrap_or(HintLabelAssignment {
+                label: String::new(),
+                authored: false,
+            })
+        })
+        .collect()
+}
+
+fn hint_generation_alphabet(base: &[String], case_sensitive: bool) -> Vec<String> {
+    let mut alphabet = Vec::new();
+    let mut seen = HashSet::new();
+
+    for candidate in base {
+        let normalized = normalize_hint_value(candidate, case_sensitive);
+        if !normalized.is_empty() && seen.insert(normalized.clone()) {
+            alphabet.push(normalized);
+        }
+    }
+
+    for candidate in default_hints() {
+        let normalized = normalize_hint_value(&candidate, case_sensitive);
+        if seen.insert(normalized.clone()) {
+            alphabet.push(normalized);
+        }
+    }
+
+    for ch in 'a'..='z' {
+        let candidate = normalize_hint_value(&ch.to_string(), case_sensitive);
+        if seen.insert(candidate.clone()) {
+            alphabet.push(candidate);
+        }
+    }
+
+    if alphabet.is_empty() {
+        alphabet.push("1".to_string());
+    }
+
+    alphabet
+}
+
+fn take_available_generated_labels(
+    base: &[String],
+    needed: usize,
+    reserved_prefixes: &[String],
+    used_labels: &HashSet<String>,
+) -> Vec<String> {
+    if needed == 0 {
+        return Vec::new();
+    }
+
+    let mut results = Vec::with_capacity(needed);
+    let mut used = used_labels.clone();
+    let mut length = 1usize;
+    while results.len() < needed {
+        let Some(total) = hint_label_count_for_length(base.len(), length) else {
+            break;
+        };
+        for ordinal in 0..total {
+            let candidate = encode_hint_label(base, length, ordinal);
+            if used.contains(&candidate) {
+                continue;
+            }
+            if reserved_prefixes
+                .iter()
+                .any(|prefix| !prefix.is_empty() && candidate.starts_with(prefix))
+            {
+                continue;
+            }
+            used.insert(candidate.clone());
+            results.push(candidate);
+            if results.len() >= needed {
+                return results;
+            }
+        }
+        length += 1;
+    }
+    results
+}
+
+fn hint_label_count_for_length(base_len: usize, length: usize) -> Option<usize> {
+    if base_len == 0 || length == 0 {
+        return Some(0);
+    }
+    let mut total = 1usize;
+    for _ in 0..length {
+        total = total.checked_mul(base_len)?;
+    }
+    Some(total)
+}
+
+fn encode_hint_label(base: &[String], chord_len: usize, ordinal: usize) -> String {
+    let mut value = ordinal;
+    let mut parts = vec![String::new(); chord_len];
+    for slot in (0..chord_len).rev() {
+        let idx = value % base.len();
+        parts[slot] = base[idx].clone();
+        value /= base.len();
+    }
+    parts.concat()
+}
+
+fn normalize_hint_value(value: &str, case_sensitive: bool) -> String {
+    if case_sensitive {
+        value.to_string()
+    } else {
+        value.to_ascii_lowercase()
     }
 }
 
@@ -1810,32 +2166,6 @@ pub fn combined_hints(kb: &KeyBindings) -> Vec<&str> {
         .collect()
 }
 
-pub fn generate_fixed_length_hints(base: &[String], count_needed: usize) -> Vec<String> {
-    if base.is_empty() || count_needed == 0 {
-        return Vec::new();
-    }
-
-    let mut chord_len = 1usize;
-    let mut capacity = base.len();
-    while capacity < count_needed {
-        chord_len += 1;
-        capacity = capacity.saturating_mul(base.len());
-    }
-
-    let mut labels = Vec::with_capacity(count_needed);
-    for ordinal in 0..count_needed {
-        let mut value = ordinal;
-        let mut parts = vec![String::new(); chord_len];
-        for slot in (0..chord_len).rev() {
-            let idx = value % base.len();
-            value /= base.len();
-            parts[slot] = base[idx].clone();
-        }
-        labels.push(parts.concat());
-    }
-    labels
-}
-
 pub fn find_data_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data")
 }
@@ -1873,6 +2203,8 @@ mod tests {
     fn parse(yaml: &str) -> HierarchyFile {
         let mut file: HierarchyFile = serde_yaml::from_str(yaml).expect("yaml parses");
         normalize_items(&mut file);
+        let raw: serde_yaml::Value = serde_yaml::from_str(yaml).expect("yaml value parses");
+        file.item_hotkeys = extract_item_hotkeys_from_value(&raw, &file);
         file
     }
 
@@ -2203,6 +2535,44 @@ mod tests {
             HintResolveResult::Partial(vec![0, 1])
         );
         assert_eq!(resolve_hint(&hints, "z"), HintResolveResult::NoMatch);
+    }
+
+    #[test]
+    fn assign_hint_labels_expands_duplicate_authored_prefixes() {
+        let base = vec!["1".to_string(), "2".to_string(), "3".to_string()];
+        let assignments =
+            assign_hint_labels(&base, &[Some("n"), Some("n"), None, Some("x")], false);
+
+        let labels = assignments
+            .iter()
+            .map(|assignment| assignment.label.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(labels[0], "n1");
+        assert_eq!(labels[1], "n2");
+        assert_eq!(labels[3], "x");
+        assert_eq!(labels[2], "1");
+        assert!(assignments[0].authored);
+        assert!(assignments[1].authored);
+        assert!(!assignments[2].authored);
+    }
+
+    #[test]
+    fn validate_merged_hierarchy_rejects_multichar_item_hotkey() {
+        let file = parse(concat!(
+            "template:\n  id: demo\n  contains:\n    - group: intake\n",
+            "groups:\n  - id: intake\n    contains:\n      - section: subjective\n",
+            "sections:\n  - id: subjective\n    contains:\n      - list: regions\n",
+            "lists:\n",
+            "  - id: regions\n",
+            "    items:\n",
+            "      - id: shoulder\n",
+            "        label: Shoulder\n",
+            "        hotkey: ab\n",
+        ));
+
+        let err = validate_merged_hierarchy(&file).expect_err("multi-char hotkey must fail");
+        assert!(err.contains("list 'regions' item 'shoulder'"));
+        assert!(err.contains("exactly one character"));
     }
 
     #[test]

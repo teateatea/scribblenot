@@ -7,6 +7,7 @@ pub struct CollectionEntry {
     pub note_label: Option<String>,
     pub joiner_style: Option<JoinerStyle>,
     pub list_labels: Vec<String>,
+    pub item_list_ids: Vec<String>,
     pub items: Vec<HierarchyItem>,
     pub item_enabled: Vec<bool>,
     pub item_default_enabled: Vec<bool>,
@@ -20,6 +21,11 @@ impl CollectionEntry {
             .lists
             .iter()
             .flat_map(|list| list.items.iter().cloned())
+            .collect::<Vec<_>>();
+        let item_list_ids = cfg
+            .lists
+            .iter()
+            .flat_map(|list| list.items.iter().map(move |_| list.id.clone()))
             .collect::<Vec<_>>();
         let item_default_enabled = cfg
             .lists
@@ -36,6 +42,7 @@ impl CollectionEntry {
                 .iter()
                 .map(|list| list.label.clone().unwrap_or_else(|| list.id.clone()))
                 .collect(),
+            item_list_ids,
             items,
             item_enabled: item_default_enabled.clone(),
             item_default_enabled,

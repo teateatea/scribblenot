@@ -170,6 +170,7 @@ sections:
     label: Appointment
     nav_label: "Appointment"
     show_field_labels: false
+    hotkey: Z
     contains:
     #  - field: date_field
       - field: appointment_date_field
