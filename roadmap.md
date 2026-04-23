@@ -70,7 +70,7 @@ Priority rule of thumb:
 - `Done`: completed items only; keep them here so active sections stay readable
 
 ## Now
-**A** `section-schema-hardening` — make `CONTAINS-RULES` the real inferred-schema contract by tightening child-reference validation, internal inference typing, and authored-source diagnostics without switching to authored `body:` keys (#22, #3, #24, #45, #50, #51, #64) — highest-priority branch now that modal semantic authority is complete
+**A** `inference-contract-hardening` — make `CONTAINS-RULES` the real inferred-schema contract by tightening child-reference validation, internal inference typing, and authored-source diagnostics without switching to authored `body:` keys (#22, #3, #24, #45, #50, #51, #64) — highest-priority branch now that modal semantic authority is complete
 **B** `data-driven-note-structure` — move remaining hard-coded note layout metadata into authored/configured data and prune nearby config assumptions without touching schema-contract work (#4, #10, #13) — strongest parallel branch because it stays mostly in note/config paths while `#64`, `#3`, and `#24` overlap with A
 **C** `state-and-legacy-cleanup` — namespace sticky-value keys and remove obsolete list/checklist fallback reads before more inferred shapes reuse the same state paths (#12, #8) — safe third branch because it stays out of active loader-contract work; `#44` remains deferred behind `#24`
 
