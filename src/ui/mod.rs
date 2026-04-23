@@ -3210,7 +3210,7 @@ mod tests {
     use crate::data::{
         AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem, HierarchyList, KeyBindings,
         ModalStart, ResolvedCollectionConfig, RuntimeGroup, RuntimeNode, RuntimeNodeKind,
-        RuntimeTemplate, SectionConfig,
+        RuntimeTemplate, SectionBodyMode, SectionConfig,
     };
     use crate::modal_layout::{
         ModalFocus, ModalListViewSnapshot, ModalStubKind, ModalUnitRange, SimpleModalSequence,
@@ -3437,7 +3437,7 @@ mod tests {
             id: "request_section".to_string(),
             name: "Request".to_string(),
             map_label: "Request".to_string(),
-            section_type: "multi_field".to_string(),
+            section_type: SectionBodyMode::MultiField,
             show_field_labels: true,
             data_file: None,
             fields: Some(vec![field.clone()]),

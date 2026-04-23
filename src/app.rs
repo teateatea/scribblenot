@@ -4,7 +4,7 @@
 use crate::config::Config;
 use crate::data::{
     flat_sections_from_template, runtime_navigation, AppData, HeaderFieldConfig, NavigationEntry,
-    SectionConfig,
+    SectionBodyMode, SectionConfig,
 };
 use crate::document::build_initial_document;
 use crate::modal::{
@@ -162,6 +162,7 @@ struct ModalRestoreSnapshot {
 
 #[derive(Debug, Clone)]
 pub enum SectionState {
+    #[allow(dead_code)]
     Pending,
     Header(HeaderState),
     FreeText(FreeTextState),
@@ -895,13 +896,13 @@ impl App {
     fn init_states(sections: &[SectionConfig], data: &AppData) -> Vec<SectionState> {
         sections
             .iter()
-            .map(|cfg| match cfg.section_type.as_str() {
-                "multi_field" => {
+            .map(|cfg| match cfg.section_type {
+                SectionBodyMode::MultiField => {
                     let fields = cfg.fields.clone().unwrap_or_default();
                     SectionState::Header(HeaderState::new(fields))
                 }
-                "free_text" => SectionState::FreeText(FreeTextState::new()),
-                "list_select" => {
+                SectionBodyMode::FreeText => SectionState::FreeText(FreeTextState::new()),
+                SectionBodyMode::ListSelect => {
                     let entries = cfg
                         .data_file
                         .as_ref()
@@ -911,7 +912,7 @@ impl App {
                         .unwrap_or_default();
                     SectionState::ListSelect(ListSelectState::new(entries))
                 }
-                "collection" => {
+                SectionBodyMode::Collection => {
                     let collections = data
                         .collection_data
                         .get(&cfg.id)
@@ -919,7 +920,7 @@ impl App {
                         .unwrap_or_default();
                     SectionState::Collection(CollectionState::new(collections))
                 }
-                "checklist" => {
+                SectionBodyMode::Checklist => {
                     let items = cfg
                         .data_file
                         .as_ref()
@@ -929,7 +930,6 @@ impl App {
                         .unwrap_or_default();
                     SectionState::Checklist(ChecklistState::new(items))
                 }
-                _ => SectionState::Pending,
             })
             .collect()
     }
@@ -3880,7 +3880,7 @@ mod tests {
             id: "subjective_section".to_string(),
             name: "Subjective".to_string(),
             map_label: "Subjective".to_string(),
-            section_type: "free_text".to_string(),
+            section_type: SectionBodyMode::FreeText,
             data_file: None,
             date_prefix: None,
             options: vec![],
@@ -3956,7 +3956,7 @@ mod tests {
             id: "s1".to_string(),
             name: "S1".to_string(),
             map_label: "S1".to_string(),
-            section_type: "multi_field".to_string(),
+            section_type: SectionBodyMode::MultiField,
             data_file: None,
             date_prefix: None,
             options: vec![],
@@ -4020,7 +4020,7 @@ mod tests {
             id: "s1".to_string(),
             name: "S1".to_string(),
             map_label: "S1".to_string(),
-            section_type: "multi_field".to_string(),
+            section_type: SectionBodyMode::MultiField,
             data_file: None,
             date_prefix: None,
             options: vec![],
@@ -4071,7 +4071,7 @@ mod tests {
             id: "subjective_section".to_string(),
             name: "Subjective".to_string(),
             map_label: "Subjective".to_string(),
-            section_type: "free_text".to_string(),
+            section_type: SectionBodyMode::FreeText,
             data_file: None,
             date_prefix: None,
             options: vec![],
@@ -4086,7 +4086,7 @@ mod tests {
             id: "objective_section".to_string(),
             name: "Objective".to_string(),
             map_label: "Objective".to_string(),
-            section_type: "free_text".to_string(),
+            section_type: SectionBodyMode::FreeText,
             data_file: None,
             date_prefix: None,
             options: vec![],
@@ -4153,7 +4153,7 @@ mod tests {
             id: "subjective_section".to_string(),
             name: "Subjective".to_string(),
             map_label: "Subjective".to_string(),
-            section_type: "free_text".to_string(),
+            section_type: SectionBodyMode::FreeText,
             data_file: None,
             date_prefix: None,
             options: vec![],
@@ -4208,7 +4208,7 @@ mod tests {
             id: "objective_section".to_string(),
             name: "Objective".to_string(),
             map_label: "Objective".to_string(),
-            section_type: "list_select".to_string(),
+            section_type: SectionBodyMode::ListSelect,
             data_file: Some("objective.yml".to_string()),
             date_prefix: None,
             options: vec![],
@@ -4286,7 +4286,7 @@ mod tests {
             id: "subjective_section".to_string(),
             name: "Subjective".to_string(),
             map_label: "Subjective".to_string(),
-            section_type: "free_text".to_string(),
+            section_type: SectionBodyMode::FreeText,
             data_file: None,
             date_prefix: None,
             options: vec![],
@@ -4301,7 +4301,7 @@ mod tests {
             id: "objective_section".to_string(),
             name: "Objective".to_string(),
             map_label: "Objective".to_string(),
-            section_type: "free_text".to_string(),
+            section_type: SectionBodyMode::FreeText,
             data_file: None,
             date_prefix: None,
             options: vec![],
@@ -4380,7 +4380,7 @@ mod tests {
             id: "subjective_section".to_string(),
             name: "Subjective".to_string(),
             map_label: "Subjective".to_string(),
-            section_type: "free_text".to_string(),
+            section_type: SectionBodyMode::FreeText,
             data_file: None,
             date_prefix: None,
             options: vec![],
@@ -4395,7 +4395,7 @@ mod tests {
             id: "objective_section".to_string(),
             name: "Objective".to_string(),
             map_label: "Objective".to_string(),
-            section_type: "free_text".to_string(),
+            section_type: SectionBodyMode::FreeText,
             data_file: None,
             date_prefix: None,
             options: vec![],
@@ -4456,7 +4456,7 @@ mod composition_span_tests {
         flat_sections_from_template, AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem,
         HierarchyList, ItemAssignment, JoinerStyle, KeyBindings, ModalStart,
         ResolvedCollectionConfig, RuntimeGroup, RuntimeNode, RuntimeNodeKind, RuntimeTemplate,
-        SectionConfig,
+        SectionBodyMode, SectionConfig,
     };
     use crate::modal::SearchModal;
     use crate::modal_layout::ModalFocus;
@@ -4900,7 +4900,7 @@ mod composition_span_tests {
             id: "request_section".to_string(),
             name: "Request".to_string(),
             map_label: "Request".to_string(),
-            section_type: "multi_field".to_string(),
+            section_type: SectionBodyMode::MultiField,
             show_field_labels: true,
             data_file: None,
             fields: Some(vec![field]),
@@ -4939,7 +4939,7 @@ mod composition_span_tests {
             id: "request_section".to_string(),
             name: "Request".to_string(),
             map_label: "Request".to_string(),
-            section_type: "multi_field".to_string(),
+            section_type: SectionBodyMode::MultiField,
             show_field_labels: true,
             data_file: None,
             fields: Some(fields),
@@ -5028,7 +5028,7 @@ mod composition_span_tests {
             id: id.to_string(),
             name: name.to_string(),
             map_label: name.to_string(),
-            section_type: "free_text".to_string(),
+            section_type: SectionBodyMode::FreeText,
             show_field_labels: true,
             data_file: None,
             fields: None,
@@ -5044,7 +5044,7 @@ mod composition_span_tests {
             id: id.to_string(),
             name: name.to_string(),
             map_label: name.to_string(),
-            section_type: "multi_field".to_string(),
+            section_type: SectionBodyMode::MultiField,
             show_field_labels: true,
             data_file: None,
             fields: Some(fields),
@@ -5157,7 +5157,7 @@ mod composition_span_tests {
             id: "first".to_string(),
             name: "First".to_string(),
             map_label: "FIRST".to_string(),
-            section_type: "free_text".to_string(),
+            section_type: SectionBodyMode::FreeText,
             show_field_labels: true,
             data_file: None,
             fields: None,
@@ -5170,7 +5170,7 @@ mod composition_span_tests {
             id: "second".to_string(),
             name: "Second".to_string(),
             map_label: "SECOND".to_string(),
-            section_type: "free_text".to_string(),
+            section_type: SectionBodyMode::FreeText,
             show_field_labels: true,
             data_file: None,
             fields: None,
@@ -6055,7 +6055,7 @@ mod composition_span_tests {
             id: "request_section".to_string(),
             name: "Request".to_string(),
             map_label: "Request".to_string(),
-            section_type: "multi_field".to_string(),
+            section_type: SectionBodyMode::MultiField,
             show_field_labels: true,
             data_file: None,
             fields: Some(vec![field]),

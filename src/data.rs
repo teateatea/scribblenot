@@ -39,13 +39,42 @@ pub enum RuntimeNodeKind {
     Collection,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SectionBodyMode {
+    MultiField,
+    #[default]
+    FreeText,
+    ListSelect,
+    Checklist,
+    Collection,
+}
+
+impl SectionBodyMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::MultiField => "multi_field",
+            Self::FreeText => "free_text",
+            Self::ListSelect => "list_select",
+            Self::Checklist => "checklist",
+            Self::Collection => "collection",
+        }
+    }
+}
+
+impl std::fmt::Display for SectionBodyMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SectionConfig {
     pub id: String,
     pub name: String,
     pub map_label: String,
     #[serde(rename = "type")]
-    pub section_type: String,
+    pub section_type: SectionBodyMode,
     #[serde(default = "default_show_field_labels")]
     pub show_field_labels: bool,
     #[serde(default)]
@@ -909,7 +938,7 @@ fn collection_to_config(
         id: resolved.id.clone(),
         name: resolved.label.clone(),
         map_label,
-        section_type: "collection".to_string(),
+        section_type: SectionBodyMode::Collection,
         show_field_labels: true,
         data_file: None,
         fields: None,
@@ -969,13 +998,13 @@ fn resolve_collection(
     })
 }
 
-fn infer_body_mode(fields: &[HeaderFieldConfig], lists: &[HierarchyList]) -> String {
+fn infer_body_mode(fields: &[HeaderFieldConfig], lists: &[HierarchyList]) -> SectionBodyMode {
     if !fields.is_empty() {
-        "multi_field".to_string()
+        SectionBodyMode::MultiField
     } else if lists.is_empty() {
-        "free_text".to_string()
+        SectionBodyMode::FreeText
     } else {
-        "list_select".to_string()
+        SectionBodyMode::ListSelect
     }
 }
 
@@ -1180,11 +1209,11 @@ fn maybe_record_section_lists(
     list_data: &mut HashMap<String, Vec<ListEntry>>,
     checklist_data: &mut HashMap<String, Vec<String>>,
 ) {
-    match section.section_type.as_str() {
-        "list_select" => {
+    match section.section_type {
+        SectionBodyMode::ListSelect => {
             list_data.insert(section.id.clone(), list_entries_from_lists(&section.lists));
         }
-        "checklist" => {
+        SectionBodyMode::Checklist => {
             checklist_data.insert(
                 section.id.clone(),
                 checklist_items_from_lists(&section.lists),
@@ -2668,6 +2697,32 @@ mod tests {
             .map(|list| list.id.as_str())
             .collect();
         assert_eq!(list_ids, vec!["back"]);
+        assert_eq!(collection.section_type, SectionBodyMode::Collection);
+    }
+
+    #[test]
+    fn runtime_uses_typed_section_body_modes() {
+        let file = parse(concat!(
+            "template:\n  id: template\n  contains:\n    - group: g\n",
+            "groups:\n  - id: g\n    contains:\n      - section: empty\n      - section: picker\n      - section: form\n",
+            "sections:\n",
+            "  - id: empty\n    contains: []\n",
+            "  - id: picker\n    contains:\n      - list: choices\n",
+            "  - id: form\n    contains:\n      - field: field_one\n",
+            "fields:\n  - id: field_one\n    label: Field One\n",
+            "lists:\n  - id: choices\n    items:\n      - Alpha\n",
+        ));
+        validate_merged_hierarchy(&file).expect("valid merged hierarchy");
+        let runtime = hierarchy_to_runtime(file).expect("runtime build succeeds");
+        let sections = flat_sections_from_template(&runtime.template);
+        let modes: HashMap<&str, SectionBodyMode> = sections
+            .iter()
+            .map(|section| (section.id.as_str(), section.section_type))
+            .collect();
+
+        assert_eq!(modes.get("empty"), Some(&SectionBodyMode::FreeText));
+        assert_eq!(modes.get("picker"), Some(&SectionBodyMode::ListSelect));
+        assert_eq!(modes.get("form"), Some(&SectionBodyMode::MultiField));
     }
 
     #[test]

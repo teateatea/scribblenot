@@ -1,5 +1,5 @@
 use crate::app::{SectionState, SectionStateStore};
-use crate::data::{RuntimeTemplate, SectionConfig};
+use crate::data::{RuntimeTemplate, SectionBodyMode, SectionConfig};
 use crate::sections::header::HeaderFieldValue;
 use crate::sections::multi_field::{render_note_line, render_note_line_for_confirmed_slot};
 use std::collections::HashMap;
@@ -103,19 +103,16 @@ fn render_document(
 ) -> String {
     let mut parts = Vec::new();
 
-    for (group_idx, group) in template.children.iter().enumerate() {
-        if group_idx > 0 {
-            parts.push("\n\n\n_______________".to_string());
-        }
-
+    for group in &template.children {
+        let mut group_parts = Vec::new();
         if let Some(heading) = group.note.note_label.as_deref() {
-            parts.push(format!("\n\n{}", heading));
+            group_parts.push(format!("\n\n{}", heading));
         }
 
         for boilerplate_id in &group.note.boilerplate_refs {
             if let Some(text) = boilerplate_texts.get(boilerplate_id) {
                 if !text.trim().is_empty() {
-                    parts.push(format!("\n{}", text));
+                    group_parts.push(format!("\n{}", text));
                 }
             }
         }
@@ -127,19 +124,23 @@ fn render_document(
             };
             let body =
                 render_section_body(config, state, assigned_values, sticky_values, mode.clone());
-            if body.trim().is_empty() && is_skipped(state) {
-                continue;
-            }
-
             if editable {
-                append_managed_section(&mut parts, config, body);
+                append_managed_section(&mut group_parts, config, body);
+            } else if body.trim().is_empty() {
+                continue;
             } else if let Some(heading) = managed_heading_for_section(config) {
-                parts.push(format!("\n\n{}", heading));
-                if !body.trim().is_empty() {
-                    parts.push(format!("\n{}", body));
-                }
+                group_parts.push(format!("\n\n{}", heading));
+                group_parts.push(format!("\n{}", body));
             }
         }
+
+        if group_parts.is_empty() {
+            continue;
+        }
+        if !parts.is_empty() {
+            parts.push("\n\n\n_______________".to_string());
+        }
+        parts.extend(group_parts);
     }
 
     if !editable {
@@ -177,12 +178,12 @@ fn render_section_body(
     sticky_values: &HashMap<String, String>,
     mode: NoteRenderMode,
 ) -> String {
-    match (cfg.section_type.as_str(), state) {
-        ("multi_field", SectionState::Header(header)) => {
+    match (cfg.section_type, state) {
+        (SectionBodyMode::MultiField, SectionState::Header(header)) => {
             render_multifield(cfg, header, assigned_values, sticky_values)
         }
-        ("free_text", SectionState::FreeText(text)) => text.entries.join("\n"),
-        ("list_select", SectionState::ListSelect(list)) => {
+        (SectionBodyMode::FreeText, SectionState::FreeText(text)) => text.entries.join("\n"),
+        (SectionBodyMode::ListSelect, SectionState::ListSelect(list)) => {
             let items: Vec<String> = list
                 .selected_indices
                 .iter()
@@ -191,14 +192,16 @@ fn render_section_body(
                 .collect();
             items.join("\n")
         }
-        ("checklist", SectionState::Checklist(checklist)) => checklist
+        (SectionBodyMode::Checklist, SectionState::Checklist(checklist)) => checklist
             .items
             .iter()
             .zip(checklist.checked.iter())
             .filter_map(|(item, checked)| checked.then_some(item.clone()))
             .collect::<Vec<_>>()
             .join("\n"),
-        ("collection", SectionState::Collection(collection)) => render_collection(collection),
+        (SectionBodyMode::Collection, SectionState::Collection(collection)) => {
+            render_collection(collection)
+        }
         _ => match mode {
             NoteRenderMode::Preview | NoteRenderMode::Export => String::new(),
         },
@@ -247,17 +250,6 @@ fn render_collection(state: &crate::sections::collection::CollectionState) -> St
     crate::modal::format_collection_field_value(&state.collections, false)
 }
 
-fn is_skipped(state: &SectionState) -> bool {
-    match state {
-        SectionState::Pending => false,
-        SectionState::Header(state) => state.completed && state.field_configs.is_empty(),
-        SectionState::FreeText(state) => state.skipped,
-        SectionState::ListSelect(state) => state.skipped,
-        SectionState::Collection(state) => state.skipped,
-        SectionState::Checklist(state) => state.skipped,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,7 +257,7 @@ mod tests {
     use crate::data::{
         flat_sections_from_template, AppData, GroupNoteMeta, HeaderFieldConfig, HierarchyItem,
         HierarchyList, ItemAssignment, ModalStart, ResolvedCollectionConfig, RuntimeGroup,
-        RuntimeNode, RuntimeNodeKind, RuntimeTemplate, SectionConfig,
+        RuntimeNode, RuntimeNodeKind, RuntimeTemplate, SectionBodyMode, SectionConfig,
     };
     use crate::sections::collection::CollectionState;
     use crate::sections::free_text::FreeTextState;
@@ -277,29 +269,28 @@ mod tests {
     fn states_for_real_data(data: &AppData) -> Vec<SectionState> {
         flat_sections_from_template(&data.template)
             .into_iter()
-            .map(|section| match section.section_type.as_str() {
-                "multi_field" => SectionState::Header(HeaderState::new(
+            .map(|section| match section.section_type {
+                SectionBodyMode::MultiField => SectionState::Header(HeaderState::new(
                     section.fields.clone().unwrap_or_default(),
                 )),
-                "free_text" => SectionState::FreeText(FreeTextState::new()),
-                "list_select" => SectionState::ListSelect(ListSelectState::new(
+                SectionBodyMode::FreeText => SectionState::FreeText(FreeTextState::new()),
+                SectionBodyMode::ListSelect => SectionState::ListSelect(ListSelectState::new(
                     data.list_data.get(&section.id).cloned().unwrap_or_default(),
                 )),
-                "checklist" => {
+                SectionBodyMode::Checklist => {
                     SectionState::Checklist(crate::sections::checklist::ChecklistState::new(
                         data.checklist_data
                             .get(&section.id)
                             .cloned()
                             .unwrap_or_default(),
-                    ))
+                        ))
                 }
-                "collection" => SectionState::Collection(CollectionState::new(
+                SectionBodyMode::Collection => SectionState::Collection(CollectionState::new(
                     data.collection_data
                         .get(&section.id)
                         .cloned()
                         .unwrap_or_default(),
                 )),
-                _ => SectionState::Pending,
             })
             .collect()
     }
@@ -450,7 +441,7 @@ mod tests {
             id: "request_section".to_string(),
             name: "Request".to_string(),
             map_label: "Request".to_string(),
-            section_type: "multi_field".to_string(),
+            section_type: SectionBodyMode::MultiField,
             show_field_labels: true,
             data_file: None,
             fields: Some(fields),
@@ -576,7 +567,7 @@ mod tests {
             id: "first".to_string(),
             name: "First".to_string(),
             map_label: "FIRST".to_string(),
-            section_type: "free_text".to_string(),
+            section_type: SectionBodyMode::FreeText,
             show_field_labels: true,
             data_file: None,
             fields: None,
@@ -589,7 +580,7 @@ mod tests {
             id: "second".to_string(),
             name: "Second".to_string(),
             map_label: "SECOND".to_string(),
-            section_type: "free_text".to_string(),
+            section_type: SectionBodyMode::FreeText,
             show_field_labels: true,
             data_file: None,
             fields: None,
@@ -716,7 +707,7 @@ mod tests {
         let mut expected_outputs = Vec::new();
 
         for (index, section) in sections.iter().enumerate() {
-            if section.section_type != "multi_field" {
+            if section.section_type != SectionBodyMode::MultiField {
                 continue;
             }
             let SectionState::Header(header_state) = &mut states[index] else {
@@ -837,7 +828,7 @@ mod tests {
             id: "prone_treatment".to_string(),
             name: "Treatment - Prone".to_string(),
             map_label: "PRONE".to_string(),
-            section_type: "multi_field".to_string(),
+            section_type: SectionBodyMode::MultiField,
             show_field_labels: true,
             data_file: None,
             fields: Some(vec![HeaderFieldConfig {
@@ -897,7 +888,7 @@ mod tests {
             id: "custom_header".to_string(),
             name: "Custom Header".to_string(),
             map_label: "CUSTOM".to_string(),
-            section_type: "multi_field".to_string(),
+            section_type: SectionBodyMode::MultiField,
             show_field_labels: false,
             data_file: None,
             fields: Some(vec![HeaderFieldConfig {
@@ -934,7 +925,7 @@ mod tests {
             id: "appointments".to_string(),
             name: "Appointments".to_string(),
             map_label: "APPTS".to_string(),
-            section_type: "multi_field".to_string(),
+            section_type: SectionBodyMode::MultiField,
             show_field_labels: true,
             data_file: None,
             fields: Some(vec![assigned_time_field(
@@ -967,7 +958,7 @@ mod tests {
             id: "schedule".to_string(),
             name: "Schedule".to_string(),
             map_label: "SCHEDULE".to_string(),
-            section_type: "multi_field".to_string(),
+            section_type: SectionBodyMode::MultiField,
             show_field_labels: true,
             data_file: None,
             fields: Some(vec![

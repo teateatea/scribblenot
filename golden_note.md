@@ -41,8 +41,6 @@ _______________
 - Fingertip Kneading
 
 
-
-
 _______________
 
 ## OBJECTIVE / OBSERVATIONS

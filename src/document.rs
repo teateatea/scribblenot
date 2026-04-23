@@ -223,7 +223,7 @@ mod tests {
     use crate::app::{SectionState, SectionStateStore};
     use crate::data::{
         flat_sections_from_template, AppData, GroupNoteMeta, RuntimeGroup, RuntimeNode,
-        RuntimeNodeKind, RuntimeTemplate, SectionConfig,
+        RuntimeNodeKind, RuntimeTemplate, SectionBodyMode, SectionConfig,
     };
     use crate::sections::collection::CollectionState;
     use crate::sections::free_text::FreeTextState;
@@ -236,7 +236,7 @@ mod tests {
             id: id.to_string(),
             name: "Demo".to_string(),
             map_label: "Demo".to_string(),
-            section_type: "free_text".to_string(),
+            section_type: SectionBodyMode::FreeText,
             show_field_labels: true,
             data_file: None,
             fields: None,
@@ -250,29 +250,28 @@ mod tests {
     fn states_for_real_data(data: &AppData) -> Vec<SectionState> {
         flat_sections_from_template(&data.template)
             .into_iter()
-            .map(|section| match section.section_type.as_str() {
-                "multi_field" => SectionState::Header(HeaderState::new(
+            .map(|section| match section.section_type {
+                SectionBodyMode::MultiField => SectionState::Header(HeaderState::new(
                     section.fields.clone().unwrap_or_default(),
                 )),
-                "free_text" => SectionState::FreeText(FreeTextState::new()),
-                "list_select" => SectionState::ListSelect(ListSelectState::new(
+                SectionBodyMode::FreeText => SectionState::FreeText(FreeTextState::new()),
+                SectionBodyMode::ListSelect => SectionState::ListSelect(ListSelectState::new(
                     data.list_data.get(&section.id).cloned().unwrap_or_default(),
                 )),
-                "checklist" => {
+                SectionBodyMode::Checklist => {
                     SectionState::Checklist(crate::sections::checklist::ChecklistState::new(
                         data.checklist_data
                             .get(&section.id)
                             .cloned()
                             .unwrap_or_default(),
-                    ))
+                        ))
                 }
-                "collection" => SectionState::Collection(CollectionState::new(
+                SectionBodyMode::Collection => SectionState::Collection(CollectionState::new(
                     data.collection_data
                         .get(&section.id)
                         .cloned()
                         .unwrap_or_default(),
                 )),
-                _ => SectionState::Pending,
             })
             .collect()
     }
