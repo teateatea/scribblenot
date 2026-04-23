@@ -1,5 +1,8 @@
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::{self, value::MapAccessDeserializer, MapAccess, Visitor},
+    Deserialize, Deserializer, Serialize,
+};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -225,6 +228,7 @@ pub struct GroupNoteMeta {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct NoteNodeMeta {
     #[serde(default)]
     pub note_label: Option<String>,
@@ -256,6 +260,7 @@ pub enum JoinerStyle {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HierarchyList {
     pub id: String,
     #[serde(default)]
@@ -277,6 +282,7 @@ pub struct HierarchyList {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ItemAssignment {
     #[serde(rename = "list")]
     pub list_id: String,
@@ -286,8 +292,7 @@ pub struct ItemAssignment {
     pub output: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(from = "HierarchyItemInput")]
+#[derive(Debug, Clone, Serialize)]
 pub struct HierarchyItem {
     pub id: String,
     #[serde(default)]
@@ -304,13 +309,6 @@ pub struct HierarchyItem {
     pub assigns: Vec<ItemAssignment>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-enum HierarchyItemInput {
-    Full(HierarchyItemRaw),
-    Simple(String),
-}
-
 fn default_item_enabled() -> bool {
     true
 }
@@ -320,6 +318,7 @@ fn default_show_field_labels() -> bool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct HierarchyItemRaw {
     #[serde(default)]
     id: String,
@@ -330,6 +329,8 @@ struct HierarchyItemRaw {
     #[serde(default)]
     output: Option<String>,
     #[serde(default)]
+    hotkey: Option<String>,
+    #[serde(default)]
     fields: Option<Vec<String>>,
     #[serde(default)]
     branch_fields: Vec<HeaderFieldConfig>,
@@ -337,41 +338,81 @@ struct HierarchyItemRaw {
     assigns: Vec<ItemAssignment>,
 }
 
-impl From<HierarchyItemInput> for HierarchyItem {
-    fn from(value: HierarchyItemInput) -> Self {
-        match value {
-            HierarchyItemInput::Full(item) => Self {
-                id: if item.id.is_empty() {
-                    slugify_id(
-                        item.label
-                            .as_deref()
-                            .or(item.output.as_deref())
-                            .unwrap_or(""),
-                    )
-                } else {
-                    item.id
-                },
-                label: item.label,
-                default_enabled: item.default_enabled,
-                output: item.output,
-                fields: item.fields,
-                branch_fields: item.branch_fields,
-                assigns: item.assigns,
-            },
-            HierarchyItemInput::Simple(label) => Self {
-                id: slugify_id(&label),
-                label: Some(label.clone()),
-                default_enabled: true,
-                output: Some(label),
-                fields: None,
-                branch_fields: Vec::new(),
-                assigns: Vec::new(),
-            },
+impl<'de> Deserialize<'de> for HierarchyItem {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct HierarchyItemVisitor;
+
+        impl<'de> Visitor<'de> for HierarchyItemVisitor {
+            type Value = HierarchyItem;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string item label or an item mapping")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(HierarchyItem::from_simple(value.to_string()))
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(HierarchyItem::from_simple(value))
+            }
+
+            fn visit_map<M>(self, map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let raw = HierarchyItemRaw::deserialize(MapAccessDeserializer::new(map))?;
+                Ok(HierarchyItem::from_raw(raw))
+            }
         }
+
+        deserializer.deserialize_any(HierarchyItemVisitor)
     }
 }
 
 impl HierarchyItem {
+    fn from_raw(item: HierarchyItemRaw) -> Self {
+        Self {
+            id: if item.id.is_empty() {
+                slugify_id(
+                    item.label
+                        .as_deref()
+                        .or(item.output.as_deref())
+                        .unwrap_or(""),
+                )
+            } else {
+                item.id
+            },
+            label: item.label,
+            default_enabled: item.default_enabled,
+            output: item.output,
+            fields: item.fields,
+            branch_fields: item.branch_fields,
+            assigns: item.assigns,
+        }
+    }
+
+    fn from_simple(label: String) -> Self {
+        Self {
+            id: slugify_id(&label),
+            label: Some(label.clone()),
+            default_enabled: true,
+            output: Some(label),
+            fields: None,
+            branch_fields: Vec::new(),
+            assigns: Vec::new(),
+        }
+    }
+
     pub fn ui_label(&self) -> &str {
         self.label
             .as_deref()
@@ -399,12 +440,14 @@ fn slug_source_for_item(item: &HierarchyItem) -> &str {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BoilerplateEntry {
     pub id: String,
     pub text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct HierarchyTemplate {
     #[serde(default)]
     pub id: Option<String>,
@@ -413,6 +456,7 @@ pub struct HierarchyTemplate {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct HierarchyGroup {
     pub id: String,
     #[serde(default)]
@@ -426,6 +470,7 @@ pub struct HierarchyGroup {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct HierarchySection {
     pub id: String,
     #[serde(default)]
@@ -443,6 +488,7 @@ pub struct HierarchySection {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct HierarchyCollection {
     pub id: String,
     #[serde(default)]
@@ -460,6 +506,7 @@ pub struct HierarchyCollection {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct HierarchyField {
     pub id: String,
     pub label: String,
@@ -530,6 +577,7 @@ impl HierarchyChildRef {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct HierarchyFile {
     #[serde(default)]
     pub template: Option<HierarchyTemplate>,
@@ -2376,6 +2424,59 @@ mod tests {
         let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
             .expect_err("legacy repeating key should fail");
         assert!(err.contains("deprecated key 'repeating'"));
+    }
+
+    #[test]
+    fn parser_rejects_unknown_section_key() {
+        let yaml = concat!(
+            "sections:\n",
+            "  - id: subjective\n",
+            "    label: Subjective\n",
+            "    body: checklist\n",
+            "    contains: []\n",
+        );
+        let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
+            .expect_err("unknown section key should fail");
+        assert!(err.contains("unknown field `body`"));
+    }
+
+    #[test]
+    fn parser_rejects_unknown_item_key() {
+        let yaml = concat!(
+            "lists:\n",
+            "  - id: demo\n",
+            "    items:\n",
+            "      - id: alpha\n",
+            "        label: Alpha\n",
+            "        bogus: true\n",
+        );
+        let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
+            .expect_err("unknown item key should fail");
+        assert!(err.contains("unknown field `bogus`"));
+    }
+
+    #[test]
+    fn parser_accepts_authored_item_hotkey() {
+        let file = parse_hierarchy_file_documents(
+            concat!(
+                "lists:\n",
+                "  - id: demo\n",
+                "    items:\n",
+                "      - id: alpha\n",
+                "        label: Alpha\n",
+                "        hotkey: a\n",
+            ),
+            Path::new("inline-test.yml"),
+        )
+        .expect("item hotkey should still parse");
+
+        assert_eq!(
+            file.item_hotkeys
+                .get("demo")
+                .and_then(|hotkeys| hotkeys.get("alpha"))
+                .map(String::as_str),
+            Some("a")
+        );
     }
 
     #[test]

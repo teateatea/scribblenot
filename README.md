@@ -252,6 +252,7 @@ Global rules:
 
 - Exactly one `template` block across all hierarchy data files.
 - Group, section, collection, field, and list IDs share one global namespace.
+- Unknown keys on authored hierarchy blocks are rejected.
 - `repeating` is rejected; use `joiner_style`.
 - `format_lists` is ignored by the parser.
 
