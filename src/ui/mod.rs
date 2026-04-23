@@ -4,7 +4,7 @@
 mod modal_unit;
 use modal_unit::*;
 
-use crate::app::{App, Focus, MapHintLevel, SectionState};
+use crate::app::{App, ErrorModalFlashKind, Focus, MapHintLevel, SectionState};
 use crate::modal_layout::{
     modal_height_for_viewport, modal_list_view_dimensions, ModalFocus, SimpleModalUnitLayout,
 };
@@ -3200,6 +3200,11 @@ fn error_modal_view(app: &App) -> Element<'_, Message> {
         .as_ref()
         .expect("error modal view requires a report");
     let rendered = app.messages.render(report);
+    let reload_key = first_key_label(&app.data.keybindings.data_reload, "\\");
+    let copy_key = first_key_label(&app.data.keybindings.copy_note, "c");
+    let footer = format!(
+        "Press Esc, Backspace, or {reload_key} to reload. Press {copy_key} to copy this error as Markdown."
+    );
     let source_block: Element<'_, Message> = if let Some(source) = rendered.source {
         let quoted = source.quoted_line.unwrap_or_default();
         column![
@@ -3242,12 +3247,15 @@ fn error_modal_view(app: &App) -> Element<'_, Message> {
             .font(app.ui_theme.font_heading)
             .size(24)
             .color(app.ui_theme.error),
+        text(format!("Error ID: {}", rendered.id))
+            .font(app.ui_theme.font_status)
+            .color(app.ui_theme.muted),
         text(rendered.description)
             .font(app.ui_theme.font_modal)
             .color(app.ui_theme.text),
         source_block,
         fix_block,
-        text("Press Esc or Backspace to dismiss.")
+        text(footer)
             .font(app.ui_theme.font_status)
             .color(app.ui_theme.muted),
     ]
@@ -3255,12 +3263,13 @@ fn error_modal_view(app: &App) -> Element<'_, Message> {
     .padding(24)
     .width(Length::Fill);
 
+    let panel_background = error_modal_panel_background(app);
     let panel = container(scrollable(content))
         .width(Length::Fill)
         .height(Length::Fill)
         .padding(20)
         .style(move |_| {
-            background_style(app.ui_theme.modal_panel_background, app.ui_theme.text).border(Border {
+            background_style(panel_background, app.ui_theme.text).border(Border {
                 color: app.ui_theme.error,
                 width: 2.0,
                 radius: 8.0.into(),
@@ -3273,6 +3282,28 @@ fn error_modal_view(app: &App) -> Element<'_, Message> {
         .padding(18)
         .style(move |_| background_style(app.ui_theme.background, app.ui_theme.text))
         .into()
+}
+
+fn error_modal_panel_background(app: &App) -> Color {
+    let base = app.ui_theme.modal_panel_background;
+    let Some((kind, amount)) = app.error_modal_flash_amount() else {
+        return base;
+    };
+    let flash = match kind {
+        ErrorModalFlashKind::Error => app.ui_theme.error,
+        ErrorModalFlashKind::Copy => app.ui_theme.preview_copy_flash_background,
+    };
+    blend_color(base, flash, amount * 0.65)
+}
+
+fn first_key_label(keys: &[String], fallback: &str) -> String {
+    keys.first()
+        .map(|key| match key.as_str() {
+            "esc" => "Esc".to_string(),
+            "backspace" => "Backspace".to_string(),
+            other => other.to_string(),
+        })
+        .unwrap_or_else(|| fallback.to_string())
 }
 
 #[cfg(test)]

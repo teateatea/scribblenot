@@ -24,6 +24,7 @@ pub struct Messages {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderedError {
+    pub id: String,
     pub title: String,
     pub description: String,
     pub fix: String,
@@ -88,6 +89,7 @@ impl Messages {
         let kind_id = report.kind_id();
         let Some(entry) = self.entries.get(kind_id) else {
             return RenderedError {
+                id: kind_id.to_string(),
                 title: title_from_kind(kind_id),
                 description: report.message.clone(),
                 fix: String::new(),
@@ -96,6 +98,7 @@ impl Messages {
         };
 
         RenderedError {
+            id: kind_id.to_string(),
             title: substitute(&entry.title, &params),
             description: substitute(&entry.description, &params),
             fix: substitute(&entry.fix, &params),
@@ -107,6 +110,10 @@ impl Messages {
 fn report_params(report: &ErrorReport) -> HashMap<String, String> {
     let mut params = HashMap::new();
     params.insert("message".to_string(), report.message.clone());
+    params.insert(
+        "message_without_fix".to_string(),
+        message_without_trailing_fix(&report.message).to_string(),
+    );
     params.insert("kind_id".to_string(), report.kind_id().to_string());
     if let Some(source) = &report.source {
         params.insert("file".to_string(), source.file.display().to_string());
@@ -120,6 +127,13 @@ fn report_params(report: &ErrorReport) -> HashMap<String, String> {
         params.insert(key.to_string(), value);
     }
     params
+}
+
+fn message_without_trailing_fix(message: &str) -> &str {
+    message
+        .split_once(". Fix:")
+        .map(|(summary, _)| summary)
+        .unwrap_or(message)
 }
 
 fn render_source(report: &ErrorReport) -> Option<RenderedErrorSource> {
@@ -181,11 +195,38 @@ mod tests {
         let rendered = messages.render(&report);
 
         assert_eq!(rendered.title, "YAML Problem");
+        assert_eq!(rendered.id, "yaml_parse_failed");
         assert_eq!(rendered.description, "bad yaml");
         assert_eq!(rendered.fix, "Check data/demo.yml:3");
         assert_eq!(
             rendered.source.as_ref().map(|source| source.location.as_str()),
             Some("data/demo.yml:3")
         );
+    }
+
+    #[test]
+    fn render_can_strip_trailing_fix_from_description() {
+        let mut messages = Messages::default();
+        messages.entries.insert(
+            "missing_child".to_string(),
+            MessageEntry {
+                id: "missing_child".to_string(),
+                title: "Missing Child Reference".to_string(),
+                description: "{message_without_fix}".to_string(),
+                fix: "Add the referenced child.".to_string(),
+            },
+        );
+        let report = ErrorReport::generic(
+            "missing_child",
+            "section 'demo' references missing field 'missing'. Fix: add it.",
+        );
+
+        let rendered = messages.render(&report);
+
+        assert_eq!(
+            rendered.description,
+            "section 'demo' references missing field 'missing'"
+        );
+        assert_eq!(rendered.fix, "Add the referenced child.");
     }
 }

@@ -92,10 +92,22 @@ pub struct KeyBindings {
     pub hint_permutations: Vec<String>,
     #[serde(default = "default_copy_note")]
     pub copy_note: Vec<String>,
+    #[serde(default = "default_theme_reload")]
+    pub theme_reload: Vec<String>,
+    #[serde(default = "default_data_reload")]
+    pub data_reload: Vec<String>,
 }
 
 fn default_copy_note() -> Vec<String> {
     vec!["c".to_string()]
+}
+
+fn default_theme_reload() -> Vec<String> {
+    vec!["/".to_string()]
+}
+
+fn default_data_reload() -> Vec<String> {
+    vec!["\\".to_string()]
 }
 
 fn default_super_confirm() -> Vec<String> {
@@ -135,6 +147,8 @@ impl Default for KeyBindings {
             super_confirm: default_super_confirm(),
             hint_permutations: vec![],
             copy_note: default_copy_note(),
+            theme_reload: default_theme_reload(),
+            data_reload: default_data_reload(),
         }
     }
 }
@@ -3764,6 +3778,8 @@ mod tests {
         assert_eq!(kb.nav_up, vec!["up".to_string(), "e".to_string()]);
         assert_eq!(kb.nav_left, vec!["left".to_string(), "h".to_string()]);
         assert_eq!(kb.nav_right, vec!["right".to_string(), "i".to_string()]);
+        assert_eq!(kb.theme_reload, vec!["/".to_string()]);
+        assert_eq!(kb.data_reload, vec!["\\".to_string()]);
     }
 
     #[test]
@@ -3783,11 +3799,15 @@ mod tests {
             "hints: [a]\n",
             "super_confirm: [shift+enter]\n",
             "copy_note: [c]\n",
+            "theme_reload: [/]\n",
+            "data_reload: ['\\']\n",
         ))
         .expect("new nav field names should deserialize");
 
         assert_eq!(kb.nav_down, vec!["down".to_string(), "n".to_string()]);
         assert_eq!(kb.nav_right, vec!["right".to_string(), "i".to_string()]);
+        assert_eq!(kb.theme_reload, vec!["/".to_string()]);
+        assert_eq!(kb.data_reload, vec!["\\".to_string()]);
     }
 
     #[test]

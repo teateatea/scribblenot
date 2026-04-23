@@ -234,6 +234,28 @@ pub struct StatusMsg {
     pub created_at: Instant,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorModalFlashKind {
+    Error,
+    Copy,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ErrorModalFlash {
+    pub kind: ErrorModalFlashKind,
+    pub until: Instant,
+}
+
+impl ErrorModalFlash {
+    fn new(kind: ErrorModalFlashKind, theme: &crate::theme::AppTheme) -> Self {
+        Self {
+            kind,
+            until: Instant::now()
+                + std::time::Duration::from_millis(theme.preview_copy_flash_duration_ms),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldCompositionSpanKind {
     Literal,
@@ -285,7 +307,9 @@ pub struct App {
     pub show_help: bool,
     pub status: Option<StatusMsg>,
     pub error_modal: Option<ErrorReport>,
+    pub error_modal_flash: Option<ErrorModalFlash>,
     pub messages: Messages,
+    pub copy_override_text: Option<String>,
     pub quit: bool,
     pub copy_requested: bool,
     pub copy_flash_until: Option<Instant>,
@@ -421,7 +445,9 @@ impl App {
             show_help: false,
             status: None,
             error_modal: None,
+            error_modal_flash: None,
             messages,
+            copy_override_text: None,
             quit: false,
             copy_requested: false,
             copy_flash_until: None,
@@ -458,6 +484,7 @@ impl App {
                 eprintln!("Warning: failed to load theme '{}': {err}", config.theme);
                 crate::theme::AppTheme::default()
             });
+        let error_modal_flash = Some(ErrorModalFlash::new(ErrorModalFlashKind::Error, &ui_theme));
         Self {
             navigation: Vec::new(),
             section_states: SectionStateStore::new(&[], Vec::new()),
@@ -470,7 +497,9 @@ impl App {
             show_help: false,
             status: None,
             error_modal: Some(report),
+            error_modal_flash,
             messages: Messages::load(&messages_dir()),
+            copy_override_text: None,
             quit: false,
             copy_requested: false,
             copy_flash_until: None,
@@ -1046,6 +1075,12 @@ impl App {
         {
             self.copy_flash_until = None;
         }
+        if self
+            .error_modal_flash
+            .is_some_and(|flash| Instant::now() >= flash.until)
+        {
+            self.error_modal_flash = None;
+        }
         self.evicted_collection_flash_until
             .retain(|_, until| Instant::now() < *until);
     }
@@ -1054,9 +1089,41 @@ impl App {
         !self.evicted_collection_flash_until.is_empty()
     }
 
+    pub fn has_active_error_modal_flash(&self) -> bool {
+        self.error_modal_flash.is_some()
+    }
+
     /// Returns true when any transition layer is currently animating.
     pub fn has_active_modal_transition(&self) -> bool {
         !self.modal_transitions.is_empty() || self.modal_composition_transition.is_some()
+    }
+
+    pub fn error_modal_flash_amount(&self) -> Option<(ErrorModalFlashKind, f32)> {
+        let flash = self.error_modal_flash?;
+        let duration_ms = self.ui_theme.preview_copy_flash_duration_ms.max(1);
+        let remaining_ms = flash
+            .until
+            .saturating_duration_since(Instant::now())
+            .as_millis()
+            .min(u128::from(duration_ms)) as f32;
+        if remaining_ms <= 0.0 {
+            return None;
+        }
+        let t = remaining_ms / duration_ms as f32;
+        Some((flash.kind, t * t * (3.0 - 2.0 * t)))
+    }
+
+    pub fn flash_error_modal_copy(&mut self) {
+        if self.error_modal.is_some() {
+            self.error_modal_flash =
+                Some(ErrorModalFlash::new(ErrorModalFlashKind::Copy, &self.ui_theme));
+        }
+    }
+
+    fn show_error_modal(&mut self, report: ErrorReport) {
+        self.error_modal = Some(report);
+        self.error_modal_flash =
+            Some(ErrorModalFlash::new(ErrorModalFlashKind::Error, &self.ui_theme));
     }
 
     pub fn collection_text_flash_amount(&self, collection_id: &str) -> Option<f32> {
@@ -1148,11 +1215,11 @@ impl App {
     }
 
     fn is_refresh_theme(&self, key: &AppKey) -> bool {
-        matches!(key, AppKey::Char('/'))
+        self.matches_key(key, &self.data.keybindings.theme_reload)
     }
 
     fn is_refresh_data(&self, key: &AppKey) -> bool {
-        matches!(key, AppKey::Char('\\'))
+        self.matches_key(key, &self.data.keybindings.data_reload)
     }
 
     fn section_at_top_level(&self) -> bool {
@@ -1686,6 +1753,30 @@ impl App {
         Ok(())
     }
 
+    pub fn error_modal_markdown(&self) -> Option<String> {
+        let report = self.error_modal.as_ref()?;
+        let rendered = self.messages.render(report);
+        let mut markdown = format!("# {}\n\n", rendered.title);
+        markdown.push_str(&format!("**Error ID:** `{}`\n\n", rendered.id));
+        markdown.push_str(&rendered.description);
+        markdown.push_str("\n\n");
+        if let Some(source) = rendered.source {
+            markdown.push_str("## Source\n\n");
+            markdown.push_str(&format!("{}\n\n", source.location));
+            if let Some(quoted_line) = source.quoted_line {
+                markdown.push_str("```yaml\n");
+                markdown.push_str(&quoted_line);
+                markdown.push_str("\n```\n\n");
+            }
+        }
+        if !rendered.fix.trim().is_empty() {
+            markdown.push_str("## Fix\n\n");
+            markdown.push_str(&rendered.fix);
+            markdown.push('\n');
+        }
+        Some(markdown)
+    }
+
     pub fn current_preview_scroll_line(&self) -> u16 {
         match self.focus {
             Focus::Map => self.note_scroll,
@@ -1754,8 +1845,18 @@ impl App {
         }
 
         if self.error_modal.is_some() {
-            if self.is_back(&key) {
-                self.error_modal = None;
+            if self.is_copy_note(&key) {
+                self.copy_override_text = self.error_modal_markdown();
+                self.copy_requested = self.copy_override_text.is_some();
+                return;
+            }
+            if self.is_back(&key) || self.is_refresh_data(&key) {
+                match self.reload_data() {
+                    Ok(()) => {
+                        self.status = Some(StatusMsg::success("Data refreshed from YAML."));
+                    }
+                    Err(report) => self.show_error_modal(report),
+                }
             }
             return;
         }
@@ -1821,7 +1922,7 @@ impl App {
                 Ok(()) => {
                     self.status = Some(StatusMsg::success("Data refreshed from YAML."));
                 }
-                Err(report) => self.error_modal = Some(report),
+                Err(report) => self.show_error_modal(report),
             }
             return;
         }
@@ -5087,13 +5188,19 @@ mod composition_span_tests {
     }
 
     #[test]
-    fn back_key_dismisses_error_modal_before_other_input() {
+    fn copy_key_prepares_error_modal_markdown() {
         let report = ErrorReport::generic("yaml_parse_failed", "bad yaml");
         let mut app = App::new_error_state(report, Config::default(), PathBuf::new());
 
-        app.handle_key(AppKey::Esc);
+        app.handle_key(AppKey::Char('c'));
 
-        assert!(app.error_modal.is_none());
+        assert!(app.copy_requested);
+        let copied = app
+            .copy_override_text
+            .as_ref()
+            .expect("error modal copy should set markdown payload");
+        assert!(copied.contains("# YAML Parse Error"));
+        assert!(copied.contains("**Error ID:** `yaml_parse_failed`"));
         assert!(!app.quit);
     }
 

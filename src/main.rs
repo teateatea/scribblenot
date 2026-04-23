@@ -125,16 +125,30 @@ fn update(state: &mut ScribbleApp, message: Message) -> Task<Message> {
 
     if state.inner.copy_requested {
         state.inner.copy_requested = false;
-        let export_text = document::export_editable_document(&state.inner.editable_note);
+        let copied_error_report = state.inner.copy_override_text.is_some();
+        let copy_status = if copied_error_report {
+            "Copied error report to clipboard."
+        } else {
+            "Copied note to clipboard."
+        };
+        let export_text = state
+            .inner
+            .copy_override_text
+            .take()
+            .unwrap_or_else(|| document::export_editable_document(&state.inner.editable_note));
         match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(export_text)) {
             Ok(()) => {
-                state.inner.status = Some(app::StatusMsg::success("Copied note to clipboard."));
-                state.inner.copy_flash_until = Some(
-                    Instant::now()
-                        + Duration::from_millis(
-                            state.inner.ui_theme.preview_copy_flash_duration_ms,
-                        ),
-                );
+                state.inner.status = Some(app::StatusMsg::success(copy_status));
+                if copied_error_report {
+                    state.inner.flash_error_modal_copy();
+                } else {
+                    state.inner.copy_flash_until = Some(
+                        Instant::now()
+                            + Duration::from_millis(
+                                state.inner.ui_theme.preview_copy_flash_duration_ms,
+                            ),
+                    );
+                }
             }
             Err(err) => {
                 state.inner.status = Some(app::StatusMsg::error(format!("Copy failed: {err}")));
@@ -185,6 +199,7 @@ fn subscription(state: &ScribbleApp) -> Subscription<Message> {
     let resize = iced::window::resize_events().map(|(_id, size)| Message::WindowResized(size));
     let tick_interval = if state.inner.copy_flash_until.is_some()
         || state.inner.has_active_text_flash()
+        || state.inner.has_active_error_modal_flash()
         || state.inner.has_active_modal_transition()
     {
         Duration::from_millis(33)
