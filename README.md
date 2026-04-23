@@ -254,7 +254,7 @@ Global rules:
 - Group, section, collection, field, and list IDs share one global namespace.
 - Unknown keys on authored hierarchy blocks are rejected.
 - `repeating` is rejected; use `joiner_style`.
-- `format_lists` is ignored by the parser.
+- `format_lists` is not part of the authored schema; extra `format` placeholders are discovered automatically.
 
 ### Authored `hotkey`
 
@@ -378,9 +378,9 @@ fields:
   - id: appointment_requested_field
     label: Request
     format: "{year}-{month}-{day}: Pt requested a {appointment_type_list}{the_region}."
-    lists:
-      - appointment_type_list
-      - the_region
+    contains:
+      - { list: appointment_type_list }
+      - { list: the_region }
 ```
 
 | Key | Required | Meaning |
@@ -388,12 +388,12 @@ fields:
 | `id` | yes | Unique field ID |
 | `label` | yes | Wizard label |
 | `format` | no | Output template |
-| `lists` | no | Primary list IDs, prompted interactively in order |
-| `collections` | no | Attached collection IDs |
 | `contains` | no | Typed child refs. May include `field`, `list`, and `collection` refs |
 | `joiner_style` | no | Join style for repeated completed field outputs |
 | `max_entries` | no | Repeat cap before auto-advance |
 | `max_actives` | no | Maximum simultaneously active collections |
+
+Legacy field-level `lists:` and `collections:` keys are rejected. Use typed `contains:` refs instead.
 
 #### Nested fields
 
@@ -591,10 +591,10 @@ fields:
   - id: date_field
     label: "{year}-{month}-{day}"
     format: ""
-    lists:
-      - day
-      - month
-      - year
+    contains:
+      - { list: day }
+      - { list: month }
+      - { list: year }
 ```
 
 Reusing sticky date values later:
@@ -604,9 +604,9 @@ fields:
   - id: appointment_requested_field
     label: Request
     format: "{year}-{month}-{day}: Pt requested a {appointment_type_list}{the_region}."
-    lists:
-      - appointment_type_list
-      - the_region
+    contains:
+      - { list: appointment_type_list }
+      - { list: the_region }
 ```
 
 Collection switching:
@@ -678,7 +678,6 @@ Multi-field output rules:
 
 ## Known Limitations And Gotchas
 
-- `format_lists` is ignored. Extra `format` placeholders are discovered automatically.
 - `repeating` is rejected. Use `joiner_style`.
 - IDs for groups, sections, collections, fields, and lists must be globally unique.
 - Group headings always resolve to something because the runtime falls back from `note_label` to `nav_label` to `id`.

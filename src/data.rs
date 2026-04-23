@@ -519,10 +519,6 @@ pub struct HierarchyField {
     #[serde(default)]
     pub contains: Vec<HierarchyChildRef>,
     #[serde(default)]
-    pub lists: Vec<String>,
-    #[serde(default)]
-    pub collections: Vec<String>,
-    #[serde(default)]
     pub joiner_style: Option<JoinerStyle>,
     #[serde(default)]
     pub max_entries: Option<usize>,
@@ -577,7 +573,6 @@ impl HierarchyChildRef {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(deny_unknown_fields)]
 pub struct HierarchyFile {
     #[serde(default)]
     pub template: Option<HierarchyTemplate>,
@@ -1011,80 +1006,57 @@ fn resolve_field_inner(
     let mut lists = Vec::new();
     let mut collections = Vec::new();
     let mut format_lists = Vec::new();
-    if !field.contains.is_empty() {
-        for child in &field.contains {
-            match child {
-                HierarchyChildRef::Field { field: child_id } => {
-                    let child = fields_by_id.get(child_id.as_str()).ok_or_else(|| {
-                        format!(
-                            "field '{}' references unknown field '{}'",
-                            field.id, child_id
-                        )
-                    })?;
-                    fields.push(resolve_field(
-                        child,
-                        fields_by_id,
-                        collections_by_id,
-                        lists_by_id,
-                        visiting,
-                    )?);
-                }
-                HierarchyChildRef::List { list } => {
-                    let list = resolve_runtime_list(
-                        lists_by_id.get(list.as_str()).ok_or_else(|| {
-                            format!("field '{}' references unknown list '{}'", field.id, list)
-                        })?,
-                        lists_by_id,
-                    )?;
-                    if has_nested_fields {
-                        fields.push(wrap_list_as_field(&list));
-                    } else {
-                        lists.push(list);
-                    }
-                }
-                HierarchyChildRef::Collection { collection } => {
-                    let collection =
-                        collections_by_id.get(collection.as_str()).ok_or_else(|| {
-                            format!(
-                                "field '{}' references unknown collection '{}'",
-                                field.id, collection
-                            )
-                        })?;
-                    let resolved = resolve_collection(collection, &field.label, lists_by_id)?;
-                    if has_nested_fields {
-                        fields.push(wrap_collection_as_field(&resolved));
-                    } else {
-                        collections.push(resolved);
-                    }
-                }
-                other => {
-                    return Err(format!(
-                        "field '{}' cannot contain {:?}",
-                        field.id,
-                        other.kind()
-                    ));
-                }
-            }
-        }
-    } else {
-        for list_id in &field.lists {
-            lists.push(resolve_runtime_list(
-                lists_by_id.get(list_id.as_str()).ok_or_else(|| {
-                    format!("field '{}' references unknown list '{}'", field.id, list_id)
-                })?,
-                lists_by_id,
-            )?);
-        }
-        for collection_id in &field.collections {
-            let collection = collections_by_id
-                .get(collection_id.as_str())
-                .ok_or_else(|| {
+    for child in &field.contains {
+        match child {
+            HierarchyChildRef::Field { field: child_id } => {
+                let child = fields_by_id.get(child_id.as_str()).ok_or_else(|| {
                     format!(
-                        "field '{}' references unknown collection '{}'",
-                        field.id, collection_id
+                        "field '{}' references unknown field '{}'",
+                        field.id, child_id
                     )
                 })?;
-            collections.push(resolve_collection(collection, &field.label, lists_by_id)?);
+                fields.push(resolve_field(
+                    child,
+                    fields_by_id,
+                    collections_by_id,
+                    lists_by_id,
+                    visiting,
+                )?);
+            }
+            HierarchyChildRef::List { list } => {
+                let list = resolve_runtime_list(
+                    lists_by_id.get(list.as_str()).ok_or_else(|| {
+                        format!("field '{}' references unknown list '{}'", field.id, list)
+                    })?,
+                    lists_by_id,
+                )?;
+                if has_nested_fields {
+                    fields.push(wrap_list_as_field(&list));
+                } else {
+                    lists.push(list);
+                }
+            }
+            HierarchyChildRef::Collection { collection } => {
+                let collection = collections_by_id.get(collection.as_str()).ok_or_else(|| {
+                    format!(
+                        "field '{}' references unknown collection '{}'",
+                        field.id, collection
+                    )
+                })?;
+                let resolved = resolve_collection(collection, &field.label, lists_by_id)?;
+                if has_nested_fields {
+                    fields.push(wrap_collection_as_field(&resolved));
+                } else {
+                    collections.push(resolved);
+                }
+            }
+            other => {
+                return Err(format!(
+                    "field '{}' cannot contain {:?}",
+                    field.id,
+                    other.kind()
+                ));
+            }
         }
     }
     for list_id in referenced_placeholder_ids(field.format.as_deref()) {
@@ -1316,6 +1288,15 @@ fn parse_hierarchy_file_documents(content: &str, path: &Path) -> Result<Hierarch
                 doc_idx + 1
             ));
         }
+        if let Some((field_id, key_name)) = find_legacy_field_child_key(&value) {
+            return Err(format!(
+                "failed to parse '{}' document {}: field '{}' uses deprecated key '{}'; use `contains:` with typed child refs such as `- {{ list: some_list_id }}` instead.",
+                path.display(),
+                doc_idx + 1,
+                field_id,
+                key_name
+            ));
+        }
         let raw_value = value.clone();
         let mut file = HierarchyFile::deserialize(value).map_err(|err| {
             format!(
@@ -1364,6 +1345,25 @@ fn contains_legacy_repeating_key(value: &serde_yaml::Value) -> bool {
         serde_yaml::Value::Sequence(seq) => seq.iter().any(contains_legacy_repeating_key),
         _ => false,
     }
+}
+
+fn find_legacy_field_child_key(value: &serde_yaml::Value) -> Option<(String, &'static str)> {
+    let fields = value.get("fields")?.as_sequence()?;
+    for field in fields {
+        let mapping = field.as_mapping()?;
+        let field_id = mapping
+            .get(serde_yaml::Value::String("id".to_string()))
+            .and_then(serde_yaml::Value::as_str)
+            .unwrap_or("<unknown>")
+            .to_string();
+        if mapping.contains_key(serde_yaml::Value::String("lists".to_string())) {
+            return Some((field_id, "lists"));
+        }
+        if mapping.contains_key(serde_yaml::Value::String("collections".to_string())) {
+            return Some((field_id, "collections"));
+        }
+    }
+    None
 }
 
 fn validate_keybindings_file(path: &Path) -> Result<bool, String> {
@@ -1595,73 +1595,12 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
                 &field.contains,
                 &global_ids,
             )?;
-        } else {
-            for list_id in &field.lists {
-                match global_ids.get(list_id.as_str()) {
-                    Some(TypeTag::List) => {}
-                    Some(other) => {
-                        return Err(format!(
-                            "field '{}' expected list '{}', found {}. {}",
-                            field.id,
-                            list_id,
-                            kind_label(*other),
-                            expected_reference_kind_fix_hint(
-                                &field.id,
-                                TypeTag::List,
-                                *other,
-                                list_id
-                            )
-                        ))
-                    }
-                    None => {
-                        return Err(format!(
-                            "field '{}' references unknown list '{}'. {}",
-                            field.id,
-                            list_id,
-                            missing_reference_kind_fix_hint(&field.id, TypeTag::List, list_id)
-                        ))
-                    }
-                }
-            }
-            for collection_id in &field.collections {
-                match global_ids.get(collection_id.as_str()) {
-                    Some(TypeTag::Collection) => {}
-                    Some(other) => {
-                        return Err(format!(
-                            "field '{}' expected collection '{}', found {}. {}",
-                            field.id,
-                            collection_id,
-                            kind_label(*other),
-                            expected_reference_kind_fix_hint(
-                                &field.id,
-                                TypeTag::Collection,
-                                *other,
-                                collection_id
-                            )
-                        ))
-                    }
-                    None => {
-                        return Err(format!(
-                            "field '{}' references unknown collection '{}'. {}",
-                            field.id,
-                            collection_id,
-                            missing_reference_kind_fix_hint(
-                                &field.id,
-                                TypeTag::Collection,
-                                collection_id
-                            )
-                        ))
-                    }
-                }
-            }
         }
         for list_id in referenced_placeholder_ids(field.format.as_deref()) {
-            let field_has_list = field.lists.iter().any(|existing| existing == &list_id)
-                || field.contains.iter().any(
-                    |child| matches!(child, HierarchyChildRef::List { list } if list == &list_id),
-                );
-            let field_has_collection = field.collections.iter().any(|existing| existing == &list_id)
-                || field.contains.iter().any(
+            let field_has_list = field.contains.iter().any(
+                |child| matches!(child, HierarchyChildRef::List { list } if list == &list_id),
+            );
+            let field_has_collection = field.contains.iter().any(
                     |child| matches!(child, HierarchyChildRef::Collection { collection } if collection == &list_id),
                 );
             let field_has_field = field.contains.iter().any(
@@ -2427,6 +2366,20 @@ mod tests {
     }
 
     #[test]
+    fn parser_rejects_legacy_field_lists_key() {
+        let yaml = concat!(
+            "fields:\n",
+            "  - id: appointment_requested_field\n",
+            "    label: Request\n",
+            "    lists: [appointment_type_list]\n",
+        );
+        let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
+            .expect_err("legacy field lists key should fail");
+        assert!(err.contains("deprecated key 'lists'"));
+        assert!(err.contains("use `contains:`"));
+    }
+
+    #[test]
     fn parser_rejects_unknown_section_key() {
         let yaml = concat!(
             "sections:\n",
@@ -2533,12 +2486,13 @@ mod tests {
             "template:\n  contains:\n    - group: g\n",
             "groups:\n  - id: g\n    contains:\n      - section: s\n",
             "sections:\n  - id: s\n    contains:\n      - field: f\n",
-            "fields:\n  - id: f\n    label: Demo\n    lists: [demo]\n",
+            "fields:\n  - id: f\n    label: Demo\n    contains:\n      - list: demo\n",
             "collections:\n  - id: demo\n    contains: []\n",
         ));
         let err = validate_merged_hierarchy(&file).expect_err("wrong kind must fail");
-        assert!(err.contains("field 'f' expected list 'demo', found collection"));
-        assert!(err.contains("Fix: update field 'f' so 'demo' points to a list id"));
+        assert!(err.contains("field 'f' references 'demo' as list, but that id is registered as collection"));
+        assert!(err.contains("Fix: update field 'f'"));
+        assert!(err.contains("list"));
     }
 
     #[test]

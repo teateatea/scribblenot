@@ -50,7 +50,7 @@
 #    id
 #    label
 #    format?                # e.g. "{year}-{month}-{day}"
-#    lists[]?               # list ids used by the field modal / value builder
+#    contains[]?            # typed child refs, e.g. - { list: day }
 #    max_entries?           # max repeats before auto-advance
 #
 #  - list:
@@ -103,7 +103,6 @@ fields:
   - id: test_field
    # body: checklist
     label: Free
-    nav_label: FREE
     joiner_style: comma_and
    # max_entries: 3
     contains:
@@ -190,30 +189,29 @@ fields:
  # - id: date_field
  #   label: "{year}-{month}-{day}"
  #   format: ""
- #   lists:
- #     - day
- #     - month
- #     - year
+ #   contains:
+ #     - { list: day }
+ #     - { list: month }
+ #     - { list: year }
 
   - id: appointment_date_field
     label: "Date & Time"
    # note_label: "Appointment Date & Time"
     format: "# {date_month_word_list} {day}, {year} at {start_hour_list}:{start_minute_list}{am_pm_list} ({duration_list} min)"
-    lists:
-     # - duration_list
-      - start_hour_list
-      - start_minute_list
-      - duration_list
-      - day
-      - date_month_word_list
-      - year
+    contains:
+      - { list: start_hour_list }
+      - { list: start_minute_list }
+      - { list: duration_list }
+      - { list: day }
+      - { list: date_month_word_list }
+      - { list: year }
    #   - day
    #   - date_month_wor_list
 
   - id: appointment_requested_field
     label: Request
     format: "{year}-{month}-{day}: Pt requested a {appointment_type_list}{requested_regions}." # {the_region}."
-  #  lists:
+  #  contains:
   #    - appointment_type_list
   #    - the_region
     contains:

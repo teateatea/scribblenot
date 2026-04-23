@@ -162,8 +162,8 @@ block rather than a `section` block.
 
 **Accepts in `contains`:** `field` refs, `list` refs, `collection` refs
 
-**Legacy parallel syntax:** `lists: [id, id]`, `collections: [id, id]` - (now): reject with a
-clear error pointing the author to use `contains:` instead.
+**Legacy parallel syntax:** `lists: [id, id]`, `collections: [id, id]` - rejected with a
+clear parse error pointing the author to use `contains:` instead.
 
 **Cannot contain:** `section`, `group`, `template`
 - `section`: explicit no
