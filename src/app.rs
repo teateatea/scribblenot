@@ -3102,6 +3102,8 @@ impl App {
                 layout,
                 self.active_unit_index,
                 modal,
+                &self.assigned_values,
+                &self.config.sticky_values,
                 effective_spacer_width,
             )
         }) else {
@@ -3133,7 +3135,14 @@ impl App {
             let Some(modal) = self.modal.as_ref() else {
                 return;
             };
-            UnitGeometry::from_layout(layout, arriving_unit_index, modal, effective_spacer_width)
+            UnitGeometry::from_layout(
+                layout,
+                arriving_unit_index,
+                modal,
+                &self.assigned_values,
+                &self.config.sticky_values,
+                effective_spacer_width,
+            )
         };
 
         let Some(arrival_geometry) = arrival_geometry else {
@@ -3176,6 +3185,8 @@ impl App {
                 layout,
                 self.active_unit_index,
                 modal,
+                &self.assigned_values,
+                &self.config.sticky_values,
                 effective_spacer_width,
             )
         }) else {
@@ -3216,6 +3227,8 @@ impl App {
                     layout,
                     departing_unit_index,
                     modal,
+                    &self.assigned_values,
+                    &self.config.sticky_values,
                     effective_spacer_width,
                 ),
                 UnitContentSnapshot::from_layout_with_active_override(
@@ -3326,12 +3339,16 @@ impl App {
                 prev_layout,
                 departing_unit_index,
                 &previous_modal,
+                &self.assigned_values,
+                &self.config.sticky_values,
                 effective_spacer_width,
             );
             arr_geometry = UnitGeometry::from_layout(
                 curr_layout,
                 arriving_unit_index,
                 self.modal.as_ref().unwrap(),
+                &self.assigned_values,
+                &self.config.sticky_values,
                 effective_spacer_width,
             );
             dep_content = UnitContentSnapshot::from_layout_with_active_override(
@@ -5213,7 +5230,10 @@ mod composition_span_tests {
             .as_ref()
             .and_then(|modal| modal.collection_state.as_ref())
             .expect("collection state should remain open");
-        assert!(state.in_items(), "nav_right should enter the right-hand pane");
+        assert!(
+            state.in_items(),
+            "nav_right should enter the right-hand pane"
+        );
     }
 
     #[test]
@@ -5233,7 +5253,8 @@ mod composition_span_tests {
         let SectionState::Header(state) = &app.section_states[0] else {
             panic!("expected header state");
         };
-        let Some(HeaderFieldValue::CollectionState(value)) = state.repeated_values[0].first() else {
+        let Some(HeaderFieldValue::CollectionState(value)) = state.repeated_values[0].first()
+        else {
             panic!("expected confirmed collection state");
         };
         assert!(
@@ -5281,7 +5302,10 @@ mod composition_span_tests {
             .as_ref()
             .and_then(|modal| modal.collection_state.as_ref())
             .expect("collection state should remain available");
-        assert!(state.in_items(), "configured select binding should enter items");
+        assert!(
+            state.in_items(),
+            "configured select binding should enter items"
+        );
     }
 
     #[test]
