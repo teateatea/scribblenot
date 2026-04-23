@@ -49,3 +49,8 @@ _______________
 
 #### OBJECTIVE
 2026-04-12: BL Trapezius (Upper Fibers): Increased Resting Muscle Tension
+
+
+_______________
+
+#### CONTRAINDICATIONS

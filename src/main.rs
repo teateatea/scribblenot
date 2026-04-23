@@ -4,6 +4,7 @@ mod appkey_tests;
 mod config;
 mod data;
 mod document;
+mod error_report;
 mod import;
 mod modal;
 mod modal_layout;
@@ -201,7 +202,7 @@ fn run() -> anyhow::Result<()> {
     if let Some(arg) = std::env::args().nth(1) {
         if arg == "--validate-data" || arg == "--validate" {
             let summary =
-                data::validate_data_dir(&data::find_data_dir()).map_err(anyhow::Error::msg)?;
+                data::validate_data_dir(&data::find_data_dir()).map_err(anyhow::Error::new)?;
             let keybindings = if summary.keybindings_present {
                 "keybindings checked"
             } else {

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use crate::error_report::{ErrorKind, ErrorReport, ErrorSource};
 use serde::{
     de::{self, value::MapAccessDeserializer, MapAccess, Visitor},
     Deserialize, Deserializer, Serialize,
@@ -186,11 +187,53 @@ pub struct DataValidationSummary {
     pub boilerplate_count: usize,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct SourceIndex {
+    pub nodes: HashMap<String, SourceNode>,
+}
+
+impl SourceIndex {
+    fn insert(&mut self, id: String, node: SourceNode) {
+        self.nodes.entry(id).or_insert(node);
+    }
+
+    fn merge(&mut self, other: SourceIndex) {
+        for (id, node) in other.nodes {
+            self.insert(id, node);
+        }
+    }
+
+    fn source_for(&self, id: &str) -> Option<ErrorSource> {
+        self.nodes.get(id).map(|node| ErrorSource {
+            file: node.file.clone(),
+            line: node.line,
+            quoted_line: node.quoted_line.clone(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceNode {
+    pub file: PathBuf,
+    pub line: usize,
+    pub quoted_line: Option<String>,
+    pub raw: serde_yaml::Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct LoadedHierarchy {
+    pub hierarchy: HierarchyFile,
+    pub source_index: SourceIndex,
+}
+
 impl AppData {
     pub fn load(data_dir: PathBuf) -> Result<Self> {
-        let hierarchy = load_hierarchy_dir(&data_dir).map_err(anyhow::Error::msg)?;
+        let LoadedHierarchy {
+            hierarchy,
+            source_index,
+        } = load_hierarchy_dir(&data_dir).map_err(anyhow::Error::new)?;
         let hotkeys = collect_authored_hotkeys(&hierarchy);
-        let runtime = hierarchy_to_runtime(hierarchy).map_err(anyhow::Error::msg)?;
+        let runtime = hierarchy_to_runtime(hierarchy, &source_index).map_err(anyhow::Error::new)?;
 
         let kb_path = data_dir.join("keybindings.yml");
         let mut keybindings = if kb_path.exists() {
@@ -333,9 +376,16 @@ struct HierarchyItemRaw {
     #[serde(default)]
     fields: Option<Vec<String>>,
     #[serde(default)]
-    branch_fields: Vec<HeaderFieldConfig>,
+    branch_fields: Vec<BranchFieldAuthoring>,
     #[serde(default)]
     assigns: Vec<ItemAssignment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+enum BranchFieldAuthoring {
+    Ref(String),
+    Inline(HeaderFieldConfig),
 }
 
 impl<'de> Deserialize<'de> for HierarchyItem {
@@ -381,6 +431,14 @@ impl<'de> Deserialize<'de> for HierarchyItem {
 
 impl HierarchyItem {
     fn from_raw(item: HierarchyItemRaw) -> Self {
+        let mut referenced_fields = item.fields.unwrap_or_default();
+        let mut branch_fields = Vec::new();
+        for branch in item.branch_fields {
+            match branch {
+                BranchFieldAuthoring::Ref(field_id) => referenced_fields.push(field_id),
+                BranchFieldAuthoring::Inline(field) => branch_fields.push(field),
+            }
+        }
         Self {
             id: if item.id.is_empty() {
                 slugify_id(
@@ -395,8 +453,8 @@ impl HierarchyItem {
             label: item.label,
             default_enabled: item.default_enabled,
             output: item.output,
-            fields: item.fields,
-            branch_fields: item.branch_fields,
+            fields: (!referenced_fields.is_empty()).then_some(referenced_fields),
+            branch_fields,
             assigns: item.assigns,
         }
     }
@@ -495,6 +553,8 @@ pub struct HierarchyCollection {
     pub label: Option<String>,
     #[serde(default)]
     pub nav_label: Option<String>,
+    #[serde(default)]
+    pub note_label: Option<String>,
     #[serde(default = "default_item_enabled")]
     pub default_enabled: bool,
     #[serde(default)]
@@ -511,6 +571,8 @@ pub struct HierarchyField {
     pub id: String,
     pub label: String,
     #[serde(default)]
+    pub nav_label: Option<String>,
+    #[serde(default)]
     pub hotkey: Option<String>,
     #[serde(default)]
     pub format: Option<String>,
@@ -522,6 +584,8 @@ pub struct HierarchyField {
     pub lists: Vec<String>,
     #[serde(default)]
     pub collections: Vec<String>,
+    #[serde(default)]
+    pub format_lists: Vec<String>,
     #[serde(default)]
     pub joiner_style: Option<JoinerStyle>,
     #[serde(default)]
@@ -679,15 +743,44 @@ pub fn runtime_navigation(template: &RuntimeTemplate) -> Vec<NavigationEntry> {
     entries
 }
 
-pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, String> {
+#[derive(Clone)]
+struct ValidationOwner {
+    label: String,
+    source_id: Option<String>,
+}
+
+impl ValidationOwner {
+    fn new(label: impl Into<String>, source_id: Option<&str>) -> Self {
+        Self {
+            label: label.into(),
+            source_id: source_id.map(str::to_string),
+        }
+    }
+
+    fn source(&self, index: &SourceIndex) -> Option<ErrorSource> {
+        self.source_id
+            .as_deref()
+            .and_then(|id| index.source_for(id))
+    }
+}
+
+fn report(kind_id: &'static str, message: impl Into<String>, source: Option<ErrorSource>) -> ErrorReport {
+    ErrorReport::generic(kind_id, message).with_source(source)
+}
+
+pub fn hierarchy_to_runtime(
+    hf: HierarchyFile,
+    index: &SourceIndex,
+) -> std::result::Result<RuntimeHierarchy, ErrorReport> {
     let template = hf
         .template
         .clone()
-        .ok_or_else(|| "merged hierarchy is missing template".to_string())?;
+        .ok_or_else(|| report("missing_template", "merged hierarchy is missing template", None))?;
     let template_id = template
         .id
         .clone()
         .unwrap_or_else(|| "default_template".to_string());
+    let template_owner = ValidationOwner::new("template", template.id.as_deref());
 
     let groups_by_id: HashMap<&str, &HierarchyGroup> = hf
         .groups
@@ -722,11 +815,21 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
 
     for child in &template.contains {
         let HierarchyChildRef::Group { group } = child else {
-            return Err("template runtime build expected only group refs".to_string());
+            return Err(report(
+                "template_runtime_child_invalid",
+                "template runtime build expected only group refs",
+                template_owner.source(index),
+            ));
         };
         let hierarchy_group = groups_by_id
             .get(group.as_str())
-            .ok_or_else(|| format!("unknown group '{}'", group))?;
+            .ok_or_else(|| {
+                report(
+                    "runtime_unknown_group",
+                    format!("unknown group '{}'", group),
+                    template_owner.source(index),
+                )
+            })?;
         let group_note_label = hierarchy_group.note_label.clone();
         let group_nav_label = hierarchy_group
             .nav_label
@@ -745,7 +848,13 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
                 HierarchyChildRef::Section { section } => {
                     let section_data = sections_by_id
                         .get(section.as_str())
-                        .ok_or_else(|| format!("unknown section '{}'", section))?;
+                        .ok_or_else(|| {
+                            report(
+                                "runtime_unknown_section",
+                                format!("unknown section '{}'", section),
+                                index.source_for(&hierarchy_group.id),
+                            )
+                        })?;
                     let section_config = section_to_config(
                         section_data,
                         &child_fallback_name,
@@ -753,6 +862,7 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
                         &fields_by_id,
                         &collections_by_id,
                         &lists_by_id,
+                        index,
                     )?;
                     runtime_children.push(RuntimeNode::Section(section_config.clone()));
                     maybe_record_section_lists(
@@ -764,12 +874,21 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
                 HierarchyChildRef::Collection { collection } => {
                     let collection_def = collections_by_id
                         .get(collection.as_str())
-                        .ok_or_else(|| format!("unknown collection '{}'", collection))?;
+                        .ok_or_else(|| {
+                            report(
+                                "runtime_unknown_collection",
+                                format!("unknown collection '{}'", collection),
+                                index.source_for(&hierarchy_group.id),
+                            )
+                        })?;
                     let collection_config = collection_to_config(
                         collection_def,
                         &child_fallback_name,
                         hierarchy_group.id.as_str(),
+                        &fields_by_id,
+                        &collections_by_id,
                         &lists_by_id,
+                        index,
                     )?;
                     runtime_children.push(RuntimeNode::Collection(collection_config.clone()));
                     collection_data.insert(
@@ -777,15 +896,22 @@ pub fn hierarchy_to_runtime(hf: HierarchyFile) -> Result<RuntimeHierarchy, Strin
                         vec![resolve_collection(
                             collection_def,
                             &child_fallback_name,
+                            &fields_by_id,
+                            &collections_by_id,
                             &lists_by_id,
+                            index,
                         )?],
                     );
                 }
                 other => {
-                    return Err(format!(
-                        "group '{}' cannot contain {:?} at runtime",
-                        hierarchy_group.id,
-                        other.kind()
+                    return Err(report(
+                        "runtime_group_child_invalid",
+                        format!(
+                            "group '{}' cannot contain {:?} at runtime",
+                            hierarchy_group.id,
+                            other.kind()
+                        ),
+                        index.source_for(&hierarchy_group.id),
                     ));
                 }
             }
@@ -824,7 +950,8 @@ fn section_to_config(
     fields_by_id: &HashMap<&str, &HierarchyField>,
     collections_by_id: &HashMap<&str, &HierarchyCollection>,
     lists_by_id: &HashMap<&str, &HierarchyList>,
-) -> Result<SectionConfig, String> {
+    index: &SourceIndex,
+) -> std::result::Result<SectionConfig, ErrorReport> {
     let mut field_configs = Vec::new();
     let mut attached_lists = Vec::new();
 
@@ -833,28 +960,44 @@ fn section_to_config(
             HierarchyChildRef::Field { field } => {
                 let field_data = fields_by_id
                     .get(field.as_str())
-                    .ok_or_else(|| format!("unknown field '{}'", field))?;
+                    .ok_or_else(|| {
+                        report(
+                            "runtime_unknown_field",
+                            format!("unknown field '{}'", field),
+                            index.source_for(&section.id),
+                        )
+                    })?;
                 field_configs.push(resolve_field(
                     field_data,
                     fields_by_id,
                     collections_by_id,
                     lists_by_id,
                     &mut Vec::new(),
+                    index,
                 )?);
             }
             HierarchyChildRef::List { list } => {
                 attached_lists.push(resolve_runtime_list(
                     lists_by_id
                         .get(list.as_str())
-                        .ok_or_else(|| format!("unknown list '{}'", list))?,
+                        .ok_or_else(|| {
+                            report(
+                                "runtime_unknown_list",
+                                format!("unknown list '{}'", list),
+                                index.source_for(&section.id),
+                            )
+                        })?,
+                    fields_by_id,
+                    collections_by_id,
                     lists_by_id,
+                    index,
                 )?);
             }
             other => {
-                return Err(format!(
-                    "section '{}' cannot contain {:?}",
-                    section.id,
-                    other.kind()
+                return Err(report(
+                    "runtime_section_child_invalid",
+                    format!("section '{}' cannot contain {:?}", section.id, other.kind()),
+                    index.source_for(&section.id),
                 ));
             }
         }
@@ -890,9 +1033,19 @@ fn collection_to_config(
     collection: &HierarchyCollection,
     fallback_name: &str,
     group_id: &str,
+    fields_by_id: &HashMap<&str, &HierarchyField>,
+    collections_by_id: &HashMap<&str, &HierarchyCollection>,
     lists_by_id: &HashMap<&str, &HierarchyList>,
-) -> Result<SectionConfig, String> {
-    let resolved = resolve_collection(collection, fallback_name, lists_by_id)?;
+    index: &SourceIndex,
+) -> std::result::Result<SectionConfig, ErrorReport> {
+    let resolved = resolve_collection(
+        collection,
+        fallback_name,
+        fields_by_id,
+        collections_by_id,
+        lists_by_id,
+        index,
+    )?;
     let map_label = collection
         .nav_label
         .clone()
@@ -916,22 +1069,34 @@ fn collection_to_config(
 fn resolve_collection(
     collection: &HierarchyCollection,
     fallback_name: &str,
+    fields_by_id: &HashMap<&str, &HierarchyField>,
+    collections_by_id: &HashMap<&str, &HierarchyCollection>,
     lists_by_id: &HashMap<&str, &HierarchyList>,
-) -> Result<ResolvedCollectionConfig, String> {
+    index: &SourceIndex,
+) -> std::result::Result<ResolvedCollectionConfig, ErrorReport> {
     let mut lists = Vec::new();
     for child in &collection.contains {
         match child {
             HierarchyChildRef::List { list } => lists.push(resolve_runtime_list(
                 lists_by_id
                     .get(list.as_str())
-                    .ok_or_else(|| format!("unknown list '{}'", list))?,
+                    .ok_or_else(|| {
+                        report(
+                            "runtime_unknown_list",
+                            format!("unknown list '{}'", list),
+                            index.source_for(&collection.id),
+                        )
+                    })?,
+                fields_by_id,
+                collections_by_id,
                 lists_by_id,
+                index,
             )?),
             other => {
-                return Err(format!(
-                    "collection '{}' cannot contain {:?}",
-                    collection.id,
-                    other.kind()
+                return Err(report(
+                    "runtime_collection_child_invalid",
+                    format!("collection '{}' cannot contain {:?}", collection.id, other.kind()),
+                    index.source_for(&collection.id),
                 ));
             }
         }
@@ -946,6 +1111,7 @@ fn resolve_collection(
         .note
         .note_label
         .clone()
+        .or_else(|| collection.note_label.clone())
         .or_else(|| Some(format!("#### {}", label.to_uppercase())));
 
     Ok(ResolvedCollectionConfig {
@@ -974,11 +1140,16 @@ fn resolve_field(
     collections_by_id: &HashMap<&str, &HierarchyCollection>,
     lists_by_id: &HashMap<&str, &HierarchyList>,
     visiting: &mut Vec<String>,
-) -> Result<HeaderFieldConfig, String> {
+    index: &SourceIndex,
+) -> std::result::Result<HeaderFieldConfig, ErrorReport> {
     if visiting.iter().any(|existing| existing == &field.id) {
         let mut path = visiting.clone();
         path.push(field.id.clone());
-        return Err(format!("field cycle detected: {}", path.join(" -> ")));
+        return Err(report(
+            "runtime_field_cycle",
+            format!("field cycle detected: {}", path.join(" -> ")),
+            index.source_for(&field.id),
+        ));
     }
     visiting.push(field.id.clone());
 
@@ -994,6 +1165,7 @@ fn resolve_field(
         collections_by_id,
         lists_by_id,
         visiting,
+        index,
     );
     visiting.pop();
     result
@@ -1006,7 +1178,8 @@ fn resolve_field_inner(
     collections_by_id: &HashMap<&str, &HierarchyCollection>,
     lists_by_id: &HashMap<&str, &HierarchyList>,
     visiting: &mut Vec<String>,
-) -> Result<HeaderFieldConfig, String> {
+    index: &SourceIndex,
+) -> std::result::Result<HeaderFieldConfig, ErrorReport> {
     let mut fields = Vec::new();
     let mut lists = Vec::new();
     let mut collections = Vec::new();
@@ -1016,9 +1189,10 @@ fn resolve_field_inner(
             match child {
                 HierarchyChildRef::Field { field: child_id } => {
                     let child = fields_by_id.get(child_id.as_str()).ok_or_else(|| {
-                        format!(
-                            "field '{}' references unknown field '{}'",
-                            field.id, child_id
+                        report(
+                            "runtime_unknown_field",
+                            format!("field '{}' references unknown field '{}'", field.id, child_id),
+                            index.source_for(&field.id),
                         )
                     })?;
                     fields.push(resolve_field(
@@ -1027,14 +1201,22 @@ fn resolve_field_inner(
                         collections_by_id,
                         lists_by_id,
                         visiting,
+                        index,
                     )?);
                 }
                 HierarchyChildRef::List { list } => {
                     let list = resolve_runtime_list(
                         lists_by_id.get(list.as_str()).ok_or_else(|| {
-                            format!("field '{}' references unknown list '{}'", field.id, list)
+                            report(
+                                "runtime_unknown_list",
+                                format!("field '{}' references unknown list '{}'", field.id, list),
+                                index.source_for(&field.id),
+                            )
                         })?,
+                        fields_by_id,
+                        collections_by_id,
                         lists_by_id,
+                        index,
                     )?;
                     if has_nested_fields {
                         fields.push(wrap_list_as_field(&list));
@@ -1045,12 +1227,23 @@ fn resolve_field_inner(
                 HierarchyChildRef::Collection { collection } => {
                     let collection =
                         collections_by_id.get(collection.as_str()).ok_or_else(|| {
-                            format!(
-                                "field '{}' references unknown collection '{}'",
-                                field.id, collection
+                            report(
+                                "runtime_unknown_collection",
+                                format!(
+                                    "field '{}' references unknown collection '{}'",
+                                    field.id, collection
+                                ),
+                                index.source_for(&field.id),
                             )
                         })?;
-                    let resolved = resolve_collection(collection, &field.label, lists_by_id)?;
+                    let resolved = resolve_collection(
+                        collection,
+                        &field.label,
+                        fields_by_id,
+                        collections_by_id,
+                        lists_by_id,
+                        index,
+                    )?;
                     if has_nested_fields {
                         fields.push(wrap_collection_as_field(&resolved));
                     } else {
@@ -1058,10 +1251,10 @@ fn resolve_field_inner(
                     }
                 }
                 other => {
-                    return Err(format!(
-                        "field '{}' cannot contain {:?}",
-                        field.id,
-                        other.kind()
+                    return Err(report(
+                        "runtime_field_child_invalid",
+                        format!("field '{}' cannot contain {:?}", field.id, other.kind()),
+                        index.source_for(&field.id),
                     ));
                 }
             }
@@ -1070,40 +1263,81 @@ fn resolve_field_inner(
         for list_id in &field.lists {
             lists.push(resolve_runtime_list(
                 lists_by_id.get(list_id.as_str()).ok_or_else(|| {
-                    format!("field '{}' references unknown list '{}'", field.id, list_id)
+                    report(
+                        "runtime_unknown_list",
+                        format!("field '{}' references unknown list '{}'", field.id, list_id),
+                        index.source_for(&field.id),
+                    )
                 })?,
+                fields_by_id,
+                collections_by_id,
                 lists_by_id,
+                index,
+            )?);
+        }
+        for list_id in &field.format_lists {
+            format_lists.push(resolve_runtime_list(
+                lists_by_id.get(list_id.as_str()).ok_or_else(|| {
+                    report(
+                        "runtime_unknown_format_list",
+                        format!("field '{}' references unknown format list '{}'", field.id, list_id),
+                        index.source_for(&field.id),
+                    )
+                })?,
+                fields_by_id,
+                collections_by_id,
+                lists_by_id,
+                index,
             )?);
         }
         for collection_id in &field.collections {
             let collection = collections_by_id
                 .get(collection_id.as_str())
                 .ok_or_else(|| {
-                    format!(
-                        "field '{}' references unknown collection '{}'",
-                        field.id, collection_id
+                    report(
+                        "runtime_unknown_collection",
+                        format!(
+                            "field '{}' references unknown collection '{}'",
+                            field.id, collection_id
+                        ),
+                        index.source_for(&field.id),
                     )
                 })?;
-            collections.push(resolve_collection(collection, &field.label, lists_by_id)?);
+            collections.push(resolve_collection(
+                collection,
+                &field.label,
+                fields_by_id,
+                collections_by_id,
+                lists_by_id,
+                index,
+            )?);
         }
     }
     for list_id in referenced_placeholder_ids(field.format.as_deref()) {
         let list_is_primary = lists.iter().any(|list| list.id == list_id);
+        let format_list_is_primary = format_lists.iter().any(|list| list.id == list_id);
         let collection_matches = collections
             .iter()
             .any(|collection| collection.id == list_id);
         let field_matches = fields.iter().any(|child| child.id == list_id);
-        if list_is_primary || collection_matches || field_matches {
+        if list_is_primary || format_list_is_primary || collection_matches || field_matches {
             continue;
         }
         format_lists.push(resolve_runtime_list(
             lists_by_id.get(list_id.as_str()).ok_or_else(|| {
-                format!(
-                    "field '{}' references unknown format list '{}'",
-                    field.id, list_id
+                report(
+                    "runtime_unknown_format_list",
+                    format!(
+                        "field '{}' references unknown format list '{}'",
+                        field.id, list_id
+                    ),
+                    index.source_for(&field.id),
                 )
             })?,
+            fields_by_id,
+            collections_by_id,
             lists_by_id,
+            index,
         )?);
     }
     Ok(HeaderFieldConfig {
@@ -1215,15 +1449,26 @@ fn checklist_items_from_lists(lists: &[HierarchyList]) -> Vec<String> {
         .collect()
 }
 
-fn read_hierarchy_dir(dir: &Path) -> Result<(HierarchyFile, usize), String> {
+fn read_hierarchy_dir(dir: &Path) -> std::result::Result<(HierarchyFile, SourceIndex, usize), ErrorReport> {
     let mut merged = HierarchyFile::default();
+    let mut source_index = SourceIndex::default();
     let mut template_count = 0usize;
     let mut hierarchy_file_count = 0usize;
 
     let mut entries = fs::read_dir(dir)
-        .map_err(|err| format!("failed to read data dir '{}': {err}", dir.display()))?
+        .map_err(|err| {
+            ErrorReport::generic(
+                "read_data_dir_failed",
+                format!("failed to read data dir '{}': {err}", dir.display()),
+            )
+        })?
         .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|err| format!("failed to enumerate data dir '{}': {err}", dir.display()))?;
+        .map_err(|err| {
+            ErrorReport::generic(
+                "enumerate_data_dir_failed",
+                format!("failed to enumerate data dir '{}': {err}", dir.display()),
+            )
+        })?;
     entries.sort_by_key(|entry| entry.path());
 
     for entry in entries {
@@ -1231,21 +1476,28 @@ fn read_hierarchy_dir(dir: &Path) -> Result<(HierarchyFile, usize), String> {
         if path.extension().and_then(|ext| ext.to_str()) != Some("yml") {
             continue;
         }
-        if path.file_name().and_then(|name| name.to_str()) == Some("keybindings.yml") {
+        if matches!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("keybindings.yml" | "config.yml" | "default-theme.yml")
+        ) {
             continue;
         }
         hierarchy_file_count += 1;
 
-        let content = fs::read_to_string(&path)
-            .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
-        let file = parse_hierarchy_file_documents(&content, &path)?;
+        let content = fs::read_to_string(&path).map_err(|err| {
+            ErrorReport::generic(
+                "read_hierarchy_file_failed",
+                format!("failed to read '{}': {err}", path.display()),
+            )
+        })?;
+        let (file, file_sources) = parse_hierarchy_file_documents(&content, &path)?;
 
         if file.template.is_some() {
             template_count += 1;
             if merged.template.is_some() {
-                return Err(format!(
-                    "multiple templates found while loading '{}'",
-                    path.display()
+                return Err(ErrorReport::generic(
+                    "multiple_templates_across_files",
+                    format!("multiple templates found while loading '{}'", path.display()),
                 ));
             }
             merged.template = file.template;
@@ -1257,30 +1509,38 @@ fn read_hierarchy_dir(dir: &Path) -> Result<(HierarchyFile, usize), String> {
         merged.fields.extend(file.fields);
         merged.lists.extend(file.lists);
         merged.boilerplate.extend(file.boilerplate);
+        source_index.merge(file_sources);
     }
 
     if template_count != 1 {
-        return Err(format!(
-            "expected exactly 1 template across data files, found {}",
-            template_count
+        return Err(ErrorReport::generic(
+            "template_count_invalid",
+            format!(
+                "expected exactly 1 template across data files, found {}",
+                template_count
+            ),
         ));
     }
 
-    Ok((merged, hierarchy_file_count))
+    Ok((merged, source_index, hierarchy_file_count))
 }
 
-pub fn load_hierarchy_dir(dir: &Path) -> Result<HierarchyFile, String> {
-    let (merged, _) = read_hierarchy_dir(dir)?;
-    validate_merged_hierarchy(&merged)?;
-    Ok(merged)
+pub fn load_hierarchy_dir(dir: &Path) -> std::result::Result<LoadedHierarchy, ErrorReport> {
+    let (merged, source_index, _) = read_hierarchy_dir(dir)?;
+    validate_merged_hierarchy(&merged, &source_index)?;
+    Ok(LoadedHierarchy {
+        hierarchy: merged,
+        source_index,
+    })
 }
 
-pub fn validate_data_dir(dir: &Path) -> Result<DataValidationSummary, String> {
-    let (merged, hierarchy_file_count) = read_hierarchy_dir(dir)?;
-    validate_merged_hierarchy(&merged)?;
+pub fn validate_data_dir(dir: &Path) -> std::result::Result<DataValidationSummary, ErrorReport> {
+    let (merged, source_index, hierarchy_file_count) = read_hierarchy_dir(dir)?;
+    validate_merged_hierarchy(&merged, &source_index)?;
     let summary = DataValidationSummary {
         hierarchy_file_count,
-        keybindings_present: validate_keybindings_file(&dir.join("keybindings.yml"))?,
+        keybindings_present: validate_keybindings_file(&dir.join("keybindings.yml"))
+            .map_err(|message| ErrorReport::generic("keybindings_invalid", message))?,
         group_count: merged.groups.len(),
         section_count: merged.sections.len(),
         collection_count: merged.collections.len(),
@@ -1288,50 +1548,46 @@ pub fn validate_data_dir(dir: &Path) -> Result<DataValidationSummary, String> {
         list_count: merged.lists.len(),
         boilerplate_count: merged.boilerplate.len(),
     };
-    hierarchy_to_runtime(merged)
-        .map_err(|err| format!("validated data could not build runtime hierarchy: {err}"))?;
+    hierarchy_to_runtime(merged, &source_index).map_err(|err| {
+        ErrorReport::generic(
+            "runtime_build_failed",
+            format!("validated data could not build runtime hierarchy: {err}"),
+        )
+    })?;
     Ok(summary)
 }
 
-fn parse_hierarchy_file_documents(content: &str, path: &Path) -> Result<HierarchyFile, String> {
+fn parse_hierarchy_file_documents(
+    content: &str,
+    path: &Path,
+) -> std::result::Result<(HierarchyFile, SourceIndex), ErrorReport> {
     let mut merged = HierarchyFile::default();
-    let mut docs = serde_yaml::Deserializer::from_str(content).peekable();
+    let mut source_index = SourceIndex::default();
 
-    if docs.peek().is_none() {
-        return Ok(merged);
-    }
-
-    for (doc_idx, doc) in docs.enumerate() {
-        let value = serde_yaml::Value::deserialize(doc).map_err(|err| {
-            format!(
-                "failed to parse '{}' document {}: {err}",
-                path.display(),
-                doc_idx + 1
-            )
-        })?;
+    for (doc_idx, doc) in split_yaml_documents(content).into_iter().enumerate() {
+        let value: serde_yaml::Value =
+            serde_yaml::from_str(doc.text).map_err(|err| yaml_doc_error(path, &doc, doc_idx + 1, err))?;
         if contains_legacy_repeating_key(&value) {
-            return Err(format!(
-                "failed to parse '{}' document {}: deprecated key 'repeating' found; use 'joiner_style'",
-                path.display(),
-                doc_idx + 1
+            return Err(ErrorReport::generic(
+                "legacy_repeating_key",
+                format!(
+                    "failed to parse '{}' document {}: deprecated key 'repeating' found; use 'joiner_style'",
+                    path.display(),
+                    doc_idx + 1
+                ),
             ));
         }
-        let raw_value = value.clone();
-        let mut file = HierarchyFile::deserialize(value).map_err(|err| {
-            format!(
-                "failed to parse '{}' document {}: {err}",
-                path.display(),
-                doc_idx + 1
-            )
-        })?;
+        let mut file: HierarchyFile =
+            serde_yaml::from_str(doc.text).map_err(|err| yaml_doc_error(path, &doc, doc_idx + 1, err))?;
         normalize_items(&mut file);
-        file.item_hotkeys = extract_item_hotkeys_from_value(&raw_value, &file);
+        file.item_hotkeys = extract_item_hotkeys_from_value(&value, &file);
+        let doc_sources = build_source_index(&value, path, &doc);
 
         if file.template.is_some() {
             if merged.template.is_some() {
-                return Err(format!(
-                    "multiple templates found inside '{}'",
-                    path.display()
+                return Err(ErrorReport::generic(
+                    "multiple_templates_in_file",
+                    format!("multiple templates found inside '{}'", path.display()),
                 ));
             }
             merged.template = file.template.take();
@@ -1350,9 +1606,289 @@ fn parse_hierarchy_file_documents(content: &str, path: &Path) -> Result<Hierarch
                 .or_default()
                 .extend(item_hotkeys);
         }
+        source_index.merge(doc_sources);
     }
 
-    Ok(merged)
+    Ok((merged, source_index))
+}
+
+struct YamlDocument<'a> {
+    text: &'a str,
+    start_line: usize,
+}
+
+fn split_yaml_documents(content: &str) -> Vec<YamlDocument<'_>> {
+    let mut docs = Vec::new();
+    let mut current_start = 0usize;
+    let mut line_start = 0usize;
+    let mut line_no = 1usize;
+    let mut first_content_line = 1usize;
+    let mut seen_content = false;
+
+    for line in content.split_inclusive('\n') {
+        let line_end = line_start + line.len();
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        if is_doc_boundary(trimmed) {
+            if current_start < line_start {
+                let doc = &content[current_start..line_start];
+                if !doc.trim().is_empty() {
+                    docs.push(YamlDocument {
+                        text: doc,
+                        start_line: first_content_line,
+                    });
+                }
+            }
+            current_start = line_end;
+            first_content_line = line_no + 1;
+            seen_content = false;
+        } else if !seen_content && !trimmed.trim().is_empty() {
+            first_content_line = line_no;
+            seen_content = true;
+        }
+        line_start = line_end;
+        line_no += 1;
+    }
+
+    if current_start < content.len() {
+        let doc = &content[current_start..];
+        if !doc.trim().is_empty() {
+            docs.push(YamlDocument {
+                text: doc,
+                start_line: first_content_line,
+            });
+        }
+    }
+
+    docs
+}
+
+fn is_doc_boundary(line: &str) -> bool {
+    if line.starts_with(' ') || line.starts_with('\t') {
+        return false;
+    }
+    let trimmed = line.trim();
+    trimmed == "---" || trimmed == "..."
+}
+
+fn yaml_doc_error(
+    path: &Path,
+    doc: &YamlDocument<'_>,
+    doc_number: usize,
+    err: serde_yaml::Error,
+) -> ErrorReport {
+    let source = err.location().map(|location| ErrorSource {
+        file: path.to_path_buf(),
+        line: doc.start_line + location.line().saturating_sub(1),
+        quoted_line: quoted_line(doc.text, location.line()),
+    });
+    ErrorReport::generic(
+        "yaml_parse_failed",
+        format!(
+            "failed to parse '{}' document {}: {err}",
+            path.display(),
+            doc_number
+        ),
+    )
+    .with_source(source)
+}
+
+fn quoted_line(text: &str, relative_line: usize) -> Option<String> {
+    text.lines()
+        .nth(relative_line.saturating_sub(1))
+        .map(|line| line.trim().to_string())
+}
+
+fn build_source_index(value: &serde_yaml::Value, path: &Path, doc: &YamlDocument<'_>) -> SourceIndex {
+    let mut index = SourceIndex::default();
+    let Some(root) = value.as_mapping() else {
+        return index;
+    };
+
+    if let Some(template) = root
+        .get(serde_yaml::Value::String("template".to_string()))
+        .and_then(serde_yaml::Value::as_mapping)
+    {
+        if let Some(template_id) = template
+            .get(serde_yaml::Value::String("id".to_string()))
+            .and_then(serde_yaml::Value::as_str)
+        {
+            let anchor = find_mapping_anchor(doc.text, doc.start_line, "template", template_id);
+            index.insert(
+                template_id.to_string(),
+                SourceNode {
+                    file: path.to_path_buf(),
+                    line: anchor.line,
+                    quoted_line: anchor.quoted_line,
+                    raw: serde_yaml::Value::Mapping(template.clone()),
+                },
+            );
+        }
+    }
+
+    let anchors = collect_top_level_entry_anchors(doc.text, doc.start_line);
+    for key in [
+        "groups",
+        "sections",
+        "collections",
+        "fields",
+        "lists",
+        "boilerplate",
+    ] {
+        let Some(raw_entries) = root
+            .get(serde_yaml::Value::String(key.to_string()))
+            .and_then(serde_yaml::Value::as_sequence)
+        else {
+            continue;
+        };
+        let entry_anchors = anchors.get(key);
+        for (idx, raw_entry) in raw_entries.iter().enumerate() {
+            let Some(id) = raw_entry
+                .as_mapping()
+                .and_then(|mapping| mapping.get(serde_yaml::Value::String("id".to_string())))
+                .and_then(serde_yaml::Value::as_str)
+            else {
+                continue;
+            };
+            let anchor = entry_anchors
+                .and_then(|entries| entries.get(idx))
+                .cloned()
+                .unwrap_or_else(|| SourceAnchor {
+                    line: doc.start_line,
+                    quoted_line: None,
+                });
+            index.insert(
+                id.to_string(),
+                SourceNode {
+                    file: path.to_path_buf(),
+                    line: anchor.line,
+                    quoted_line: anchor.quoted_line,
+                    raw: raw_entry.clone(),
+                },
+            );
+        }
+    }
+
+    index
+}
+
+#[derive(Debug, Clone)]
+struct SourceAnchor {
+    line: usize,
+    quoted_line: Option<String>,
+}
+
+fn find_mapping_anchor(doc_text: &str, start_line: usize, top_level_key: &str, id: &str) -> SourceAnchor {
+    let mut current_key = None::<&str>;
+    for (idx, line) in doc_text.lines().enumerate() {
+        let absolute_line = start_line + idx;
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if leading_spaces(line) == 0 {
+            current_key = top_level_key_name(trimmed);
+            continue;
+        }
+        if current_key == Some(top_level_key) && trimmed.starts_with("id:") {
+            let maybe_id = trimmed
+                .trim_start_matches("id:")
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'');
+            if maybe_id == id {
+                return SourceAnchor {
+                    line: absolute_line,
+                    quoted_line: Some(trimmed.to_string()),
+                };
+            }
+        }
+    }
+    SourceAnchor {
+        line: start_line,
+        quoted_line: None,
+    }
+}
+
+fn collect_top_level_entry_anchors(
+    doc_text: &str,
+    start_line: usize,
+) -> HashMap<String, Vec<SourceAnchor>> {
+    let lines: Vec<&str> = doc_text.lines().collect();
+    let mut anchors: HashMap<String, Vec<SourceAnchor>> = HashMap::new();
+    let mut current_key: Option<String> = None;
+    let mut idx = 0usize;
+
+    while idx < lines.len() {
+        let line = lines[idx];
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            idx += 1;
+            continue;
+        }
+
+        if leading_spaces(line) == 0 {
+            current_key = top_level_key_name(trimmed)
+                .filter(|key| matches!(*key, "groups" | "sections" | "collections" | "fields" | "lists" | "boilerplate"))
+                .map(str::to_string);
+            idx += 1;
+            continue;
+        }
+
+        if leading_spaces(line) == 2 && trimmed.starts_with("- ") {
+            if let Some(key) = current_key.clone() {
+                let start_idx = idx;
+                idx += 1;
+                while idx < lines.len() {
+                    let next = lines[idx];
+                    let next_trimmed = next.trim();
+                    if next_trimmed.is_empty() || next_trimmed.starts_with('#') {
+                        idx += 1;
+                        continue;
+                    }
+                    if leading_spaces(next) == 0
+                        || (leading_spaces(next) == 2 && next_trimmed.starts_with("- "))
+                    {
+                        break;
+                    }
+                    idx += 1;
+                }
+                let anchor =
+                    find_entry_anchor(&lines[start_idx..idx], start_line + start_idx).unwrap_or(
+                        SourceAnchor {
+                            line: start_line + start_idx,
+                            quoted_line: Some(lines[start_idx].trim().to_string()),
+                        },
+                    );
+                anchors.entry(key).or_default().push(anchor);
+                continue;
+            }
+        }
+
+        idx += 1;
+    }
+
+    anchors
+}
+
+fn find_entry_anchor(entry_lines: &[&str], start_line: usize) -> Option<SourceAnchor> {
+    for (offset, line) in entry_lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("- id:") || trimmed.starts_with("id:") || trimmed.contains("{ id:") {
+            return Some(SourceAnchor {
+                line: start_line + offset,
+                quoted_line: Some(trimmed.to_string()),
+            });
+        }
+    }
+    None
+}
+
+fn top_level_key_name(line: &str) -> Option<&str> {
+    line.split_once(':').map(|(key, _)| key)
+}
+
+fn leading_spaces(line: &str) -> usize {
+    line.chars().take_while(|ch| *ch == ' ').count()
 }
 
 fn contains_legacy_repeating_key(value: &serde_yaml::Value) -> bool {
@@ -1473,15 +2009,48 @@ fn collect_authored_hotkeys(file: &HierarchyFile) -> AuthoredHotkeys {
 
 fn resolve_runtime_list(
     list: &HierarchyList,
+    fields_by_id: &HashMap<&str, &HierarchyField>,
+    collections_by_id: &HashMap<&str, &HierarchyCollection>,
     lists_by_id: &HashMap<&str, &HierarchyList>,
-) -> Result<HierarchyList, String> {
+    index: &SourceIndex,
+) -> std::result::Result<HierarchyList, ErrorReport> {
     let mut resolved = list.clone();
     for item in &mut resolved.items {
+        let mut resolved_branch_fields = Vec::new();
+        if let Some(field_ids) = item.fields.as_ref() {
+            for field_id in field_ids {
+                let field = fields_by_id.get(field_id.as_str()).ok_or_else(|| {
+                    report(
+                        "runtime_unknown_branch_field",
+                        format!(
+                            "list '{}' item '{}' references unknown branch field '{}'",
+                            list.id, item.id, field_id
+                        ),
+                        index.source_for(&list.id),
+                    )
+                })?;
+                resolved_branch_fields.push(resolve_field(
+                    field,
+                    fields_by_id,
+                    collections_by_id,
+                    lists_by_id,
+                    &mut Vec::new(),
+                    index,
+                )?);
+            }
+        }
+        if !resolved_branch_fields.is_empty() {
+            item.branch_fields.extend(resolved_branch_fields);
+        }
         for assign in &mut item.assigns {
             let target_list = lists_by_id.get(assign.list_id.as_str()).ok_or_else(|| {
-                format!(
-                    "list '{}' item '{}' assigns unknown list '{}'",
-                    list.id, item.id, assign.list_id
+                report(
+                    "runtime_assign_unknown_list",
+                    format!(
+                        "list '{}' item '{}' assigns unknown list '{}'",
+                        list.id, item.id, assign.list_id
+                    ),
+                    index.source_for(&list.id),
                 )
             })?;
             let target_item = target_list
@@ -1489,9 +2058,13 @@ fn resolve_runtime_list(
                 .iter()
                 .find(|target| target.id == assign.item_id)
                 .ok_or_else(|| {
-                    format!(
-                        "list '{}' item '{}' assigns unknown item '{}' in list '{}'",
-                        list.id, item.id, assign.item_id, assign.list_id
+                    report(
+                        "runtime_assign_unknown_item",
+                        format!(
+                            "list '{}' item '{}' assigns unknown item '{}' in list '{}'",
+                            list.id, item.id, assign.item_id, assign.list_id
+                        ),
+                        index.source_for(&list.id),
                     )
                 })?;
             assign.output = target_item.output().to_string();
@@ -1500,68 +2073,83 @@ fn resolve_runtime_list(
     Ok(resolved)
 }
 
-fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
+fn validate_merged_hierarchy(
+    file: &HierarchyFile,
+    index: &SourceIndex,
+) -> std::result::Result<(), ErrorReport> {
     let template = file
         .template
         .as_ref()
-        .ok_or_else(|| "merged hierarchy is missing template".to_string())?;
+        .ok_or_else(|| report("missing_template", "merged hierarchy is missing template", None))?;
 
     let mut global_ids: HashMap<String, TypeTag> = HashMap::new();
-    register_global_ids(&mut global_ids, &file.groups, TypeTag::Group, |item| {
-        &item.id
-    })?;
-    register_global_ids(&mut global_ids, &file.sections, TypeTag::Section, |item| {
-        &item.id
-    })?;
+    register_global_ids(&mut global_ids, &file.groups, TypeTag::Group, |item| &item.id, index)?;
+    register_global_ids(
+        &mut global_ids,
+        &file.sections,
+        TypeTag::Section,
+        |item| &item.id,
+        index,
+    )?;
     register_global_ids(
         &mut global_ids,
         &file.collections,
         TypeTag::Collection,
         |item| &item.id,
+        index,
     )?;
-    register_global_ids(&mut global_ids, &file.fields, TypeTag::Field, |item| {
-        &item.id
-    })?;
-    register_global_ids(&mut global_ids, &file.lists, TypeTag::List, |item| &item.id)?;
+    register_global_ids(&mut global_ids, &file.fields, TypeTag::Field, |item| &item.id, index)?;
+    register_global_ids(&mut global_ids, &file.lists, TypeTag::List, |item| &item.id, index)?;
 
     let mut boilerplate_ids = HashSet::new();
     for entry in &file.boilerplate {
         if !boilerplate_ids.insert(entry.id.clone()) {
-            return Err(format!(
-                "duplicate boilerplate id '{}'. Fix: rename one boilerplate entry so each boilerplate id is unique.",
-                entry.id
+            return Err(report(
+                "duplicate_boilerplate_id",
+                format!(
+                    "duplicate boilerplate id '{}'. Fix: rename one boilerplate entry so each boilerplate id is unique.",
+                    entry.id
+                ),
+                index.source_for(&entry.id),
             ));
         }
     }
 
     validate_children(
-        "template",
+        ValidationOwner::new("template", template.id.as_deref()),
         &[TypeTag::Group],
         &template.contains,
         &global_ids,
+        index,
     )?;
     for group in &file.groups {
         validate_children(
-            &format!("group '{}'", group.id),
+            ValidationOwner::new(&format!("group '{}'", group.id), Some(&group.id)),
             &[TypeTag::Section, TypeTag::Collection],
             &group.contains,
             &global_ids,
+            index,
         )?;
     }
     for section in &file.sections {
         validate_children(
-            &format!("section '{}'", section.id),
+            ValidationOwner::new(&format!("section '{}'", section.id), Some(&section.id)),
             &[TypeTag::Field, TypeTag::List],
             &section.contains,
             &global_ids,
+            index,
         )?;
     }
     for collection in &file.collections {
         validate_children(
-            &format!("collection '{}'", collection.id),
+            ValidationOwner::new(
+                &format!("collection '{}'", collection.id),
+                Some(&collection.id),
+            ),
             &[TypeTag::List],
             &collection.contains,
             &global_ids,
+            index,
         )?;
     }
 
@@ -1569,11 +2157,16 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
         validate_explicit_hotkey(
             &format!("section '{}'", section.id),
             section.hotkey.as_deref(),
+            index.source_for(&section.id),
         )?;
     }
 
     for field in &file.fields {
-        validate_explicit_hotkey(&format!("field '{}'", field.id), field.hotkey.as_deref())?;
+        validate_explicit_hotkey(
+            &format!("field '{}'", field.id),
+            field.hotkey.as_deref(),
+            index.source_for(&field.id),
+        )?;
     }
 
     for list in &file.lists {
@@ -1583,42 +2176,90 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
                 .get(&list.id)
                 .and_then(|items| items.get(&item.id))
                 .map(String::as_str);
-            validate_explicit_hotkey(&format!("list '{}' item '{}'", list.id, item.id), hotkey)?;
+            validate_explicit_hotkey(
+                &format!("list '{}' item '{}'", list.id, item.id),
+                hotkey,
+                index.source_for(&list.id),
+            )?;
         }
     }
 
     for field in &file.fields {
         if !field.contains.is_empty() {
             validate_children(
-                &format!("field '{}'", field.id),
+                ValidationOwner::new(format!("field '{}'", field.id), Some(&field.id)),
                 &[TypeTag::Field, TypeTag::List, TypeTag::Collection],
                 &field.contains,
                 &global_ids,
+                index,
             )?;
         } else {
             for list_id in &field.lists {
                 match global_ids.get(list_id.as_str()) {
                     Some(TypeTag::List) => {}
                     Some(other) => {
-                        return Err(format!(
-                            "field '{}' expected list '{}', found {}. {}",
-                            field.id,
-                            list_id,
-                            kind_label(*other),
-                            expected_reference_kind_fix_hint(
-                                &field.id,
-                                TypeTag::List,
-                                *other,
-                                list_id
-                            )
+                        return Err(report(
+                            "field_expected_list_wrong_kind",
+                            format!(
+                                "field '{}' expected list '{}', found {}. {}",
+                                field.id,
+                                list_id,
+                                kind_label(*other),
+                                expected_reference_kind_fix_hint(
+                                    &field.id,
+                                    TypeTag::List,
+                                    *other,
+                                    list_id
+                                )
+                            ),
+                            index.source_for(&field.id),
                         ))
                     }
                     None => {
-                        return Err(format!(
-                            "field '{}' references unknown list '{}'. {}",
-                            field.id,
-                            list_id,
-                            missing_reference_kind_fix_hint(&field.id, TypeTag::List, list_id)
+                        return Err(report(
+                            "field_unknown_list",
+                            format!(
+                                "field '{}' references unknown list '{}'. {}",
+                                field.id,
+                                list_id,
+                                missing_reference_kind_fix_hint(&field.id, TypeTag::List, list_id)
+                            ),
+                            index.source_for(&field.id),
+                        ))
+                    }
+                }
+            }
+            for list_id in &field.format_lists {
+                match global_ids.get(list_id.as_str()) {
+                    Some(TypeTag::List) => {}
+                    Some(other) => {
+                        return Err(report(
+                            "field_explicit_format_list_wrong_kind",
+                            format!(
+                                "field '{}' expected format list '{}', found {}. {}",
+                                field.id,
+                                list_id,
+                                kind_label(*other),
+                                expected_reference_kind_fix_hint(
+                                    &field.id,
+                                    TypeTag::List,
+                                    *other,
+                                    list_id
+                                )
+                            ),
+                            index.source_for(&field.id),
+                        ))
+                    }
+                    None => {
+                        return Err(report(
+                            "field_unknown_explicit_format_list",
+                            format!(
+                                "field '{}' references unknown format list '{}'. {}",
+                                field.id,
+                                list_id,
+                                missing_reference_kind_fix_hint(&field.id, TypeTag::List, list_id)
+                            ),
+                            index.source_for(&field.id),
                         ))
                     }
                 }
@@ -1627,29 +2268,37 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
                 match global_ids.get(collection_id.as_str()) {
                     Some(TypeTag::Collection) => {}
                     Some(other) => {
-                        return Err(format!(
-                            "field '{}' expected collection '{}', found {}. {}",
-                            field.id,
-                            collection_id,
-                            kind_label(*other),
-                            expected_reference_kind_fix_hint(
-                                &field.id,
-                                TypeTag::Collection,
-                                *other,
-                                collection_id
-                            )
+                        return Err(report(
+                            "field_expected_collection_wrong_kind",
+                            format!(
+                                "field '{}' expected collection '{}', found {}. {}",
+                                field.id,
+                                collection_id,
+                                kind_label(*other),
+                                expected_reference_kind_fix_hint(
+                                    &field.id,
+                                    TypeTag::Collection,
+                                    *other,
+                                    collection_id
+                                )
+                            ),
+                            index.source_for(&field.id),
                         ))
                     }
                     None => {
-                        return Err(format!(
-                            "field '{}' references unknown collection '{}'. {}",
-                            field.id,
-                            collection_id,
-                            missing_reference_kind_fix_hint(
-                                &field.id,
-                                TypeTag::Collection,
-                                collection_id
-                            )
+                        return Err(report(
+                            "field_unknown_collection",
+                            format!(
+                                "field '{}' references unknown collection '{}'. {}",
+                                field.id,
+                                collection_id,
+                                missing_reference_kind_fix_hint(
+                                    &field.id,
+                                    TypeTag::Collection,
+                                    collection_id
+                                )
+                            ),
+                            index.source_for(&field.id),
                         ))
                     }
                 }
@@ -1657,6 +2306,10 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
         }
         for list_id in referenced_placeholder_ids(field.format.as_deref()) {
             let field_has_list = field.lists.iter().any(|existing| existing == &list_id)
+                || field
+                    .format_lists
+                    .iter()
+                    .any(|existing| existing == &list_id)
                 || field.contains.iter().any(
                     |child| matches!(child, HierarchyChildRef::List { list } if list == &list_id),
                 );
@@ -1673,25 +2326,33 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
             match global_ids.get(list_id.as_str()) {
                 Some(TypeTag::List) => {}
                 Some(other) => {
-                    return Err(format!(
-                        "field '{}' expected format list '{}', found {}. {}",
-                        field.id,
-                        list_id,
-                        kind_label(*other),
-                        expected_reference_kind_fix_hint(
-                            &field.id,
-                            TypeTag::List,
-                            *other,
-                            &list_id
-                        )
+                    return Err(report(
+                        "field_expected_format_list_wrong_kind",
+                        format!(
+                            "field '{}' expected format list '{}', found {}. {}",
+                            field.id,
+                            list_id,
+                            kind_label(*other),
+                            expected_reference_kind_fix_hint(
+                                &field.id,
+                                TypeTag::List,
+                                *other,
+                                &list_id
+                            )
+                        ),
+                        index.source_for(&field.id),
                     ))
                 }
                 None => {
-                    return Err(format!(
-                        "field '{}' references unknown format list '{}'. {}",
-                        field.id,
-                        list_id,
-                        missing_reference_kind_fix_hint(&field.id, TypeTag::List, &list_id)
+                    return Err(report(
+                        "field_unknown_format_list",
+                        format!(
+                            "field '{}' references unknown format list '{}'. {}",
+                            field.id,
+                            list_id,
+                            missing_reference_kind_fix_hint(&field.id, TypeTag::List, &list_id)
+                        ),
+                        index.source_for(&field.id),
                     ))
                 }
             }
@@ -1707,15 +2368,23 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
         for item in &list.items {
             for assign in &item.assigns {
                 if assign.list_id == list.id {
-                    return Err(format!(
-                        "list '{}' item '{}' cannot assign back into the same list '{}'. Fix: remove that self-assignment or target a different list.",
-                        list.id, item.id, assign.list_id
+                    return Err(report(
+                        "assign_self_reference",
+                        format!(
+                            "list '{}' item '{}' cannot assign back into the same list '{}'. Fix: remove that self-assignment or target a different list.",
+                            list.id, item.id, assign.list_id
+                        ),
+                        index.source_for(&list.id),
                     ));
                 }
                 let Some(target_list) = lists_by_id.get(assign.list_id.as_str()) else {
-                    return Err(format!(
-                        "list '{}' item '{}' assigns unknown list '{}'. Fix: point `assigns` at an existing list id.",
-                        list.id, item.id, assign.list_id
+                    return Err(report(
+                        "assign_unknown_list",
+                        format!(
+                            "list '{}' item '{}' assigns unknown list '{}'. Fix: point `assigns` at an existing list id.",
+                            list.id, item.id, assign.list_id
+                        ),
+                        index.source_for(&list.id),
                     ));
                 };
                 if !target_list
@@ -1723,9 +2392,13 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
                     .iter()
                     .any(|target| target.id == assign.item_id)
                 {
-                    return Err(format!(
-                        "list '{}' item '{}' assigns unknown item '{}' in list '{}'. Fix: use an existing target item id.",
-                        list.id, item.id, assign.item_id, assign.list_id
+                    return Err(report(
+                        "assign_unknown_item",
+                        format!(
+                            "list '{}' item '{}' assigns unknown item '{}' in list '{}'. Fix: use an existing target item id.",
+                            list.id, item.id, assign.item_id, assign.list_id
+                        ),
+                        index.source_for(&list.id),
                     ));
                 }
             }
@@ -1841,40 +2514,57 @@ fn register_global_ids<T, F>(
     items: &[T],
     tag: TypeTag,
     get_id: F,
-) -> Result<(), String>
+    index: &SourceIndex,
+) -> std::result::Result<(), ErrorReport>
 where
     F: Fn(&T) -> &str,
 {
     for item in items {
         let id = get_id(item);
         if let Some(existing) = registry.insert(id.to_string(), tag) {
-            return Err(format!(
-                "duplicate id '{}' across {} and {}; ids must be globally unique across hierarchy kinds. {}",
-                id,
-                kind_label(existing),
-                kind_label(tag),
-                duplicate_id_fix_hint()
+            return Err(report(
+                "duplicate_id",
+                format!(
+                    "duplicate id '{}' across {} and {}; ids must be globally unique across hierarchy kinds. {}",
+                    id,
+                    kind_label(existing),
+                    kind_label(tag),
+                    duplicate_id_fix_hint()
+                ),
+                index.source_for(id),
             ));
         }
     }
     Ok(())
 }
 
-fn validate_explicit_hotkey(owner: &str, hotkey: Option<&str>) -> Result<(), String> {
+fn validate_explicit_hotkey(
+    owner: &str,
+    hotkey: Option<&str>,
+    source: Option<ErrorSource>,
+) -> std::result::Result<(), ErrorReport> {
     let Some(hotkey) = hotkey else {
         return Ok(());
     };
 
     if hotkey.is_empty() {
-        return Err(format!(
-            "{owner} has an empty hotkey. Fix: use a single visible character such as `g`, or remove `hotkey`."
+        return Err(report(
+            "empty_hotkey",
+            format!(
+                "{owner} has an empty hotkey. Fix: use a single visible character such as `g`, or remove `hotkey`."
+            ),
+            source.clone(),
         ));
     }
 
     if hotkey.chars().count() != 1 {
-        return Err(format!(
-            "{owner} has invalid hotkey '{}'. Fix: use exactly one character in `hotkey`.",
-            hotkey
+        return Err(report(
+            "invalid_hotkey",
+            format!(
+                "{owner} has invalid hotkey '{}'. Fix: use exactly one character in `hotkey`.",
+                hotkey
+            ),
+            source,
         ));
     }
 
@@ -1882,21 +2572,26 @@ fn validate_explicit_hotkey(owner: &str, hotkey: Option<&str>) -> Result<(), Str
 }
 
 fn validate_children(
-    owner: &str,
+    owner: ValidationOwner,
     expected: &[TypeTag],
     children: &[HierarchyChildRef],
     global_ids: &HashMap<String, TypeTag>,
-) -> Result<(), String> {
+    index: &SourceIndex,
+) -> std::result::Result<(), ErrorReport> {
     for child in children {
-        validate_child_exists(child, global_ids, owner)?;
+        validate_child_exists(child, global_ids, &owner, index)?;
         if !expected.contains(&child.kind()) {
-            return Err(format!(
-                "{} may not contain {} '{}'; allowed child kinds: {}. {}",
-                owner,
-                kind_label(child.kind()),
-                child.id(),
-                expected_kind_labels(expected),
-                invalid_child_fix_hint(owner, expected, child.kind(), child.id())
+            return Err(report(
+                "invalid_child_kind",
+                format!(
+                    "{} may not contain {} '{}'; allowed child kinds: {}. {}",
+                    owner.label,
+                    kind_label(child.kind()),
+                    child.id(),
+                    expected_kind_labels(expected),
+                    invalid_child_fix_hint(&owner.label, expected, child.kind(), child.id())
+                ),
+                owner.source(index),
             ));
         }
     }
@@ -1906,26 +2601,197 @@ fn validate_children(
 fn validate_child_exists(
     child: &HierarchyChildRef,
     global_ids: &HashMap<String, TypeTag>,
-    owner: &str,
-) -> Result<(), String> {
+    owner: &ValidationOwner,
+    index: &SourceIndex,
+) -> std::result::Result<(), ErrorReport> {
     match global_ids.get(child.id()) {
         Some(tag) if *tag == child.kind() => Ok(()),
-        Some(tag) => Err(format!(
-            "{} references '{}' as {}, but that id is registered as {}. {}",
-            owner,
-            child.id(),
-            kind_label(child.kind()),
-            kind_label(*tag),
-            wrong_kind_fix_hint(owner, child.kind(), *tag, child.id())
-        )),
-        None => Err(format!(
-            "{} references missing {} '{}'. {}",
-            owner,
-            kind_label(child.kind()),
-            child.id(),
-            missing_child_fix_hint(owner, child.kind(), child.id())
+        Some(tag) => Err(route_wrong_kind_error(child, *tag, owner, index)),
+        None => Err(report(
+            "missing_child",
+            format!(
+                "{} references missing {} '{}'. {}",
+                owner.label,
+                kind_label(child.kind()),
+                child.id(),
+                missing_child_fix_hint(&owner.label, child.kind(), child.id())
+            ),
+            owner.source(index),
         )),
     }
+}
+
+fn route_wrong_kind_error(
+    child: &HierarchyChildRef,
+    actual_kind: TypeTag,
+    owner: &ValidationOwner,
+    index: &SourceIndex,
+) -> ErrorReport {
+    let source = owner.source(index);
+    let Some(node) = index.nodes.get(child.id()) else {
+        return report(
+            "wrong_kind_reference",
+            format!(
+                "{} references '{}' as {}, but that id is registered as {}. {}",
+                owner.label,
+                child.id(),
+                kind_label(child.kind()),
+                kind_label(actual_kind),
+                wrong_kind_fix_hint(&owner.label, child.kind(), actual_kind, child.id())
+            ),
+            source,
+        );
+    };
+
+    let found = fingerprint_kind(&node.raw);
+    let Some((inferred_kind, found_names)) = inferred_fingerprint_kind(&found) else {
+        return report(
+            "wrong_kind_reference",
+            format!(
+                "{} references '{}' as {}, but that id is registered as {}. {}",
+                owner.label,
+                child.id(),
+                kind_label(child.kind()),
+                kind_label(actual_kind),
+                wrong_kind_fix_hint(&owner.label, child.kind(), actual_kind, child.id())
+            ),
+            source,
+        );
+    };
+
+    if inferred_kind != child.kind() {
+        return report(
+            "wrong_kind_reference",
+            format!(
+                "{} references '{}' as {}, but that id is registered as {}. {}",
+                owner.label,
+                child.id(),
+                kind_label(child.kind()),
+                kind_label(actual_kind),
+                wrong_kind_fix_hint(&owner.label, child.kind(), actual_kind, child.id())
+            ),
+            source,
+        );
+    }
+
+    let fingerprints: Vec<String> = found_names.iter().map(|name| (*name).to_string()).collect();
+    match inferred_kind {
+        TypeTag::List => ErrorReport {
+            kind: ErrorKind::LooksLikeListMissingItems {
+                id: child.id().to_string(),
+                registered_as: kind_label(actual_kind).to_string(),
+                found_fingerprints: fingerprints.clone(),
+            },
+            message: format!(
+                "'{}' is referenced as a list, but is registered as a {}. Its YAML has {} which are list-only fields. It looks like a list that is missing its `items:` key. Fix: add `items:` to '{}' or check that the block is under `lists:` in your data file.",
+                child.id(),
+                kind_label(actual_kind),
+                format_fingerprint_names(&fingerprints),
+                child.id(),
+            ),
+            source,
+        },
+        TypeTag::Collection => ErrorReport {
+            kind: ErrorKind::LooksLikeCollectionMissingKey {
+                id: child.id().to_string(),
+                registered_as: kind_label(actual_kind).to_string(),
+                found_fingerprints: fingerprints.clone(),
+            },
+            message: format!(
+                "'{}' is referenced as a collection, but is registered as a {}. Its YAML has {} which are collection-only fields. It looks like a collection that lost its `contains:` key or ended up under the wrong top-level key. Fix: restore `contains:` and make sure '{}' lives under `collections:`.",
+                child.id(),
+                kind_label(actual_kind),
+                format_fingerprint_names(&fingerprints),
+                child.id(),
+            ),
+            source,
+        },
+        TypeTag::Section | TypeTag::Group => ErrorReport {
+            kind: ErrorKind::LooksLikeSectionOrGroupMissingKey {
+                id: child.id().to_string(),
+                inferred_kind: kind_label(inferred_kind).to_string(),
+                registered_as: kind_label(actual_kind).to_string(),
+                found_fingerprints: fingerprints.clone(),
+            },
+            message: format!(
+                "'{}' is referenced as a {}, but is registered as a {}. Its YAML has {} which are {}-only fields. It looks like a {} that lost its `contains:` key or ended up under the wrong top-level key. Fix: restore `contains:` and make sure '{}' lives under `{}s:`.",
+                child.id(),
+                kind_label(child.kind()),
+                kind_label(actual_kind),
+                format_fingerprint_names(&fingerprints),
+                kind_label(inferred_kind),
+                kind_label(inferred_kind),
+                child.id(),
+                kind_label(inferred_kind),
+            ),
+            source,
+        },
+        TypeTag::Field => report(
+            "wrong_kind_reference",
+            format!(
+                "{} references '{}' as {}, but that id is registered as {}. {}",
+                owner.label,
+                child.id(),
+                kind_label(child.kind()),
+                kind_label(actual_kind),
+                wrong_kind_fix_hint(&owner.label, child.kind(), actual_kind, child.id())
+            ),
+            source,
+        ),
+    }
+}
+
+fn fingerprint_kind(raw: &serde_yaml::Value) -> Vec<(&'static str, TypeTag)> {
+    let Some(mapping) = raw.as_mapping() else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    if mapping.contains_key(serde_yaml::Value::String("items".to_string())) {
+        found.push(("items", TypeTag::List));
+    }
+    if mapping.contains_key(serde_yaml::Value::String("modal_start".to_string())) {
+        found.push(("modal_start", TypeTag::List));
+    }
+    if mapping.contains_key(serde_yaml::Value::String("sticky".to_string())) {
+        found.push(("sticky", TypeTag::List));
+    }
+    if mapping.contains_key(serde_yaml::Value::String("default_enabled".to_string())) {
+        found.push(("default_enabled", TypeTag::Collection));
+    }
+    if mapping.contains_key(serde_yaml::Value::String("show_field_labels".to_string())) {
+        found.push(("show_field_labels", TypeTag::Section));
+    }
+    if mapping.contains_key(serde_yaml::Value::String("boilerplate_refs".to_string())) {
+        found.push(("boilerplate_refs", TypeTag::Group));
+    }
+    if mapping.contains_key(serde_yaml::Value::String("note_label".to_string())) {
+        found.push(("note_label", TypeTag::Group));
+    }
+    if mapping.contains_key(serde_yaml::Value::String("format".to_string())) {
+        found.push(("format", TypeTag::Field));
+    }
+    if mapping.contains_key(serde_yaml::Value::String("max_actives".to_string())) {
+        found.push(("max_actives", TypeTag::Field));
+    }
+    found
+}
+
+fn inferred_fingerprint_kind(
+    found: &[(&'static str, TypeTag)],
+) -> Option<(TypeTag, Vec<&'static str>)> {
+    let first = found.first()?.1;
+    if found.iter().all(|(_, tag)| *tag == first) {
+        Some((first, found.iter().map(|(name, _)| *name).collect()))
+    } else {
+        None
+    }
+}
+
+fn format_fingerprint_names(names: &[String]) -> String {
+    names.iter()
+        .map(|name| format!("`{name}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn slugify_id(label: &str) -> String {
@@ -2256,6 +3122,24 @@ mod tests {
         file
     }
 
+    fn parse_with_index(yaml: &str) -> (HierarchyFile, SourceIndex) {
+        parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml")).expect("parses")
+    }
+
+    fn validate_with_index(
+        file: &HierarchyFile,
+        index: &SourceIndex,
+    ) -> std::result::Result<(), ErrorReport> {
+        validate_merged_hierarchy(file, index)
+    }
+
+    fn runtime_with_index(
+        file: HierarchyFile,
+        index: &SourceIndex,
+    ) -> std::result::Result<RuntimeHierarchy, ErrorReport> {
+        hierarchy_to_runtime(file, index)
+    }
+
     #[test]
     fn child_ref_short_yaml_deserializes() {
         let refs: Vec<HierarchyChildRef> =
@@ -2300,7 +3184,7 @@ mod tests {
 
     #[test]
     fn runtime_field_contains_mixed_fields_and_lists_in_authored_order() {
-        let file = parse(concat!(
+        let (file, index) = parse_with_index(concat!(
             "template:\n  id: template\n  contains:\n    - group: intake\n",
             "groups:\n  - id: intake\n    contains:\n      - section: appointment\n",
             "sections:\n  - id: appointment\n    contains:\n      - field: request\n",
@@ -2340,8 +3224,8 @@ mod tests {
             "      - Shoulder\n",
         ));
 
-        validate_merged_hierarchy(&file).expect("nested field hierarchy should validate");
-        let runtime = hierarchy_to_runtime(file).expect("runtime build should succeed");
+        validate_with_index(&file, &index).expect("nested field hierarchy should validate");
+        let runtime = runtime_with_index(file, &index).expect("runtime build should succeed");
         let request = runtime
             .template
             .children
@@ -2401,7 +3285,7 @@ mod tests {
             "    contains:\n",
             "      - list: l1\n",
         );
-        let file =
+        let (file, _) =
             parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml")).expect("parses");
 
         assert_eq!(file.fields.len(), 1);
@@ -2457,7 +3341,7 @@ mod tests {
 
     #[test]
     fn parser_accepts_authored_item_hotkey() {
-        let file = parse_hierarchy_file_documents(
+        let (file, _) = parse_hierarchy_file_documents(
             concat!(
                 "lists:\n",
                 "  - id: demo\n",
@@ -2480,24 +3364,116 @@ mod tests {
     }
 
     #[test]
+    fn fingerprint_kind_reports_list_only_fields() {
+        let raw: serde_yaml::Value = serde_yaml::from_str(
+            concat!(
+                "id: demo\n",
+                "modal_start: search\n",
+                "sticky: true\n",
+            ),
+        )
+        .expect("raw yaml parses");
+
+        assert_eq!(
+            fingerprint_kind(&raw),
+            vec![("modal_start", TypeTag::List), ("sticky", TypeTag::List)]
+        );
+    }
+
+    #[test]
+    fn wrong_kind_error_routes_to_missing_items_diagnostic_when_fingerprints_agree() {
+        let mut index = SourceIndex::default();
+        index.insert(
+            "demo".to_string(),
+            SourceNode {
+                file: PathBuf::from("inline-test.yml"),
+                line: 7,
+                quoted_line: Some("id: demo".to_string()),
+                raw: serde_yaml::from_str(concat!(
+                    "id: demo\n",
+                    "modal_start: search\n",
+                    "sticky: true\n",
+                ))
+                .expect("raw yaml parses"),
+            },
+        );
+        let mut global_ids = HashMap::new();
+        global_ids.insert("demo".to_string(), TypeTag::Field);
+
+        let err = validate_child_exists(
+            &HierarchyChildRef::List {
+                list: "demo".to_string(),
+            },
+            &global_ids,
+            &ValidationOwner::new("section 'appointment'", None),
+            &index,
+        )
+        .expect_err("wrong kind should fail");
+
+        assert!(matches!(
+            err.kind,
+            ErrorKind::LooksLikeListMissingItems { ref id, ref registered_as, ref found_fingerprints }
+                if id == "demo"
+                    && registered_as == "field"
+                    && found_fingerprints == &vec!["modal_start".to_string(), "sticky".to_string()]
+        ));
+        assert!(err.message.contains("missing its `items:` key"));
+    }
+
+    #[test]
+    fn source_index_records_top_level_entry_id_line() {
+        let (_, index) = parse_with_index(concat!(
+            "fields:\n",
+            "  - id: alpha\n",
+            "    label: Alpha\n",
+            "  - id: beta\n",
+            "    label: Beta\n",
+        ));
+
+        assert_eq!(index.nodes["alpha"].line, 2);
+        assert_eq!(index.nodes["beta"].line, 4);
+    }
+
+    #[test]
+    fn parser_error_reports_actual_source_line() {
+        let err = parse_hierarchy_file_documents(
+            concat!(
+                "sections:\n",
+                "  - id: subjective\n",
+                "    label: Subjective\n",
+                "    body: checklist\n",
+                "    contains: []\n",
+            ),
+            Path::new("inline-test.yml"),
+        )
+        .expect_err("unknown section key should fail");
+
+        assert_eq!(
+            err.source.as_ref().map(|source| source.line),
+            Some(4),
+            "error should point at the authored line with the unknown key"
+        );
+    }
+
+    #[test]
     fn list_max_entries_without_joiner_style_is_allowed() {
-        let file = parse(concat!(
+        let (file, index) = parse_with_index(concat!(
             "template:\n  contains:\n    - group: g\n",
             "groups:\n  - id: g\n    contains:\n      - section: s\n",
             "sections:\n  - id: s\n    contains:\n      - list: demo\n",
             "lists:\n  - id: demo\n    max_entries: 2\n    items:\n      - Alpha\n",
         ));
-        validate_merged_hierarchy(&file).expect("max_entries without joiner_style should load");
+        validate_with_index(&file, &index).expect("max_entries without joiner_style should load");
     }
 
     #[test]
     fn loader_rejects_duplicate_ids_across_kinds() {
-        let file = parse(concat!(
+        let (file, index) = parse_with_index(concat!(
             "template:\n  contains:\n    - group: shared\n",
             "groups:\n  - id: shared\n    contains: []\n",
             "sections:\n  - id: shared\n    contains: []\n",
         ));
-        let err = validate_merged_hierarchy(&file).expect_err("duplicate id must fail");
+        let err = validate_with_index(&file, &index).expect_err("duplicate id must fail");
         assert!(err.contains("duplicate id 'shared'"));
         assert!(err.contains("globally unique"));
         assert!(err.contains("Fix: rename one of the conflicting ids"));
@@ -2505,12 +3481,12 @@ mod tests {
 
     #[test]
     fn loader_rejects_wrong_child_kind() {
-        let file = parse(concat!(
+        let (file, index) = parse_with_index(concat!(
             "template:\n  contains:\n    - group: intake\n",
             "groups:\n  - id: intake\n    contains:\n      - list: bad\n",
             "lists:\n  - id: bad\n    items: []\n",
         ));
-        let err = validate_merged_hierarchy(&file).expect_err("bad child kind must fail");
+        let err = validate_with_index(&file, &index).expect_err("bad child kind must fail");
         assert!(err.contains("may not contain"));
         assert!(err.contains("allowed child kinds"));
         assert!(err.contains("Fix: remove list 'bad'"));
@@ -2518,32 +3494,32 @@ mod tests {
 
     #[test]
     fn loader_missing_child_error_includes_fix_hint() {
-        let file = parse(concat!(
+        let (file, index) = parse_with_index(concat!(
             "template:\n  contains:\n    - group: fake_group\n",
             "groups: []\n",
         ));
-        let err = validate_merged_hierarchy(&file).expect_err("missing child must fail");
+        let err = validate_with_index(&file, &index).expect_err("missing child must fail");
         assert!(err.contains("template references missing group 'fake_group'"));
         assert!(err.contains("Fix: add a group with id 'fake_group'"));
     }
 
     #[test]
     fn field_wrong_kind_error_includes_fix_hint() {
-        let file = parse(concat!(
+        let (file, index) = parse_with_index(concat!(
             "template:\n  contains:\n    - group: g\n",
             "groups:\n  - id: g\n    contains:\n      - section: s\n",
             "sections:\n  - id: s\n    contains:\n      - field: f\n",
             "fields:\n  - id: f\n    label: Demo\n    lists: [demo]\n",
             "collections:\n  - id: demo\n    contains: []\n",
         ));
-        let err = validate_merged_hierarchy(&file).expect_err("wrong kind must fail");
+        let err = validate_with_index(&file, &index).expect_err("wrong kind must fail");
         assert!(err.contains("field 'f' expected list 'demo', found collection"));
         assert!(err.contains("Fix: update field 'f' so 'demo' points to a list id"));
     }
 
     #[test]
     fn collection_only_resolves_named_lists() {
-        let file = parse(
+        let (file, index) = parse_with_index(
             concat!(
                 "template:\n  id: template\n  contains:\n    - group: treatment\n",
                 "groups:\n  - id: treatment\n    contains:\n      - collection: tx_regions\n",
@@ -2553,8 +3529,8 @@ mod tests {
                 "  - id: unrelated\n    label: Unrelated\n    items:\n      - Beta\n",
             ),
         );
-        validate_merged_hierarchy(&file).expect("valid merged hierarchy");
-        let runtime = hierarchy_to_runtime(file).expect("runtime build succeeds");
+        validate_with_index(&file, &index).expect("valid merged hierarchy");
+        let runtime = runtime_with_index(file, &index).expect("runtime build succeeds");
         let collection = runtime
             .template
             .children
@@ -2573,7 +3549,7 @@ mod tests {
 
     #[test]
     fn runtime_preserves_authored_order() {
-        let file = parse(concat!(
+        let (file, index) = parse_with_index(concat!(
             "template:\n  id: template\n  contains:\n    - group: first\n    - group: second\n",
             "groups:\n",
             "  - id: first\n    contains:\n      - section: a\n      - collection: c\n",
@@ -2585,8 +3561,8 @@ mod tests {
             "  - id: c\n    contains:\n      - list: list_one\n",
             "lists:\n  - id: list_one\n    items: []\n",
         ));
-        validate_merged_hierarchy(&file).expect("valid merged hierarchy");
-        let runtime = hierarchy_to_runtime(file).expect("runtime build succeeds");
+        validate_with_index(&file, &index).expect("valid merged hierarchy");
+        let runtime = runtime_with_index(file, &index).expect("runtime build succeeds");
         let sections = flat_sections_from_template(&runtime.template);
         let ids: Vec<&str> = sections.iter().map(|section| section.id.as_str()).collect();
         assert_eq!(ids, vec!["a", "c", "b"]);
@@ -2594,7 +3570,7 @@ mod tests {
 
     #[test]
     fn runtime_navigation_matches_authored_tree_order_and_groups() {
-        let file = parse(concat!(
+        let (file, index) = parse_with_index(concat!(
             "template:\n  id: template\n  contains:\n    - group: first\n    - group: second\n",
             "groups:\n",
             "  - id: first\n    contains:\n      - section: a\n      - collection: c\n",
@@ -2606,8 +3582,8 @@ mod tests {
             "  - id: c\n    contains:\n      - list: list_one\n",
             "lists:\n  - id: list_one\n    items: []\n",
         ));
-        validate_merged_hierarchy(&file).expect("valid merged hierarchy");
-        let runtime = hierarchy_to_runtime(file).expect("runtime build succeeds");
+        validate_with_index(&file, &index).expect("valid merged hierarchy");
+        let runtime = runtime_with_index(file, &index).expect("runtime build succeeds");
 
         let navigation = runtime_navigation(&runtime.template);
         let entries: Vec<(&str, &str, usize)> = navigation
@@ -2659,7 +3635,7 @@ mod tests {
 
     #[test]
     fn validate_merged_hierarchy_rejects_multichar_item_hotkey() {
-        let file = parse(concat!(
+        let (file, index) = parse_with_index(concat!(
             "template:\n  id: demo\n  contains:\n    - group: intake\n",
             "groups:\n  - id: intake\n    contains:\n      - section: subjective\n",
             "sections:\n  - id: subjective\n    contains:\n      - list: regions\n",
@@ -2671,7 +3647,7 @@ mod tests {
             "        hotkey: ab\n",
         ));
 
-        let err = validate_merged_hierarchy(&file).expect_err("multi-char hotkey must fail");
+        let err = validate_with_index(&file, &index).expect_err("multi-char hotkey must fail");
         assert!(err.contains("list 'regions' item 'shoulder'"));
         assert!(err.contains("exactly one character"));
     }
@@ -2704,6 +3680,7 @@ mod tests {
         let hierarchy = load_hierarchy_dir(&dir).expect("real hierarchy should load");
         let app_data = AppData::load(dir).expect("real data should load");
         let authored_groups: HashMap<&str, &HierarchyGroup> = hierarchy
+            .hierarchy
             .groups
             .iter()
             .map(|group| (group.id.as_str(), group))
