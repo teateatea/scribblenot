@@ -7,6 +7,7 @@ use super::{
     ModalCardRole, ModalRenderMode,
 };
 use crate::app::App;
+use crate::modal::SearchModal;
 use crate::modal_layout::{
     modal_list_view_dimensions, ModalListViewSnapshot, ModalStubKind, ModalUnitRange,
     SimpleModalUnitLayout,
@@ -73,19 +74,21 @@ pub(super) fn default_stub_mode(_side: ModalUnitSide) -> ModalUnitStubMode {
 // LESSON 3: Assembles a still (at-rest) modal strip. Decides stub types based on position, marks the active card, and returns a RenderedModalUnit with all alphas at 1.0.
 pub(super) fn build_rendered_modal_unit(
     app: &App,
+    modal: &SearchModal,
     layout: &SimpleModalUnitLayout,
     unit: &ModalUnitRange,
     left_stub_mode: ModalUnitStubMode,
     right_stub_mode: ModalUnitStubMode,
 ) -> RenderedModalUnit {
     let total_snapshots = layout.sequence.snapshots.len();
+    let semantics = modal.edge_semantics(&app.assigned_values, &app.config.sticky_values);
     let left_kind = if unit.start == 0 {
-        ModalStubKind::Exit
+        semantics.left
     } else {
         ModalStubKind::NavLeft
     };
     let right_kind = if unit.end + 1 >= total_snapshots {
-        ModalStubKind::Confirm
+        semantics.right
     } else {
         ModalStubKind::NavRight
     };

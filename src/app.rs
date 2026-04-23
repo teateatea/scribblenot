@@ -3259,6 +3259,8 @@ impl App {
                 layout,
                 self.active_unit_index,
                 modal,
+                &self.assigned_values,
+                &self.config.sticky_values,
                 effective_spacer_width,
             )
         }) else {
@@ -3290,7 +3292,14 @@ impl App {
             let Some(modal) = self.modal.as_ref() else {
                 return;
             };
-            UnitGeometry::from_layout(layout, arriving_unit_index, modal, effective_spacer_width)
+            UnitGeometry::from_layout(
+                layout,
+                arriving_unit_index,
+                modal,
+                &self.assigned_values,
+                &self.config.sticky_values,
+                effective_spacer_width,
+            )
         };
 
         let Some(arrival_geometry) = arrival_geometry else {
@@ -3333,6 +3342,8 @@ impl App {
                 layout,
                 self.active_unit_index,
                 modal,
+                &self.assigned_values,
+                &self.config.sticky_values,
                 effective_spacer_width,
             )
         }) else {
@@ -3373,6 +3384,8 @@ impl App {
                     layout,
                     departing_unit_index,
                     modal,
+                    &self.assigned_values,
+                    &self.config.sticky_values,
                     effective_spacer_width,
                 ),
                 UnitContentSnapshot::from_layout_with_active_override(
@@ -3483,12 +3496,16 @@ impl App {
                 prev_layout,
                 departing_unit_index,
                 &previous_modal,
+                &self.assigned_values,
+                &self.config.sticky_values,
                 effective_spacer_width,
             );
             arr_geometry = UnitGeometry::from_layout(
                 curr_layout,
                 arriving_unit_index,
                 self.modal.as_ref().unwrap(),
+                &self.assigned_values,
+                &self.config.sticky_values,
                 effective_spacer_width,
             );
             dep_content = UnitContentSnapshot::from_layout_with_active_override(

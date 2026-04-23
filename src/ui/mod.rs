@@ -1606,6 +1606,55 @@ fn modal_card<'a>(
     }
 }
 
+fn semantic_stub_card<'a>(
+    app: &'a App,
+    stub_kind: crate::modal_layout::ModalStubKind,
+    height: f32,
+) -> Element<'a, Message> {
+    let text_color = match stub_kind {
+        crate::modal_layout::ModalStubKind::NavLeft
+        | crate::modal_layout::ModalStubKind::NavRight => app.ui_theme.modal_nav_stub_text,
+        crate::modal_layout::ModalStubKind::Exit => app.ui_theme.modal_exit_stub_text,
+        crate::modal_layout::ModalStubKind::Confirm => app.ui_theme.modal_confirm_stub_text,
+    };
+
+    modal_card(
+        app,
+        container(
+            iced::widget::text(stub_kind.symbol().to_string())
+                .font(app.ui_theme.font_modal)
+                .size(24)
+                .color(text_color),
+        )
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill),
+        ModalRenderMode::Preview,
+        ModalCardRole::Stub(stub_kind),
+        false,
+        app.ui_theme.modal_stub_width,
+        height,
+        1.0,
+    )
+}
+
+fn render_semantic_modal_shell<'a>(
+    app: &'a App,
+    modal: &'a crate::modal::SearchModal,
+    content: Element<'a, Message>,
+    stub_height: f32,
+) -> Element<'a, Message> {
+    let semantics = modal.edge_semantics(&app.assigned_values, &app.config.sticky_values);
+    row![
+        semantic_stub_card(app, semantics.left, stub_height),
+        content,
+        semantic_stub_card(app, semantics.right, stub_height),
+    ]
+    .spacing(app.modal_spacer_width())
+    .into()
+}
+
 fn preview_modal_search_strip<'a>(
     app: &'a App,
     query: String,
@@ -2151,6 +2200,11 @@ fn modal_overlay<'a>(
     } else {
         modal_height_for_viewport(app.viewport_size.map(|size| size.height), fallback_height)
     };
+    let semantic_stub_height = if is_collection_mode {
+        collection_modal_envelope_height(app)
+    } else {
+        modal_height
+    };
     let top_offset = if is_collection_mode {
         0.0
     } else {
@@ -2233,6 +2287,7 @@ fn modal_overlay<'a>(
                         _ => {
                             let rendered_current = build_rendered_modal_unit(
                                 app,
+                                modal,
                                 current_layout,
                                 current_unit,
                                 default_stub_mode(ModalUnitSide::Left),
@@ -2250,6 +2305,26 @@ fn modal_overlay<'a>(
                     }
                     layers.width(Length::Fill).into()
                 } else {
+                    render_semantic_modal_shell(
+                        app,
+                        modal,
+                        modal_card(
+                            app,
+                            active_simple_modal_content(app, modal, 1.0),
+                            ModalRenderMode::Interactive,
+                            ModalCardRole::Active,
+                            true,
+                            modal_width,
+                            modal_height,
+                            1.0,
+                        ),
+                        semantic_stub_height,
+                    )
+                }
+            } else {
+                render_semantic_modal_shell(
+                    app,
+                    modal,
                     modal_card(
                         app,
                         active_simple_modal_content(app, modal, 1.0),
@@ -2259,22 +2334,12 @@ fn modal_overlay<'a>(
                         modal_width,
                         modal_height,
                         1.0,
-                    )
-                }
-            } else {
-                modal_card(
-                    app,
-                    active_simple_modal_content(app, modal, 1.0),
-                    ModalRenderMode::Interactive,
-                    ModalCardRole::Active,
-                    true,
-                    modal_width,
-                    modal_height,
-                    1.0,
+                    ),
+                    semantic_stub_height,
                 )
             }
         } else {
-            active_modal
+            render_semantic_modal_shell(app, modal, active_modal, semantic_stub_height)
         }
     } else if let Some((departure, slide_distance)) = retained_close {
         let p = departure.eased_progress();
@@ -3130,11 +3195,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
 mod tests {
     use super::{
         build_connected_transition_rendered_unit, build_modal_close_rendered_unit,
-        build_modal_open_rendered_unit, collection_preview_card_height, collection_preview_metrics,
-        collection_preview_strip_layout, entry_composition_panel_width, modal_close_shift,
-        modal_open_shift, modal_unit_runway_layout, retained_close_root_width,
-        retained_modal_close_transition, should_render_modal_overlay, simple_modal_unit_root_width,
-        transition_unit_display_width, ModalUnitCardKind, ModalUnitSide, COLLECTION_STREAM_SPACING,
+        build_modal_open_rendered_unit, build_rendered_modal_unit, collection_preview_card_height,
+        collection_preview_metrics, collection_preview_strip_layout, default_stub_mode,
+        entry_composition_panel_width, modal_close_shift, modal_open_shift,
+        modal_unit_runway_layout, retained_close_root_width, retained_modal_close_transition,
+        should_render_modal_overlay, simple_modal_unit_root_width, transition_unit_display_width,
+        ModalUnitCardKind, ModalUnitSide, COLLECTION_STREAM_SPACING,
     };
     use crate::app::{
         App, FocusDirection, ModalArrivalLayer, ModalDepartureLayer, ModalTransitionEasing,
@@ -3147,7 +3213,7 @@ mod tests {
         RuntimeTemplate, SectionConfig,
     };
     use crate::modal_layout::{
-        ModalFocus, ModalListViewSnapshot, ModalStubKind, SimpleModalSequence,
+        ModalFocus, ModalListViewSnapshot, ModalStubKind, ModalUnitRange, SimpleModalSequence,
         SimpleModalUnitLayout,
     };
     use crate::sections::collection::CollectionEntry;
@@ -3199,6 +3265,69 @@ mod tests {
             list_scroll: 0,
             focus: ModalFocus::List,
         }
+    }
+
+    fn branch_modal_for_semantic_boundary() -> crate::modal::SearchModal {
+        let child_field = HeaderFieldConfig {
+            id: "child_field".to_string(),
+            name: "Child".to_string(),
+            format: Some("{child_list}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "child_list".to_string(),
+                label: Some("Child".to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![item("child", "Child Value")],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let mut branch_item = item("branch", "Branch");
+        branch_item.output = Some("{child_field}".to_string());
+        branch_item.branch_fields = vec![child_field];
+        let field = HeaderFieldConfig {
+            id: "muscle_field".to_string(),
+            name: "Muscle".to_string(),
+            format: Some("{muscle}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "muscle".to_string(),
+                label: Some("Muscle".to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::Search,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![branch_item],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let mut modal = crate::modal::SearchModal::new_field(
+            0,
+            field,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            5,
+        );
+        modal.query = "branch".to_string();
+        modal.update_filter();
+        modal
     }
 
     fn connected_transition_fixture(
@@ -3682,6 +3811,69 @@ mod tests {
         assert!(rendered.cards.iter().all(|card| {
             !matches!(card.kind, ModalUnitCardKind::Active { .. }) || card.alpha == 0.3
         }));
+    }
+
+    #[test]
+    fn rendered_unit_uses_modal_semantics_at_terminal_preview_boundary() {
+        let app = overlay_test_app();
+        let modal = branch_modal_for_semantic_boundary();
+        let layout = SimpleModalUnitLayout {
+            sequence: SimpleModalSequence {
+                snapshots: vec![snapshot("Muscle")],
+                active_sequence_index: 0,
+            },
+            units: vec![ModalUnitRange {
+                start: 0,
+                end: 0,
+                shows_stubs: true,
+            }],
+        };
+
+        let rendered = build_rendered_modal_unit(
+            &app,
+            &modal,
+            &layout,
+            &layout.units[0],
+            default_stub_mode(ModalUnitSide::Left),
+            default_stub_mode(ModalUnitSide::Right),
+        );
+        let trailing_stub = rendered
+            .cards
+            .iter()
+            .rev()
+            .find_map(|card| match card.kind {
+                ModalUnitCardKind::Stub {
+                    side: ModalUnitSide::Right,
+                    stub_kind,
+                    ..
+                } => Some(stub_kind),
+                _ => None,
+            });
+
+        assert_eq!(trailing_stub, Some(ModalStubKind::NavRight));
+    }
+
+    #[test]
+    fn unit_geometry_uses_modal_semantics_at_terminal_preview_boundary() {
+        let modal = branch_modal_for_semantic_boundary();
+        let layout = SimpleModalUnitLayout {
+            sequence: SimpleModalSequence {
+                snapshots: vec![snapshot("Muscle")],
+                active_sequence_index: 0,
+            },
+            units: vec![ModalUnitRange {
+                start: 0,
+                end: 0,
+                shows_stubs: true,
+            }],
+        };
+
+        let geometry =
+            UnitGeometry::from_layout(&layout, 0, &modal, &HashMap::new(), &HashMap::new(), 24.0)
+                .expect("geometry should build");
+
+        assert_eq!(geometry.leading_stub_kind, Some(ModalStubKind::Exit));
+        assert_eq!(geometry.trailing_stub_kind, Some(ModalStubKind::NavRight));
     }
 
     #[test]

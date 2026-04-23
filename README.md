@@ -1,6 +1,6 @@
 # scribblenot
 
-**v0.4.0-alpha** - A structured clinical note authoring tool built with Rust and Iced.
+**v0.5.5** - A structured clinical note authoring tool built with Rust and Iced.
 
 scribblenot is a keyboard-driven desktop app for building formatted clinical notes from YAML-defined structure and picker data. You move through a map of note sections, confirm values in the wizard pane, and watch the note update in the preview pane. Press `c` to copy the exported note to the clipboard.
 
