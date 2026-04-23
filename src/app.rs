@@ -3,10 +3,12 @@
 
 use crate::config::Config;
 use crate::data::{
-    flat_sections_from_template, runtime_navigation, AppData, HeaderFieldConfig, NavigationEntry,
-    SectionConfig,
+    flat_sections_from_template, runtime_navigation, AppData, HeaderFieldConfig, KeyBindings,
+    NavigationEntry, RuntimeTemplate, SectionConfig,
 };
 use crate::document::build_initial_document;
+use crate::error_report::ErrorReport;
+use crate::messages::Messages;
 use crate::modal::{
     joined_repeating_value, resolved_item_labels_for_list, FieldAdvance, ListValueLookup,
     SearchModal,
@@ -282,6 +284,8 @@ pub struct App {
     pub pane_swapped: bool,
     pub show_help: bool,
     pub status: Option<StatusMsg>,
+    pub error_modal: Option<ErrorReport>,
+    pub messages: Messages,
     pub quit: bool,
     pub copy_requested: bool,
     pub copy_flash_until: Option<Instant>,
@@ -346,6 +350,32 @@ pub fn match_binding_str(binding: &str, key: &AppKey) -> bool {
     }
 }
 
+fn messages_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("messages")
+}
+
+fn empty_app_data() -> AppData {
+    AppData {
+        template: RuntimeTemplate {
+            id: "error_state".to_string(),
+            children: Vec::new(),
+        },
+        list_data: HashMap::new(),
+        checklist_data: HashMap::new(),
+        collection_data: HashMap::new(),
+        boilerplate_texts: HashMap::new(),
+        keybindings: KeyBindings::default(),
+        hotkeys: Default::default(),
+    }
+}
+
+fn error_report_from_anyhow(err: anyhow::Error) -> ErrorReport {
+    match err.downcast::<ErrorReport>() {
+        Ok(report) => report,
+        Err(err) => ErrorReport::generic("data_load_failed", err.to_string()),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MapHintLabels {
     pub sections: Vec<String>,
@@ -378,6 +408,7 @@ impl App {
                 eprintln!("Warning: failed to load theme '{}': {err}", config.theme);
                 crate::theme::AppTheme::default()
             });
+        let messages = Messages::load(&messages_dir());
         Self {
             navigation,
             section_states,
@@ -389,6 +420,8 @@ impl App {
             pane_swapped,
             show_help: false,
             status: None,
+            error_modal: None,
+            messages,
             quit: false,
             copy_requested: false,
             copy_flash_until: None,
@@ -413,6 +446,55 @@ impl App {
             editable_note,
             note_headings_valid,
             note_structure_warning,
+            viewport_size: None,
+            assigned_contributions: BTreeMap::new(),
+        }
+    }
+
+    pub fn new_error_state(report: ErrorReport, config: Config, data_dir: PathBuf) -> Self {
+        let data = empty_app_data();
+        let ui_theme =
+            crate::theme::AppTheme::load(&data_dir, &config.theme).unwrap_or_else(|err| {
+                eprintln!("Warning: failed to load theme '{}': {err}", config.theme);
+                crate::theme::AppTheme::default()
+            });
+        Self {
+            navigation: Vec::new(),
+            section_states: SectionStateStore::new(&[], Vec::new()),
+            current_idx: 0,
+            data,
+            config,
+            assigned_values: HashMap::new(),
+            ui_theme,
+            pane_swapped: false,
+            show_help: false,
+            status: None,
+            error_modal: Some(report),
+            messages: Messages::load(&messages_dir()),
+            quit: false,
+            copy_requested: false,
+            copy_flash_until: None,
+            evicted_collection_flash_until: HashMap::new(),
+            data_dir,
+            focus: Focus::Wizard,
+            map_cursor: 0,
+            map_return_idx: None,
+            map_hint_level: MapHintLevel::Groups,
+            note_scroll: 0,
+            modal: None,
+            hint_buffer: String::new(),
+            modal_mouse_mode: false,
+            modal_restore_snapshot: None,
+            modal_unit_layout: None,
+            active_unit_index: 0,
+            prev_prepared_unit: None,
+            next_prepared_unit: None,
+            modal_transitions: Vec::new(),
+            modal_composition_transition: None,
+            modal_composition_editing: false,
+            editable_note: String::new(),
+            note_headings_valid: true,
+            note_structure_warning: None,
             viewport_size: None,
             assigned_contributions: BTreeMap::new(),
         }
@@ -1562,12 +1644,12 @@ impl App {
         Ok(())
     }
 
-    pub fn reload_data(&mut self) -> anyhow::Result<()> {
+    pub fn reload_data(&mut self) -> std::result::Result<(), ErrorReport> {
         let previous_section_id = self
             .navigation
             .get(self.current_idx)
             .map(|entry| entry.node_id.clone());
-        let data = AppData::load(self.data_dir.clone())?;
+        let data = AppData::load(self.data_dir.clone()).map_err(error_report_from_anyhow)?;
         self.navigation = runtime_navigation(&data.template);
         let sections = flat_sections_from_template(&data.template);
         self.section_states =
@@ -1598,6 +1680,7 @@ impl App {
             &data.boilerplate_texts,
         );
         self.data = data;
+        self.error_modal = None;
         self.refresh_note_structure();
         self.update_note_scroll();
         Ok(())
@@ -1670,6 +1753,13 @@ impl App {
             return;
         }
 
+        if self.error_modal.is_some() {
+            if self.is_back(&key) {
+                self.error_modal = None;
+            }
+            return;
+        }
+
         if self.modal.is_some() {
             self.handle_modal_key(key);
             return;
@@ -1731,9 +1821,7 @@ impl App {
                 Ok(()) => {
                     self.status = Some(StatusMsg::success("Data refreshed from YAML."));
                 }
-                Err(err) => {
-                    self.status = Some(StatusMsg::error(format!("Data refresh failed: {err}")));
-                }
+                Err(report) => self.error_modal = Some(report),
             }
             return;
         }
@@ -4458,6 +4546,7 @@ mod composition_span_tests {
         ResolvedCollectionConfig, RuntimeGroup, RuntimeNode, RuntimeNodeKind, RuntimeTemplate,
         SectionConfig,
     };
+    use crate::error_report::ErrorReport;
     use crate::modal::SearchModal;
     use crate::modal_layout::ModalFocus;
     use crate::sections::header::HeaderFieldValue;
@@ -4973,6 +5062,39 @@ mod composition_span_tests {
         let temp = tempfile::tempdir().expect("temp dir");
         let app = app_with_single_field_in_data_dir(field, temp.path().to_path_buf());
         (app, temp)
+    }
+
+    #[test]
+    fn refresh_data_failure_sets_error_modal() {
+        let (mut app, temp) = temp_app_with_single_field(list_field(ModalStart::List));
+        std::fs::write(
+            temp.path().join("broken.yml"),
+            concat!(
+                "template:\n  contains:\n    - group: intake\n",
+                "groups:\n  - id: intake\n    contains:\n      - section: missing\n",
+            ),
+        )
+        .expect("fixture writes");
+
+        app.handle_key(AppKey::Char('\\'));
+
+        let report = app
+            .error_modal
+            .as_ref()
+            .expect("reload failure should open error modal");
+        assert!(report.message.contains("missing section 'missing'"));
+        assert!(app.status.is_none());
+    }
+
+    #[test]
+    fn back_key_dismisses_error_modal_before_other_input() {
+        let report = ErrorReport::generic("yaml_parse_failed", "bad yaml");
+        let mut app = App::new_error_state(report, Config::default(), PathBuf::new());
+
+        app.handle_key(AppKey::Esc);
+
+        assert!(app.error_modal.is_none());
+        assert!(!app.quit);
     }
 
     fn app_with_free_text_sections(sections: Vec<SectionConfig>) -> App {

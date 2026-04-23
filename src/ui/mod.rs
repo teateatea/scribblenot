@@ -3184,11 +3184,95 @@ fn modal_top_offset(app: &App) -> f32 {
 
 /// Public entry point called from main.rs view().
 pub fn view(app: &App) -> Element<'_, Message> {
+    if app.error_modal.is_some() {
+        return error_modal_view(app);
+    }
     if should_render_modal_overlay(app) {
         modal_overlay(app, app.modal.as_ref())
     } else {
         main_layout(app)
     }
+}
+
+fn error_modal_view(app: &App) -> Element<'_, Message> {
+    let report = app
+        .error_modal
+        .as_ref()
+        .expect("error modal view requires a report");
+    let rendered = app.messages.render(report);
+    let source_block: Element<'_, Message> = if let Some(source) = rendered.source {
+        let quoted = source.quoted_line.unwrap_or_default();
+        column![
+            text("Source")
+                .font(app.ui_theme.font_heading)
+                .size(16)
+                .color(app.ui_theme.modal),
+            text(source.location)
+                .font(app.ui_theme.font_modal)
+                .color(app.ui_theme.text),
+            container(text(quoted).font(app.ui_theme.font_modal).color(app.ui_theme.text))
+                .padding(10)
+                .width(Length::Fill)
+                .style(move |_| background_style(app.ui_theme.modal_input_background, app.ui_theme.text)),
+        ]
+        .spacing(8)
+        .into()
+    } else {
+        Space::with_height(Length::Fixed(0.0)).into()
+    };
+
+    let fix_block: Element<'_, Message> = if rendered.fix.trim().is_empty() {
+        Space::with_height(Length::Fixed(0.0)).into()
+    } else {
+        column![
+            text("Fix")
+                .font(app.ui_theme.font_heading)
+                .size(16)
+                .color(app.ui_theme.selected),
+            text(rendered.fix)
+                .font(app.ui_theme.font_modal)
+                .color(app.ui_theme.text),
+        ]
+        .spacing(8)
+        .into()
+    };
+
+    let content = column![
+        text(rendered.title)
+            .font(app.ui_theme.font_heading)
+            .size(24)
+            .color(app.ui_theme.error),
+        text(rendered.description)
+            .font(app.ui_theme.font_modal)
+            .color(app.ui_theme.text),
+        source_block,
+        fix_block,
+        text("Press Esc or Backspace to dismiss.")
+            .font(app.ui_theme.font_status)
+            .color(app.ui_theme.muted),
+    ]
+    .spacing(18)
+    .padding(24)
+    .width(Length::Fill);
+
+    let panel = container(scrollable(content))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding(20)
+        .style(move |_| {
+            background_style(app.ui_theme.modal_panel_background, app.ui_theme.text).border(Border {
+                color: app.ui_theme.error,
+                width: 2.0,
+                radius: 8.0.into(),
+            })
+        });
+
+    container(panel)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding(18)
+        .style(move |_| background_style(app.ui_theme.background, app.ui_theme.text))
+        .into()
 }
 
 #[cfg(test)]

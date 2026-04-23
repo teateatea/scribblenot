@@ -1,0 +1,25 @@
+errors:
+  - id: assign_self_reference
+    title: "List Assigns To Itself"
+    description: "{message}"
+    fix: "Remove the self-assignment or target a different list."
+  - id: assign_unknown_list
+    title: "Assigns Unknown List"
+    description: "{message}"
+    fix: "Point `assigns` at an existing list id."
+  - id: assign_unknown_item
+    title: "Assigns Unknown Item"
+    description: "{message}"
+    fix: "Use an existing item id in the target list."
+  - id: runtime_assign_unknown_list
+    title: "Runtime Assigns Unknown List"
+    description: "{message}"
+    fix: "Point `assigns` at an existing list id."
+  - id: runtime_assign_unknown_item
+    title: "Runtime Assigns Unknown Item"
+    description: "{message}"
+    fix: "Use an existing item id in the target list."
+  - id: runtime_build_failed
+    title: "Runtime Build Failed"
+    description: "{message}"
+    fix: "Fix the reported hierarchy issue, then reload data."

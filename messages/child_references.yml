@@ -1,0 +1,61 @@
+errors:
+  - id: missing_child
+    title: "Missing Child Reference"
+    description: "{message}"
+    fix: "Add the referenced child or update `contains:` to point at an existing id."
+  - id: wrong_kind_reference
+    title: "Wrong Reference Kind"
+    description: "{message}"
+    fix: "Change the reference kind or point it at an id of the expected kind."
+  - id: invalid_child_kind
+    title: "Invalid Child Kind"
+    description: "{message}"
+    fix: "Move this child under a parent that accepts that kind, or remove it from `contains:`."
+  - id: looks_like_list_missing_items
+    title: "List-Like Block Is Registered As The Wrong Kind"
+    description: "{message}"
+    fix: "Restore `items:` and make sure the block lives under top-level `lists:`."
+  - id: looks_like_collection_missing_key
+    title: "Collection-Like Block Is Registered As The Wrong Kind"
+    description: "{message}"
+    fix: "Restore the collection shape and make sure the block lives under top-level `collections:`."
+  - id: looks_like_section_or_group_missing_key
+    title: "Section Or Group-Like Block Is Registered As The Wrong Kind"
+    description: "{message}"
+    fix: "Restore the missing hierarchy key and make sure the block is under the intended top-level kind."
+  - id: runtime_unknown_group
+    title: "Unknown Group"
+    description: "{message}"
+    fix: "Add the group or update the template reference."
+  - id: runtime_unknown_section
+    title: "Unknown Section"
+    description: "{message}"
+    fix: "Add the section or update the group reference."
+  - id: runtime_unknown_collection
+    title: "Unknown Collection"
+    description: "{message}"
+    fix: "Add the collection or update the parent reference."
+  - id: runtime_unknown_field
+    title: "Unknown Field"
+    description: "{message}"
+    fix: "Add the field or update the parent reference."
+  - id: runtime_unknown_list
+    title: "Unknown List"
+    description: "{message}"
+    fix: "Add the list or update the parent reference."
+  - id: runtime_group_child_invalid
+    title: "Invalid Group Child"
+    description: "{message}"
+    fix: "Groups can contain sections or collections."
+  - id: runtime_section_child_invalid
+    title: "Invalid Section Child"
+    description: "{message}"
+    fix: "Sections can contain fields or lists."
+  - id: runtime_collection_child_invalid
+    title: "Invalid Collection Child"
+    description: "{message}"
+    fix: "Collections can contain lists."
+  - id: runtime_field_child_invalid
+    title: "Invalid Field Child"
+    description: "{message}"
+    fix: "Fields can contain fields, lists, or collections."

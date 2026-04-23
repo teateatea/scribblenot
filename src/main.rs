@@ -6,6 +6,7 @@ mod data;
 mod document;
 mod error_report;
 mod import;
+mod messages;
 mod modal;
 mod modal_layout;
 mod note;
@@ -45,10 +46,19 @@ pub struct ScribbleApp {
 impl ScribbleApp {
     fn new_from_env() -> (Self, Task<Message>) {
         let data_dir = data::find_data_dir();
-        let app_data = data::AppData::load(data_dir.clone()).expect("failed to load app data");
         let config = config::Config::load(&data_dir).unwrap_or_default();
-        let inner = app::App::new(app_data, config, data_dir);
+        let inner = match data::AppData::load(data_dir.clone()) {
+            Ok(app_data) => app::App::new(app_data, config, data_dir),
+            Err(err) => app::App::new_error_state(error_report_from_anyhow(err), config, data_dir),
+        };
         (Self { inner }, Task::none())
+    }
+}
+
+fn error_report_from_anyhow(err: anyhow::Error) -> error_report::ErrorReport {
+    match err.downcast::<error_report::ErrorReport>() {
+        Ok(report) => report,
+        Err(err) => error_report::ErrorReport::generic("data_load_failed", err.to_string()),
     }
 }
 
@@ -236,9 +246,11 @@ fn run() -> anyhow::Result<()> {
 
     if std::env::var("SCRIBBLENOT_HEADLESS").as_deref() == Ok("1") {
         let data_dir = data::find_data_dir();
-        let app_data = data::AppData::load(data_dir.clone()).expect("failed to load");
         let config = config::Config::load(&data_dir).unwrap_or_default();
-        let _ = app::App::new(app_data, config, data_dir);
+        let _ = match data::AppData::load(data_dir.clone()) {
+            Ok(app_data) => app::App::new(app_data, config, data_dir),
+            Err(err) => app::App::new_error_state(error_report_from_anyhow(err), config, data_dir),
+        };
         return Ok(());
     }
 

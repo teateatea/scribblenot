@@ -1,0 +1,17 @@
+errors:
+  - id: yaml_parse_failed
+    title: "YAML Parse Error"
+    description: "{message}"
+    fix: "Fix the YAML syntax or unsupported key shown above, then reload data."
+  - id: legacy_repeating_key
+    title: "Deprecated YAML Key"
+    description: "{message}"
+    fix: "Replace `repeating:` with `joiner_style:` in the reported file."
+  - id: multiple_templates_in_file
+    title: "Multiple Templates In One File"
+    description: "{message}"
+    fix: "Keep only one `template:` block in each YAML file."
+  - id: keybindings_invalid
+    title: "Invalid Keybindings"
+    description: "{message}"
+    fix: "Restore valid keybinding lists, for example `confirm: [enter]`."

@@ -53,6 +53,52 @@ impl ErrorReport {
         self
     }
 
+    pub fn kind_id(&self) -> &'static str {
+        match &self.kind {
+            ErrorKind::Generic { kind_id } => kind_id,
+            ErrorKind::LooksLikeListMissingItems { .. } => "looks_like_list_missing_items",
+            ErrorKind::LooksLikeCollectionMissingKey { .. } => "looks_like_collection_missing_key",
+            ErrorKind::LooksLikeSectionOrGroupMissingKey { .. } => {
+                "looks_like_section_or_group_missing_key"
+            }
+        }
+    }
+
+    pub fn params(&self) -> Vec<(&'static str, String)> {
+        match &self.kind {
+            ErrorKind::Generic { .. } => Vec::new(),
+            ErrorKind::LooksLikeListMissingItems {
+                id,
+                registered_as,
+                found_fingerprints,
+            } => vec![
+                ("id", id.clone()),
+                ("registered_as", registered_as.clone()),
+                ("found_fingerprints", found_fingerprints.join(", ")),
+            ],
+            ErrorKind::LooksLikeCollectionMissingKey {
+                id,
+                registered_as,
+                found_fingerprints,
+            } => vec![
+                ("id", id.clone()),
+                ("registered_as", registered_as.clone()),
+                ("found_fingerprints", found_fingerprints.join(", ")),
+            ],
+            ErrorKind::LooksLikeSectionOrGroupMissingKey {
+                id,
+                inferred_kind,
+                registered_as,
+                found_fingerprints,
+            } => vec![
+                ("id", id.clone()),
+                ("inferred_kind", inferred_kind.clone()),
+                ("registered_as", registered_as.clone()),
+                ("found_fingerprints", found_fingerprints.join(", ")),
+            ],
+        }
+    }
+
     #[cfg(test)]
     pub fn contains(&self, pattern: &str) -> bool {
         self.message.contains(pattern)

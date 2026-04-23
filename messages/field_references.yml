@@ -1,0 +1,53 @@
+errors:
+  - id: runtime_field_cycle
+    title: "Field Cycle"
+    description: "{message}"
+    fix: "Break the cycle by removing or changing one nested field reference."
+  - id: field_expected_list_wrong_kind
+    title: "Field List Reference Has Wrong Kind"
+    description: "{message}"
+    fix: "Point the field at an existing list id."
+  - id: field_unknown_list
+    title: "Field References Unknown List"
+    description: "{message}"
+    fix: "Add the list or update the field's `lists:` reference."
+  - id: field_explicit_format_list_wrong_kind
+    title: "Format List Has Wrong Kind"
+    description: "{message}"
+    fix: "Point `format_lists:` at an existing list id."
+  - id: field_unknown_explicit_format_list
+    title: "Unknown Explicit Format List"
+    description: "{message}"
+    fix: "Add the list or update `format_lists:`."
+  - id: field_expected_collection_wrong_kind
+    title: "Field Collection Reference Has Wrong Kind"
+    description: "{message}"
+    fix: "Point the field at an existing collection id."
+  - id: field_unknown_collection
+    title: "Field References Unknown Collection"
+    description: "{message}"
+    fix: "Add the collection or update the field's `collections:` reference."
+  - id: field_expected_format_list_wrong_kind
+    title: "Format Placeholder Has Wrong Kind"
+    description: "{message}"
+    fix: "Use a list id for this format placeholder."
+  - id: field_unknown_format_list
+    title: "Unknown Format Placeholder"
+    description: "{message}"
+    fix: "Attach the referenced list to the field or correct the placeholder."
+  - id: runtime_unknown_format_list
+    title: "Unknown Runtime Format List"
+    description: "{message}"
+    fix: "Attach the referenced format list to the field or correct the placeholder."
+  - id: runtime_unknown_branch_field
+    title: "Unknown Branch Field"
+    description: "{message}"
+    fix: "Add the branch field or update the list item's `fields:` / `branch_fields:` reference."
+  - id: empty_hotkey
+    title: "Empty Hotkey"
+    description: "{message}"
+    fix: "Use a single visible character or remove `hotkey`."
+  - id: invalid_hotkey
+    title: "Invalid Hotkey"
+    description: "{message}"
+    fix: "Use exactly one character in `hotkey`."
