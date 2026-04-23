@@ -84,6 +84,48 @@
 #    note_label = group top-level note heading
 #    section.note.note_label = note subsection heading
 
+groups:
+  - id: safety_group
+    nav_label: SAFETY
+    contains:
+      - section: contraindications_section
+     # - section: freetext_test_section
+
+sections:
+  - id: contraindications_section
+   # body: checklist
+    label: Contraindications
+    nav_label: CONTRA
+    contains:
+      - field: test_field
+      - field: appointment_requested_field
+fields:
+  - id: test_field
+   # body: checklist
+    label: Free
+    nav_label: FREE
+    joiner_style: comma_and
+   # max_entries: 3
+    contains:
+      - list: contraindications_list
+      - list: region
+
+
+lists:
+  - id: contraindications_list
+    label: Contraindications
+    items:
+      - id: Fever
+        label: "fever"
+        output: "Fever item"
+        branch_fields: [appointment_date_field]
+      - Open wound
+      - New rash
+      - Dizziness
+      - Severe headache
+
+---
+
 template:
   id: patient_standard_template
   contains:
@@ -91,7 +133,7 @@ template:
     - group: subjective_group
     - group: treatment_group
     - group: objective_group
-  #  - group: post_group
+    - group: safety_group
 
 groups:
   - id: intake_group
