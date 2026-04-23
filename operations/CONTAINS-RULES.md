@@ -234,10 +234,9 @@ lists:
 - `max_entries` - max number of repeat selections (same property as on fields)
 
 **Gaps / open questions:**
-- `repeat_limit` is used in authored YAML (`sections.yml:618`, `treatment.yml:258`) but does not
-  exist in the Rust struct - the struct uses `max_entries`. (next): update those YAML entries to
-  use `max_entries`; `repeat_limit` will then be caught by the unknown-property error (same as any
-  other unrecognised key).
+- `repeat_limit` is no longer part of the active authored schema. Live YAML now uses
+  `max_entries`; once strict unknown-key validation lands, `repeat_limit` should be rejected like
+  any other unrecognised key.
 - `modal_start: search` is authored and parsed but `ListSelectMode` only has one variant
   (`Browsing`), making it a no-op placeholder. (later): remove `ListSelectMode` or properly
   implement and wire search mode end-to-end.

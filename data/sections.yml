@@ -51,7 +51,7 @@
 #    label
 #    format?                # e.g. "{year}-{month}-{day}"
 #    lists[]?               # list ids used by the field modal / value builder
-#    repeat_limit?          # max repeats before auto-advance
+#    max_entries?           # max repeats before auto-advance
 #
 #  - list:
 #    id
@@ -620,7 +620,7 @@ lists:
     default: empty_space
     modal_start: search
     joiner_style: comma_and_the
-    repeat_limit: 3
+    max_entries: 3
     items:
       - id: empty_space
         label: "1 (Empty Space)"

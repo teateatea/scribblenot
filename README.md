@@ -253,7 +253,7 @@ Global rules:
 - Exactly one `template` block across all hierarchy data files.
 - Group, section, collection, field, and list IDs share one global namespace.
 - `repeating` is rejected; use `joiner_style`.
-- `repeat_limit` and `format_lists` are ignored by the parser.
+- `format_lists` is ignored by the parser.
 
 ### Authored `hotkey`
 
@@ -677,7 +677,6 @@ Multi-field output rules:
 
 ## Known Limitations And Gotchas
 
-- `repeat_limit` is ignored. Use `max_entries`.
 - `format_lists` is ignored. Extra `format` placeholders are discovered automatically.
 - `repeating` is rejected. Use `joiner_style`.
 - IDs for groups, sections, collections, fields, and lists must be globally unique.

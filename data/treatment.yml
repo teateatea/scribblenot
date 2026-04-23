@@ -255,7 +255,7 @@ lists:                                           # BACK PRONE
     default: mod_empty
     modal_start: search
     joiner_style: newline
-    repeat_limit: 3
+    max_entries: 3
     items:
             - id: mod_empty
               label: "1 No"
