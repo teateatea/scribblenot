@@ -25,11 +25,7 @@ impl CollectionEntry {
         let item_list_ids = cfg
             .lists
             .iter()
-            .flat_map(|list| {
-                list.items
-                    .iter()
-                    .map(move |_| list.id.clone())
-            })
+            .flat_map(|list| list.items.iter().map(move |_| list.id.clone()))
             .collect::<Vec<_>>();
         let item_default_enabled = cfg
             .lists

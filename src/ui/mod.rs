@@ -1376,7 +1376,7 @@ fn map_status_text(app: &App) -> String {
     if !app.hint_buffer.is_empty() {
         parts.push(format!("Hint: {}", app.hint_buffer));
     }
-    parts.push("Enter previews | Esc returns".to_string());
+    parts.push("Select enters section | Esc returns".to_string());
     parts.join(" | ")
 }
 
@@ -1402,7 +1402,7 @@ fn wizard_status_text(app: &App) -> String {
                     ));
                 }
             }
-            parts.push("Enter opens choices".to_string());
+            parts.push("Select opens choices".to_string());
         }
         Some(SectionState::FreeText(state)) => {
             let mode = match state.mode {
@@ -1422,12 +1422,14 @@ fn wizard_status_text(app: &App) -> String {
                 CollectionFocus::Items(_) => "items",
             };
             parts.push(format!("Mode: {mode}"));
-            parts.push("Space toggles | Enter opens | Backspace resets | Esc confirms".to_string());
+            parts.push(
+                "Select toggles | Confirm opens | Backspace resets | Esc confirms".to_string(),
+            );
         }
         Some(SectionState::Checklist(state)) => {
             let checked = state.checked.iter().filter(|&&checked| checked).count();
             parts.push(format!("Checked: {checked}"));
-            parts.push("Space toggles | Enter confirms".to_string());
+            parts.push("Select toggles | Confirm confirms".to_string());
         }
         Some(SectionState::Pending) | None => {}
     }
@@ -3686,7 +3688,7 @@ mod tests {
     fn retained_close_transition_keeps_overlay_visible_after_modal_clears() {
         let mut app = overlay_test_app();
 
-        app.handle_key(crate::app::AppKey::Enter);
+        app.handle_key(crate::app::AppKey::Space);
         app.dismiss_modal();
 
         assert!(app.modal.is_none());
@@ -3700,7 +3702,7 @@ mod tests {
     #[test]
     fn retained_close_root_width_matches_live_active_modal_width() {
         let mut app = overlay_test_app();
-        app.handle_key(crate::app::AppKey::Enter);
+        app.handle_key(crate::app::AppKey::Space);
 
         let live_width = app
             .modal_unit_layout

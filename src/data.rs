@@ -1535,10 +1535,7 @@ fn validate_merged_hierarchy(file: &HierarchyFile) -> Result<(), String> {
                 .get(&list.id)
                 .and_then(|items| items.get(&item.id))
                 .map(String::as_str);
-            validate_explicit_hotkey(
-                &format!("list '{}' item '{}'", list.id, item.id),
-                hotkey,
-            )?;
+            validate_explicit_hotkey(&format!("list '{}' item '{}'", list.id, item.id), hotkey)?;
         }
     }
 
@@ -1974,8 +1971,12 @@ pub fn assign_hint_labels(
             continue;
         }
 
-        let suffixes =
-            take_available_generated_labels(&generation_base, group_indices.len(), &[], &HashSet::new());
+        let suffixes = take_available_generated_labels(
+            &generation_base,
+            group_indices.len(),
+            &[],
+            &HashSet::new(),
+        );
         for (idx, suffix) in group_indices.iter().zip(suffixes.into_iter()) {
             let label = format!("{prefix}{suffix}");
             used_labels.insert(label.clone());
@@ -2006,10 +2007,12 @@ pub fn assign_hint_labels(
 
     assignments
         .into_iter()
-        .map(|entry| entry.unwrap_or(HintLabelAssignment {
-            label: String::new(),
-            authored: false,
-        }))
+        .map(|entry| {
+            entry.unwrap_or(HintLabelAssignment {
+                label: String::new(),
+                authored: false,
+            })
+        })
         .collect()
 }
 
@@ -2537,11 +2540,8 @@ mod tests {
     #[test]
     fn assign_hint_labels_expands_duplicate_authored_prefixes() {
         let base = vec!["1".to_string(), "2".to_string(), "3".to_string()];
-        let assignments = assign_hint_labels(
-            &base,
-            &[Some("n"), Some("n"), None, Some("x")],
-            false,
-        );
+        let assignments =
+            assign_hint_labels(&base, &[Some("n"), Some("n"), None, Some("x")], false);
 
         let labels = assignments
             .iter()

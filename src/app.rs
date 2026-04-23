@@ -207,7 +207,6 @@ impl SectionStateStore {
     pub fn by_id(&self, node_id: &str) -> Option<&SectionState> {
         self.states.get(node_id)
     }
-
 }
 
 impl Index<usize> for SectionStateStore {
@@ -1108,6 +1107,16 @@ impl App {
         false
     }
 
+    fn reset_header_section_cursor_to_first_field(&mut self, idx: usize) {
+        if let Some(SectionState::Header(state)) = self.section_states.get_mut(idx) {
+            if !state.field_configs.is_empty() {
+                state.field_index = 0;
+                state.repeat_counts[0] = 0;
+            }
+            state.completed = false;
+        }
+    }
+
     fn handle_map_key(&mut self, key: AppKey) {
         if let AppKey::Char(c) = key {
             let ch_str = self.normalize_hint_char(c);
@@ -1155,7 +1164,7 @@ impl App {
             }
             return;
         }
-        if self.is_confirm(&key) {
+        if self.is_select(&key) {
             self.hint_buffer.clear();
             self.current_idx = self.map_cursor;
             self.map_return_idx = None;
@@ -1230,10 +1239,7 @@ impl App {
         )
     }
 
-    fn visible_header_field_hotkeys<'a>(
-        &'a self,
-        state: &'a HeaderState,
-    ) -> Vec<Option<&'a str>> {
+    fn visible_header_field_hotkeys<'a>(&'a self, state: &'a HeaderState) -> Vec<Option<&'a str>> {
         (0..state.visible_row_count())
             .map(|row_idx| {
                 let (field_idx, repeat_idx) = state.field_index_for_visible_row(row_idx)?;
@@ -1321,7 +1327,10 @@ impl App {
             .map(|(_sections, fields)| fields)
             .unwrap_or_default();
         WizardHintLabels {
-            fields: labels.into_iter().map(|assignment| assignment.label).collect(),
+            fields: labels
+                .into_iter()
+                .map(|assignment| assignment.label)
+                .collect(),
         }
     }
 
@@ -1419,7 +1428,8 @@ impl App {
                     self.config.hint_labels_case_sensitive,
                 );
             };
-            let item_range = modal_hint_window(state.item_cursor, collection.items.len(), remaining);
+            let item_range =
+                modal_hint_window(state.item_cursor, collection.items.len(), remaining);
             explicit_prefixes.extend(item_range.map(|item_idx| {
                 let list_id = collection.item_list_ids.get(item_idx)?;
                 let item = collection.items.get(item_idx)?;
@@ -1839,9 +1849,8 @@ impl App {
             let typed = self.hint_buffer.clone();
 
             let idx = self.current_idx;
-            let (section_assignments, field_assignments) = self
-                .current_wizard_hint_assignments()
-                .unwrap_or_default();
+            let (section_assignments, field_assignments) =
+                self.current_wizard_hint_assignments().unwrap_or_default();
             match self.resolve_hint_assignments(&section_assignments, &typed) {
                 crate::data::HintResolveResult::Exact(flat_idx) => {
                     self.current_idx = flat_idx;
@@ -1966,19 +1975,34 @@ impl App {
 
         if self.is_nav_down(&key) {
             let idx = self.current_idx;
-            if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
-                let last = s.field_configs.len().saturating_sub(1);
-                if s.field_index > last {
-                    // Normalize out-of-bounds (completed) index to last field
-                    s.field_index = last;
+            let advance_to_next_section =
+                if let Some(SectionState::Header(state)) = self.section_states.get_mut(idx) {
+                    if state.field_configs.is_empty() {
+                        false
+                    } else {
+                        let last = state.field_configs.len() - 1;
+                        if state.field_index > last {
+                            // Normalize out-of-bounds (completed) index to last field.
+                            state.field_index = last;
+                            false
+                        } else if state.field_index == last {
+                            true
+                        } else {
+                            let _ = state.go_forward();
+                            false
+                        }
+                    }
                 } else {
-                    let _ = s.go_forward();
-                }
+                    false
+                };
+            if advance_to_next_section {
+                self.advance_section();
+                self.reset_header_section_cursor_to_first_field(self.current_idx);
             }
             return;
         }
 
-        if self.is_confirm(&key) || self.is_nav_right(&key) {
+        if self.is_select(&key) || self.is_nav_right(&key) {
             self.open_header_modal();
         }
     }
@@ -4960,6 +4984,28 @@ mod composition_span_tests {
         App::new(data, Config::default(), PathBuf::new())
     }
 
+    fn app_with_header_sections(sections: Vec<SectionConfig>) -> App {
+        let data = AppData {
+            template: RuntimeTemplate {
+                id: "test".to_string(),
+                children: vec![RuntimeGroup {
+                    id: "intake".to_string(),
+                    nav_label: "Intake".to_string(),
+                    note: GroupNoteMeta::default(),
+                    children: sections.iter().cloned().map(RuntimeNode::Section).collect(),
+                }],
+            },
+            list_data: HashMap::new(),
+            checklist_data: HashMap::new(),
+            collection_data: HashMap::new(),
+            boilerplate_texts: HashMap::new(),
+            keybindings: KeyBindings::default(),
+            hotkeys: Default::default(),
+        };
+
+        App::new(data, Config::default(), PathBuf::new())
+    }
+
     fn free_text_section(id: &str, name: &str, group_id: &str) -> SectionConfig {
         SectionConfig {
             id: id.to_string(),
@@ -4972,6 +5018,22 @@ mod composition_span_tests {
             lists: Vec::new(),
             note_label: None,
             group_id: group_id.to_string(),
+            node_kind: RuntimeNodeKind::Section,
+        }
+    }
+
+    fn header_section(id: &str, name: &str, fields: Vec<HeaderFieldConfig>) -> SectionConfig {
+        SectionConfig {
+            id: id.to_string(),
+            name: name.to_string(),
+            map_label: name.to_string(),
+            section_type: "multi_field".to_string(),
+            show_field_labels: true,
+            data_file: None,
+            fields: Some(fields),
+            lists: Vec::new(),
+            note_label: None,
+            group_id: "intake".to_string(),
             node_kind: RuntimeNodeKind::Section,
         }
     }
@@ -5191,6 +5253,101 @@ mod composition_span_tests {
     }
 
     #[test]
+    fn select_keybind_opens_header_modal_in_wizard() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+        app.data.keybindings.select = vec!["enter".to_string()];
+        app.data.keybindings.confirm = vec!["space".to_string()];
+
+        app.handle_key(AppKey::Space);
+        assert!(
+            app.modal.is_none(),
+            "confirm should not open the field modal"
+        );
+
+        app.handle_key(AppKey::Enter);
+        assert!(app.modal.is_some(), "select should open the field modal");
+    }
+
+    #[test]
+    fn select_keybind_enters_wizard_from_map() {
+        let mut app = app_with_free_text_sections(vec![
+            free_text_section("first", "First", "group_a"),
+            free_text_section("second", "Second", "group_a"),
+        ]);
+        app.data.keybindings.select = vec!["enter".to_string()];
+        app.data.keybindings.confirm = vec!["space".to_string()];
+        app.focus = Focus::Map;
+        app.current_idx = 0;
+        app.map_cursor = 1;
+
+        app.handle_key(AppKey::Space);
+        assert_eq!(app.focus, Focus::Map, "confirm should not leave the map");
+        assert_eq!(
+            app.current_idx, 0,
+            "confirm should not enter the selected section"
+        );
+
+        app.handle_key(AppKey::Enter);
+        assert_eq!(
+            app.focus,
+            Focus::Wizard,
+            "select should enter the selected section"
+        );
+        assert_eq!(app.current_idx, 1);
+        assert_eq!(app.map_return_idx, None);
+    }
+
+    #[test]
+    fn nav_down_from_last_header_field_advances_to_next_section_first_field() {
+        let mut app = app_with_header_sections(vec![
+            header_section(
+                "first_section",
+                "First",
+                vec![list_field(ModalStart::List), list_field(ModalStart::List)],
+            ),
+            header_section(
+                "second_section",
+                "Second",
+                vec![list_field(ModalStart::List), list_field(ModalStart::List)],
+            ),
+        ]);
+
+        let SectionState::Header(first_state) = &mut app.section_states[0] else {
+            panic!("expected first header state");
+        };
+        first_state.field_index = 1;
+
+        let SectionState::Header(second_state) = &mut app.section_states[1] else {
+            panic!("expected second header state");
+        };
+        second_state.field_index = 1;
+        second_state.repeat_counts[1] = 1;
+        second_state.completed = true;
+
+        app.handle_key(AppKey::Down);
+
+        assert_eq!(
+            app.current_idx, 1,
+            "nav_down should advance to the next section"
+        );
+        let SectionState::Header(second_state) = &app.section_states[1] else {
+            panic!("expected second header state");
+        };
+        assert_eq!(
+            second_state.field_index, 0,
+            "next header section should start at field 0"
+        );
+        assert_eq!(
+            second_state.repeat_counts[0], 0,
+            "next header section should reset to the first visible repeat slot"
+        );
+        assert!(
+            !second_state.completed,
+            "advancing into the next section should clear completed state"
+        );
+    }
+
+    #[test]
     fn modal_nav_right_browses_next_part_without_confirming() {
         let mut app = app_with_single_field(assigned_time_field());
         app.open_header_modal();
@@ -5350,7 +5507,10 @@ mod composition_span_tests {
 
         app.handle_key(AppKey::Char('n'));
 
-        assert!(app.modal.is_none(), "authored item hotkey should confirm immediately");
+        assert!(
+            app.modal.is_none(),
+            "authored item hotkey should confirm immediately"
+        );
         let SectionState::Header(state) = &app.section_states[0] else {
             panic!("expected header state");
         };
@@ -5382,7 +5542,10 @@ mod composition_span_tests {
             .collections
             .first()
             .expect("collection should still exist");
-        assert_eq!(state.item_cursor, 1, "hotkey should target the authored row");
+        assert_eq!(
+            state.item_cursor, 1,
+            "hotkey should target the authored row"
+        );
         assert!(
             collection.active,
             "authored item hotkey should activate the collection"
@@ -5455,7 +5618,10 @@ mod composition_span_tests {
             .as_ref()
             .and_then(|modal| modal.collection_state.as_ref())
             .expect("collection state should remain open");
-        assert!(state.in_items(), "nav_right should enter the right-hand pane");
+        assert!(
+            state.in_items(),
+            "nav_right should enter the right-hand pane"
+        );
     }
 
     #[test]
@@ -5475,7 +5641,8 @@ mod composition_span_tests {
         let SectionState::Header(state) = &app.section_states[0] else {
             panic!("expected header state");
         };
-        let Some(HeaderFieldValue::CollectionState(value)) = state.repeated_values[0].first() else {
+        let Some(HeaderFieldValue::CollectionState(value)) = state.repeated_values[0].first()
+        else {
             panic!("expected confirmed collection state");
         };
         assert!(
@@ -5523,7 +5690,10 @@ mod composition_span_tests {
             .as_ref()
             .and_then(|modal| modal.collection_state.as_ref())
             .expect("collection state should remain available");
-        assert!(state.in_items(), "configured select binding should enter items");
+        assert!(
+            state.in_items(),
+            "configured select binding should enter items"
+        );
     }
 
     #[test]
