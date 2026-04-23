@@ -92,7 +92,6 @@ groups:
 
 sections:
   - id: contraindications_section
-   # body: checklist
     label: Contraindications
     nav_label: CONTRA
     contains:
@@ -100,7 +99,6 @@ sections:
       - field: appointment_requested_field
 fields:
   - id: test_field
-   # body: checklist
     label: Free
     joiner_style: comma_and
    # max_entries: 3

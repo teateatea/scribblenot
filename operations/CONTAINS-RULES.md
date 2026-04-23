@@ -109,7 +109,7 @@ sections:
 - unknown keys on authored blocks now hard-error during parse (for example `body: checklist`
   on a section). This currently uses serde's generic unknown-field message; richer author-facing
   diagnostics still belong to `#24` / `#44`.
-- (now): in `fields + lists` sections, lists are stored in `SectionConfig.lists` but the
+- (next/#47): in `fields + lists` sections, lists are stored in `SectionConfig.lists` but the
   `multi_field` renderer ignores them - they are silently dropped from the output. Intended
   behaviour needs to be defined and implemented.
 
@@ -234,8 +234,8 @@ lists:
 
 **Gaps / open questions:**
 - `repeat_limit` is no longer part of the active authored schema. Live YAML now uses
-  `max_entries`; once strict unknown-key validation lands, `repeat_limit` should be rejected like
-  any other unrecognised key.
+  `max_entries`; strict unknown-key validation rejects `repeat_limit` like any other
+  unrecognised key.
 - `modal_start: search` is authored and parsed but `ListSelectMode` only has one variant
   (`Browsing`), making it a no-op placeholder. (later): remove `ListSelectMode` or properly
   implement and wire search mode end-to-end.
