@@ -114,7 +114,7 @@ lists:
       - id: Fever
         label: "fever"
         output: "Fever item"
-        fields: [appointment_date_field]
+        # branch_fields: [appointment_date_field]
       - Open wound
       - New rash
       - Dizziness
