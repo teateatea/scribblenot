@@ -14,21 +14,14 @@ fields:
     label: "Signs / Symptoms"
     format: "{year}-{month}-{day}: {place}{region}: {patientdescribes} {subjective_tag}{starting_since}{starting_frequency}{duration_unit}{pluralizer}{starting_ago}."
     max_entries: 12
-    lists:
-      - place
-      - region
-      - patientdescribes
-      - subjective_tag
-      - starting_since
-      - starting_frequency
-      - duration_unit
-    format_lists:
-      - year
-      - month
-      - day
-      - summ_pluralizer
-      - pluralizer
-      - starting_ago
+    contains:
+      - { list: place }
+      - { list: region }
+      - { list: patientdescribes }
+      - { list: subjective_tag }
+      - { list: starting_since }
+      - { list: starting_frequency }
+      - { list: duration_unit }
 
 lists:
   - id: region

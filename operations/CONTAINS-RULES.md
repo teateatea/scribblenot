@@ -11,8 +11,8 @@ The hierarchy has six levels: template, group, section/collection, field, list, 
 Each level has a `contains` (or equivalent) that determines what it accepts.
 The runtime infers behaviour from what's present - no explicit `body:` or `type:` needed.
 
-All levels are validated at load time - invalid child kinds are a hard error - except `item.fields`,
-which is an untyped string list with no existence check.
+All levels are validated at load time. Invalid child kinds are a hard error, and `item.fields`
+now resolves against authored field IDs rather than acting as an unchecked string list.
 
 **Global rule:** no level may contain a `template`. There is exactly one template and it is the root.
 
@@ -106,9 +106,10 @@ sections:
   on a list is parsed and stored but not wired to the section's runtime mode.
 - (later): `free_text` sections (empty `contains`) have no input mechanism - you can navigate
   to them but there is no way to actually enter text. Needs a text entry UI to be useful.
-- (now): unknown keys on any block (e.g. `body: checklist` on a section) are silently ignored
-  by serde. Should throw a useful error instead.
-- (now): in `fields + lists` sections, lists are stored in `SectionConfig.lists` but the
+- unknown keys on authored blocks now hard-error during parse (for example `body: checklist`
+  on a section). This currently uses serde's generic unknown-field message; richer author-facing
+  diagnostics still belong to `#24` / `#44`.
+- (next/#47): in `fields + lists` sections, lists are stored in `SectionConfig.lists` but the
   `multi_field` renderer ignores them - they are silently dropped from the output. Intended
   behaviour needs to be defined and implemented.
 
@@ -157,12 +158,12 @@ block rather than a `section` block.
 
 ## `field`
 
-**Parents:** `section`; `field` sub-field; `item` (now, via `fields:` once validated); `group` (later); `item.branch_fields` (escape hatch, to be removed)
+**Parents:** `section`; `field` sub-field; `item` (via `fields:`); `group` (later)
 
 **Accepts in `contains`:** `field` refs, `list` refs, `collection` refs
 
-**Legacy parallel syntax:** `lists: [id, id]`, `collections: [id, id]` - (now): reject with a
-clear error pointing the author to use `contains:` instead.
+**Legacy parallel syntax:** `lists: [id, id]`, `collections: [id, id]` - rejected with a
+clear parse error pointing the author to use `contains:` instead.
 
 **Cannot contain:** `section`, `group`, `template`
 - `section`: explicit no
@@ -197,8 +198,6 @@ fields:
 **Gaps / open questions:**
 - A field with no children, no lists, and no format is not validated. Silently becomes
   a `HeaderFieldConfig` with empty everything. Intended behaviour is undefined.
-- `item.branch_fields` bypasses the `contains` path entirely - it injects fully-resolved
-  `HeaderFieldConfig` objects directly, skipping parse/resolve/validate.
 
 ---
 
@@ -234,10 +233,9 @@ lists:
 - `max_entries` - max number of repeat selections (same property as on fields)
 
 **Gaps / open questions:**
-- `repeat_limit` is used in authored YAML (`sections.yml:618`, `treatment.yml:258`) but does not
-  exist in the Rust struct - the struct uses `max_entries`. (next): update those YAML entries to
-  use `max_entries`; `repeat_limit` will then be caught by the unknown-property error (same as any
-  other unrecognised key).
+- `repeat_limit` is no longer part of the active authored schema. Live YAML now uses
+  `max_entries`; strict unknown-key validation rejects `repeat_limit` like any other
+  unrecognised key.
 - `modal_start: search` is authored and parsed but `ListSelectMode` only has one variant
   (`Browsing`), making it a no-op placeholder. (later): remove `ListSelectMode` or properly
   implement and wire search mode end-to-end.
@@ -261,7 +259,7 @@ items:
     assigns:
       - list: some_other_list
         item: some_item_id
-    fields: [field_id_one, field_id_two]       # item-driven branching (unvalidated)
+    fields: [field_id_one, field_id_two]       # item-driven branching
 ```
 
 **Contains (functional, not via `contains:` key):**
@@ -281,17 +279,9 @@ items:
 `fields:`
 - Intended to reference existing authored field blocks by ID and activate them as sub-fields
   when this item is chosen.
-- Currently a stub: IDs are parsed into `Vec<String>` but never resolved, never validated,
-  and never read at runtime. Authoring `fields:` on an item is a silent no-op.
-- `branch_fields` is the only working mechanism for item-driven sub-fields right now.
-- (now): implement resolution and wiring, then validate field IDs at load time with a hard
-  error on missing IDs. Once done, `branch_fields` can be removed.
-
-`branch_fields:`
-- Inline fully-resolved runtime `HeaderFieldConfig` objects. Bypasses the entire authored
-  schema - no parse, resolve, or validate.
-- (now): remove entirely. `fields:` referencing authored blocks is the correct path.
-  `branch_fields` is a raw runtime escape hatch that should not exist in authored YAML.
+- Resolved and validated at load time. Missing IDs and wrong-kind IDs are hard errors.
+- At runtime, the chosen authored fields are wired into the branch flow in authored order.
+- `branch_fields` is no longer part of the authored schema; `fields:` is the supported path.
 
 ---
 
@@ -303,6 +293,6 @@ items:
 | group | Yes | validated |
 | section | Mostly | `checklist` dead; `list_select` search mode not wired |
 | collection | Yes | list-only by design |
-| field | Mostly | bare-field case unvalidated; `branch_fields` bypasses schema |
+| field | Mostly | bare-field case unvalidated |
 | list | Partially | `modal_start: search` parsed but not wired |
-| item | No | `fields` unvalidated; `branch_fields` bypasses schema entirely |
+| item | Mostly | `fields` is validated and wired; assigns scoping still has open design work |

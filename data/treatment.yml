@@ -73,7 +73,6 @@ collections:                                     # BACK PRONE
   - id: back_all_prone_collection
     label: "UPPER, MIDDLE & LOWER BACK"
     nav_label: "BACKAPC"
-    note_label: "UPPER MIDDLE & LOW BACK (Prone)"
     default_enabled: true
     contains:
       - list: back_all_prone
@@ -255,7 +254,7 @@ lists:                                           # BACK PRONE
     default: mod_empty
     modal_start: search
     joiner_style: newline
-    repeat_limit: 3
+    max_entries: 3
     items:
             - id: mod_empty
               label: "1 No"
@@ -530,7 +529,6 @@ collections:                                     # GLUTES
   - id: prone_glutes_collection_oblique
     label: "GLUTES OBLIQUE"
     nav_label: "GLUTESRPC"
-    note_label: "GLUTES LABEL"
     default_enabled: false
     contains:
       - list: glutes_prone_oblique

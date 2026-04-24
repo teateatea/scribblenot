@@ -50,8 +50,8 @@
 #    id
 #    label
 #    format?                # e.g. "{year}-{month}-{day}"
-#    lists[]?               # list ids used by the field modal / value builder
-#    repeat_limit?          # max repeats before auto-advance
+#    contains[]?            # typed child refs, e.g. - { list: day }
+#    max_entries?           # max repeats before auto-advance
 #
 #  - list:
 #    id
@@ -71,7 +71,6 @@
 #      output?              # note/export text; falls back to label
 #      default_enabled?     # collection items default true when omitted
 #      fields[]?            # optional referenced field ids for item-driven branching
-#      branch_fields[]?     # optional inline field objects for modal branching
 #
 #  - boilerplate:
 #    id
@@ -93,7 +92,6 @@ groups:
 
 sections:
   - id: contraindications_section
-   # body: checklist
     label: Contraindications
     nav_label: CONTRA
     contains:
@@ -101,9 +99,7 @@ sections:
       - field: appointment_requested_field
 fields:
   - id: test_field
-   # body: checklist
     label: Free
-    nav_label: FREE
     joiner_style: comma_and
    # max_entries: 3
     contains:
@@ -118,7 +114,7 @@ lists:
       - id: Fever
         label: "fever"
         output: "Fever item"
-       # branch_fields: [appointment_date_field]
+        # branch_fields: [appointment_date_field]
       - Open wound
       - New rash
       - Dizziness
@@ -190,30 +186,29 @@ fields:
  # - id: date_field
  #   label: "{year}-{month}-{day}"
  #   format: ""
- #   lists:
- #     - day
- #     - month
- #     - year
+ #   contains:
+ #     - { list: day }
+ #     - { list: month }
+ #     - { list: year }
 
   - id: appointment_date_field
     label: "Date & Time"
    # note_label: "Appointment Date & Time"
     format: "# {date_month_word_list} {day}, {year} at {start_hour_list}:{start_minute_list}{am_pm_list} ({duration_list} min)"
-    lists:
-     # - duration_list
-      - start_hour_list
-      - start_minute_list
-      - duration_list
-      - day
-      - date_month_word_list
-      - year
+    contains:
+      - { list: start_hour_list }
+      - { list: start_minute_list }
+      - { list: duration_list }
+      - { list: day }
+      - { list: date_month_word_list }
+      - { list: year }
    #   - day
    #   - date_month_wor_list
 
   - id: appointment_requested_field
     label: Request
     format: "{year}-{month}-{day}: Pt requested a {appointment_type_list}{requested_regions}." # {the_region}."
-  #  lists:
+  #  contains:
   #    - appointment_type_list
   #    - the_region
     contains:
@@ -620,7 +615,7 @@ lists:
     default: empty_space
     modal_start: search
     joiner_style: comma_and_the
-    repeat_limit: 3
+    max_entries: 3
     items:
       - id: empty_space
         label: "1 (Empty Space)"

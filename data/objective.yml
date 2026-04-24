@@ -13,19 +13,15 @@ fields:
     label: "Muscle Observation"
     format: "{year}-{month}-{day}: {place}{muscle}: {tag}"
     max_entries: 12
-    lists:
-      - muscle
-      - place
-      - tag
-    format_lists:
-      - year
-      - month
-      - day
+    contains:
+      - { list: muscle }
+      - { list: place }
+      - { list: tag }
   - id: ests_mm_field
     label: "Muscles of the Erector Spinae"
     format: "{ests_mm_list}"
-    lists:
-      - ests_mm_list
+    contains:
+      - { list: ests_mm_list }
 
 
 lists:
