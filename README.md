@@ -342,7 +342,7 @@ groups:
 | `note_label` | no | Group heading in the note |
 | `boilerplate_refs` | no | Boilerplate IDs inserted after group heading |
 
-If `note_label` is omitted, the runtime falls back to `nav_label`, then `id`. In practice, groups always render some heading text.
+If `note_label` is omitted, the group does not render a top-level note heading.
 
 ### `section` block
 
@@ -679,7 +679,6 @@ Multi-field output rules:
 
 - `repeating` is rejected. Use `joiner_style`.
 - IDs for groups, sections, collections, fields, and lists must be globally unique.
-- Group headings always resolve to something because the runtime falls back from `note_label` to `nav_label` to `id`.
 - `section_type` is inferred; you do not declare it directly in YAML.
 - `max_entries` without `joiner_style` still makes a list repeating.
 - `max_entries` with `joiner_style` on a field repeats the completed field output, including nested child-field formats.

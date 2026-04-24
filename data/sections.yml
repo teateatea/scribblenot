@@ -60,7 +60,8 @@
 #    sticky?                # remember chosen output across notes
 #    default?               # item id selected by default
 #    modal_start?           # list | search
-#    repeating?             # comma_and | comma_and_the | comma_or | comma | semicolon | slash | newline
+#    joiner_style?          # comma_and | comma_and_the | comma_or | comma | semicolon | slash | newline
+#    max_entries?           # repeat cap for multi-select lists
 #    items[]
 #
 #  - list item:
@@ -114,7 +115,7 @@ lists:
       - id: Fever
         label: "fever"
         output: "Fever item"
-        # branch_fields: [appointment_date_field]
+        # fields: [appointment_date_field]
       - Open wound
       - New rash
       - Dizziness
