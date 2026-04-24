@@ -1051,7 +1051,7 @@ fn apply_alpha(color: Color, alpha: f32) -> Color {
 
 fn italic_font(base: iced::Font) -> iced::Font {
     iced::Font {
-        style: iced::font::Style::Italic,
+        style: iced::font::Style::Oblique,
         ..base
     }
 }
@@ -3203,61 +3203,48 @@ fn error_modal_view(app: &App) -> Element<'_, Message> {
     let reload_key = first_key_label(&app.data.keybindings.data_reload, "\\");
     let copy_key = first_key_label(&app.data.keybindings.copy_note, "c");
     let footer = format!(
-        "Press Esc, Backspace, or {reload_key} to reload. Press {copy_key} to copy this error as Markdown."
+        "Press Esc, Backspace, or {reload_key} to reload. Press {copy_key} to copy error text."
     );
-    let source_block: Element<'_, Message> = if let Some(source) = rendered.source {
-        let quoted = source.quoted_line.unwrap_or_default();
-        column![
-            text("Source")
-                .font(app.ui_theme.font_heading)
-                .size(16)
-                .color(app.ui_theme.modal),
-            text(source.location)
-                .font(app.ui_theme.font_modal)
-                .color(app.ui_theme.text),
-            container(text(quoted).font(app.ui_theme.font_modal).color(app.ui_theme.text))
-                .padding(10)
-                .width(Length::Fill)
-                .style(move |_| background_style(app.ui_theme.modal_input_background, app.ui_theme.text)),
-        ]
-        .spacing(8)
-        .into()
-    } else {
-        Space::with_height(Length::Fixed(0.0)).into()
-    };
-
-    let fix_block: Element<'_, Message> = if rendered.fix.trim().is_empty() {
-        Space::with_height(Length::Fixed(0.0)).into()
-    } else {
-        column![
-            text("Fix")
-                .font(app.ui_theme.font_heading)
-                .size(16)
-                .color(app.ui_theme.selected),
-            text(rendered.fix)
-                .font(app.ui_theme.font_modal)
-                .color(app.ui_theme.text),
-        ]
-        .spacing(8)
-        .into()
-    };
-
-    let content = column![
-        text(rendered.title)
-            .font(app.ui_theme.font_heading)
-            .size(24)
-            .color(app.ui_theme.error),
-        text(format!("Error ID: {}", rendered.id))
-            .font(app.ui_theme.font_status)
-            .color(app.ui_theme.muted),
-        text(rendered.description)
-            .font(app.ui_theme.font_modal)
-            .color(app.ui_theme.text),
-        source_block,
-        fix_block,
+    let source_block = error_modal_source_block(app, &rendered);
+    let footer_block = column![
+        muted_rule(app),
         text(footer)
             .font(app.ui_theme.font_status)
             .color(app.ui_theme.muted),
+        text(format!("Error ID: {}", rendered.id))
+            .font(app.ui_theme.font_status)
+            .color(app.ui_theme.muted),
+        error_modal_full_paths(app, &rendered),
+    ]
+    .spacing(4);
+    let description_spans = rendered.description_segments.as_slice();
+    let description_spans = error_modal_styled_spans(
+        description_spans,
+        app.ui_theme.text,
+        app.ui_theme.active,
+        app.ui_theme.error,
+        app.ui_theme.selected,
+        app.ui_theme.muted,
+        app.ui_theme.modal_input_background,
+        app.ui_theme.modal_input_border,
+        app.ui_theme.font_modal,
+    );
+    let description = rich_text::<Message, iced::Theme, iced::Renderer>(description_spans)
+        .font(app.ui_theme.font_modal)
+        .size(16)
+        .width(Length::Fill);
+
+    let fix_block = error_modal_fix_block(app, &rendered);
+
+    let content = column![
+        text(rendered.title.clone())
+            .font(app.ui_theme.font_heading)
+            .size(24)
+            .color(app.ui_theme.error),
+        description,
+        source_block,
+        fix_block,
+        footer_block,
     ]
     .spacing(18)
     .padding(24)
@@ -3284,6 +3271,218 @@ fn error_modal_view(app: &App) -> Element<'_, Message> {
         .into()
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ErrorModalInlineStyle {
+    Normal,
+    Red,
+    Green,
+    Code,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ErrorModalFixSnippet {
+    line_label: Option<String>,
+    code: String,
+    accent: ErrorModalFixSnippetAccent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ErrorModalFixSnippetAccent {
+    Context,
+    Suggested,
+}
+
+fn error_modal_styled_spans(
+    segments: &[crate::diagnostics::RenderedTextSegment],
+    base_color: Color,
+    param_color: Color,
+    red_color: Color,
+    green_color: Color,
+    muted_color: Color,
+    code_background: Color,
+    code_border: Color,
+    base_font: iced::Font,
+) -> Vec<iced::widget::text::Span<'static, Message>> {
+    let mut spans = Vec::new();
+    let mut buffer = String::new();
+    let mut current_is_param: Option<bool> = None;
+    let mut style = ErrorModalInlineStyle::Normal;
+    let mut paren_depth = 0usize;
+
+    let flush = |spans: &mut Vec<iced::widget::text::Span<'static, Message>>,
+                 buffer: &mut String,
+                 current_is_param: Option<bool>,
+                 style: ErrorModalInlineStyle,
+                 paren_depth: usize| {
+        if buffer.is_empty() {
+            return;
+        }
+        let color = match style {
+            _ if paren_depth > 0 => muted_color,
+            ErrorModalInlineStyle::Red => red_color,
+            ErrorModalInlineStyle::Green => green_color,
+            ErrorModalInlineStyle::Code => {
+                if current_is_param.unwrap_or(false) {
+                    param_color
+                } else {
+                    base_color
+                }
+            }
+            ErrorModalInlineStyle::Normal => {
+                if current_is_param.unwrap_or(false) {
+                    param_color
+                } else {
+                    base_color
+                }
+            }
+        };
+        let mut text_span = span(std::mem::take(buffer)).color(color).font(base_font);
+        if style == ErrorModalInlineStyle::Code {
+            text_span = text_span
+                .background(code_background)
+                .border(Border {
+                    color: code_border,
+                    width: 1.0,
+                    radius: 4.0.into(),
+                })
+                .padding([1.0, 5.0]);
+        }
+        spans.push(text_span);
+    };
+
+    for segment in segments {
+        let mut chars = segment.text.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if style == ErrorModalInlineStyle::Code {
+                if ch == '`' {
+                    flush(
+                        &mut spans,
+                        &mut buffer,
+                        current_is_param,
+                        style,
+                        paren_depth,
+                    );
+                    current_is_param = None;
+                    style = ErrorModalInlineStyle::Normal;
+                } else {
+                    if current_is_param != Some(segment.is_param) {
+                        flush(
+                            &mut spans,
+                            &mut buffer,
+                            current_is_param,
+                            style,
+                            paren_depth,
+                        );
+                        current_is_param = Some(segment.is_param);
+                    }
+                    buffer.push(ch);
+                }
+                continue;
+            }
+
+            if ch == '*' {
+                flush(
+                    &mut spans,
+                    &mut buffer,
+                    current_is_param,
+                    style,
+                    paren_depth,
+                );
+                current_is_param = None;
+                if chars.peek() == Some(&'*') {
+                    chars.next();
+                    style = if style == ErrorModalInlineStyle::Green {
+                        ErrorModalInlineStyle::Normal
+                    } else {
+                        ErrorModalInlineStyle::Green
+                    };
+                } else {
+                    style = if style == ErrorModalInlineStyle::Red {
+                        ErrorModalInlineStyle::Normal
+                    } else {
+                        ErrorModalInlineStyle::Red
+                    };
+                }
+                continue;
+            }
+
+            if ch == '`' {
+                flush(
+                    &mut spans,
+                    &mut buffer,
+                    current_is_param,
+                    style,
+                    paren_depth,
+                );
+                current_is_param = None;
+                style = ErrorModalInlineStyle::Code;
+                continue;
+            }
+
+            if ch == '(' {
+                flush(
+                    &mut spans,
+                    &mut buffer,
+                    current_is_param,
+                    style,
+                    paren_depth,
+                );
+                if current_is_param != Some(segment.is_param) {
+                    current_is_param = Some(segment.is_param);
+                }
+                paren_depth += 1;
+                buffer.push(ch);
+                continue;
+            }
+
+            if ch == ')' {
+                if current_is_param != Some(segment.is_param) {
+                    flush(
+                        &mut spans,
+                        &mut buffer,
+                        current_is_param,
+                        style,
+                        paren_depth,
+                    );
+                    current_is_param = Some(segment.is_param);
+                }
+                buffer.push(ch);
+                flush(
+                    &mut spans,
+                    &mut buffer,
+                    current_is_param,
+                    style,
+                    paren_depth,
+                );
+                paren_depth = paren_depth.saturating_sub(1);
+                current_is_param = None;
+                continue;
+            }
+
+            if current_is_param != Some(segment.is_param) {
+                flush(
+                    &mut spans,
+                    &mut buffer,
+                    current_is_param,
+                    style,
+                    paren_depth,
+                );
+                current_is_param = Some(segment.is_param);
+            }
+            buffer.push(ch);
+        }
+    }
+
+    flush(
+        &mut spans,
+        &mut buffer,
+        current_is_param,
+        style,
+        paren_depth,
+    );
+    spans
+}
+
 fn error_modal_panel_background(app: &App) -> Color {
     let base = app.ui_theme.modal_panel_background;
     let Some((kind, amount)) = app.error_modal_flash_amount() else {
@@ -3294,6 +3493,292 @@ fn error_modal_panel_background(app: &App) -> Color {
         ErrorModalFlashKind::Copy => app.ui_theme.preview_copy_flash_background,
     };
     blend_color(base, flash, amount * 0.65)
+}
+
+fn error_modal_fix_block<'a>(
+    app: &'a App,
+    rendered: &crate::diagnostics::RenderedError,
+) -> Element<'a, Message> {
+    if rendered.fix.trim().is_empty() {
+        return Space::with_height(Length::Fixed(0.0)).into();
+    }
+
+    let fix_lines = split_rendered_text_lines(&rendered.fix_segments);
+    let mut items: Vec<Element<'a, Message>> = vec![
+        muted_rule(app),
+        text("Next Steps")
+            .font(app.ui_theme.font_heading)
+            .size(18)
+            .color(app.ui_theme.selected)
+            .into(),
+    ];
+
+    for line in fix_lines {
+        if line.is_empty() {
+            items.push(Space::with_height(Length::Fixed(6.0)).into());
+            continue;
+        }
+
+        let line_text = flatten_rendered_text_segments(&line);
+        let trimmed = line_text.trim();
+        if trimmed.is_empty() {
+            items.push(Space::with_height(Length::Fixed(6.0)).into());
+            continue;
+        }
+
+        if trimmed == "..." {
+            items.push(
+                text("...")
+                    .font(app.ui_theme.font_modal)
+                    .color(app.ui_theme.muted)
+                    .into(),
+            );
+            continue;
+        }
+
+        if let Some(snippet) = parse_error_modal_fix_snippet(&line_text) {
+            items.push(error_modal_fix_snippet_row(app, &snippet));
+            continue;
+        }
+
+        let spans = error_modal_styled_spans(
+            &line,
+            app.ui_theme.text,
+            app.ui_theme.active,
+            app.ui_theme.error,
+            app.ui_theme.selected,
+            app.ui_theme.muted,
+            app.ui_theme.modal_input_background,
+            app.ui_theme.modal_input_border,
+            app.ui_theme.font_modal,
+        );
+        items.push(
+            rich_text::<Message, iced::Theme, iced::Renderer>(spans)
+                .font(app.ui_theme.font_modal)
+                .size(16)
+                .width(Length::Fill)
+                .into(),
+        );
+    }
+
+    column(items).spacing(8).into()
+}
+
+fn error_modal_fix_snippet_row<'a>(
+    app: &'a App,
+    snippet: &ErrorModalFixSnippet,
+) -> Element<'a, Message> {
+    let line_color = match snippet.accent {
+        ErrorModalFixSnippetAccent::Context => app.ui_theme.active,
+        ErrorModalFixSnippetAccent::Suggested => app.ui_theme.selected,
+    };
+    let label = snippet.line_label.clone().unwrap_or_default();
+
+    row![
+        text(label)
+            .font(app.ui_theme.font_modal)
+            .color(line_color)
+            .width(Length::Fixed(44.0)),
+        container(
+            text(snippet.code.clone())
+                .font(app.ui_theme.font_modal)
+                .color(line_color),
+        )
+        .padding([3.0, 8.0])
+        .width(Length::Fill)
+        .style(move |_| background_style(app.ui_theme.modal_input_background, line_color)),
+    ]
+    .spacing(8)
+    .align_y(iced::Alignment::Center)
+    .into()
+}
+
+fn split_rendered_text_lines(
+    segments: &[crate::diagnostics::RenderedTextSegment],
+) -> Vec<Vec<crate::diagnostics::RenderedTextSegment>> {
+    let mut lines = vec![Vec::new()];
+
+    for segment in segments {
+        let mut line_start = 0usize;
+        for (idx, ch) in segment.text.char_indices() {
+            if ch != '\n' {
+                continue;
+            }
+
+            if idx > line_start {
+                lines
+                    .last_mut()
+                    .expect("line buffer should exist")
+                    .push(crate::diagnostics::RenderedTextSegment {
+                        text: segment.text[line_start..idx].to_string(),
+                        is_param: segment.is_param,
+                    });
+            }
+            lines.push(Vec::new());
+            line_start = idx + ch.len_utf8();
+        }
+
+        if line_start < segment.text.len() {
+            lines
+                .last_mut()
+                .expect("line buffer should exist")
+                .push(crate::diagnostics::RenderedTextSegment {
+                    text: segment.text[line_start..].to_string(),
+                    is_param: segment.is_param,
+                });
+        }
+    }
+
+    while matches!(lines.last(), Some(last) if last.is_empty()) {
+        lines.pop();
+    }
+
+    lines
+}
+
+fn flatten_rendered_text_segments(segments: &[crate::diagnostics::RenderedTextSegment]) -> String {
+    segments
+        .iter()
+        .map(|segment| segment.text.as_str())
+        .collect()
+}
+
+fn parse_error_modal_fix_snippet(line: &str) -> Option<ErrorModalFixSnippet> {
+    let trimmed = line.trim_start();
+
+    if let Some(rest) = trimmed.strip_prefix("**ln ") {
+        let (line_number, rest) = rest.split_once("**")?;
+        if !line_number.chars().all(|ch| ch.is_ascii_digit()) {
+            return None;
+        }
+        let code = parse_error_modal_fix_code(rest.trim_start())?;
+        return Some(ErrorModalFixSnippet {
+            line_label: Some(format!("ln {line_number}")),
+            code,
+            accent: ErrorModalFixSnippetAccent::Suggested,
+        });
+    }
+
+    if let Some(rest) = trimmed.strip_prefix("ln ") {
+        let (line_number, rest) = rest.split_once(' ')?;
+        if !line_number.chars().all(|ch| ch.is_ascii_digit()) {
+            return None;
+        }
+        let code = parse_error_modal_fix_code(rest.trim_start())?;
+        return Some(ErrorModalFixSnippet {
+            line_label: Some(format!("ln {line_number}")),
+            code,
+            accent: ErrorModalFixSnippetAccent::Context,
+        });
+    }
+
+    parse_error_modal_fix_code(trimmed).map(|code| ErrorModalFixSnippet {
+        line_label: None,
+        code,
+        accent: ErrorModalFixSnippetAccent::Suggested,
+    })
+}
+
+fn parse_error_modal_fix_code(text: &str) -> Option<String> {
+    let code = text.strip_prefix('`')?.strip_suffix('`')?;
+    Some(code.replace("**", ""))
+}
+
+fn error_modal_full_paths<'a>(
+    app: &'a App,
+    rendered: &crate::diagnostics::RenderedError,
+) -> Element<'a, Message> {
+    if rendered.source_blocks.is_empty() {
+        return Space::with_height(Length::Fixed(0.0)).into();
+    }
+
+    let items = rendered
+        .source_blocks
+        .iter()
+        .map(|block| {
+            text(format!("File: {}", block.file_path))
+                .font(app.ui_theme.font_status)
+                .color(app.ui_theme.muted)
+                .into()
+        })
+        .collect::<Vec<Element<'a, Message>>>();
+
+    column(items).spacing(4).into()
+}
+
+fn error_modal_source_block<'a>(
+    app: &'a App,
+    rendered: &crate::diagnostics::RenderedError,
+) -> Element<'a, Message> {
+    if rendered.source_blocks.is_empty() {
+        return Space::with_height(Length::Fixed(0.0)).into();
+    }
+
+    let mut items: Vec<Element<'_, Message>> = vec![muted_rule(app)];
+    let modal_input_background = app.ui_theme.modal_input_background;
+
+    for block in &rendered.source_blocks {
+        items.push(
+            text(format!("{}:", block.file_name))
+                .font(app.ui_theme.font_heading)
+                .size(16)
+                .color(app.ui_theme.modal)
+                .into(),
+        );
+
+        let mut previous_line: Option<usize> = None;
+        for line in &block.lines {
+            if let Some(prev) = previous_line {
+                if line.line > prev + 1 {
+                    items.push(
+                        text("...")
+                            .font(app.ui_theme.font_modal)
+                            .color(app.ui_theme.muted)
+                            .into(),
+                    );
+                }
+            }
+
+            let line_color = match line.role {
+                crate::diagnostics::RenderedErrorSourceRole::Owner => app.ui_theme.active,
+                crate::diagnostics::RenderedErrorSourceRole::Reference => app.ui_theme.error,
+                crate::diagnostics::RenderedErrorSourceRole::Found => app.ui_theme.hint,
+            };
+            let quoted_line = if line.quoted_line.is_empty() {
+                format!("(line {})", line.line)
+            } else {
+                line.quoted_line.clone()
+            };
+            items.push(
+                row![
+                    text(format!("ln {}", line.line))
+                        .font(app.ui_theme.font_modal)
+                        .color(line_color),
+                    container(
+                        text(quoted_line)
+                            .font(app.ui_theme.font_modal)
+                            .color(line_color),
+                    )
+                    .padding([3.0, 8.0])
+                    .width(Length::Fill)
+                    .style(move |_| background_style(modal_input_background, line_color)),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center)
+                .into(),
+            );
+            previous_line = Some(line.line);
+        }
+    }
+
+    column(items).spacing(8).into()
+}
+
+fn muted_rule(app: &App) -> Element<'_, Message> {
+    container(Space::with_height(Length::Fixed(1.0)))
+        .width(Length::Fill)
+        .style(move |_| background_style(app.ui_theme.muted, app.ui_theme.muted))
+        .into()
 }
 
 fn first_key_label(keys: &[String], fallback: &str) -> String {
@@ -3312,10 +3797,12 @@ mod tests {
         build_connected_transition_rendered_unit, build_modal_close_rendered_unit,
         build_modal_open_rendered_unit, build_rendered_modal_unit, collection_preview_card_height,
         collection_preview_metrics, collection_preview_strip_layout, default_stub_mode,
-        entry_composition_panel_width, modal_close_shift, modal_open_shift,
-        modal_unit_runway_layout, retained_close_root_width, retained_modal_close_transition,
-        should_render_modal_overlay, simple_modal_unit_root_width, transition_unit_display_width,
-        ModalUnitCardKind, ModalUnitSide, COLLECTION_STREAM_SPACING,
+        entry_composition_panel_width, error_modal_styled_spans, modal_close_shift,
+        modal_open_shift, modal_unit_runway_layout, parse_error_modal_fix_snippet,
+        retained_close_root_width, retained_modal_close_transition,
+        should_render_modal_overlay, simple_modal_unit_root_width,
+        split_rendered_text_lines, transition_unit_display_width, ErrorModalFixSnippet,
+        ErrorModalFixSnippetAccent, ModalUnitCardKind, ModalUnitSide, COLLECTION_STREAM_SPACING,
     };
     use crate::app::{
         App, FocusDirection, ModalArrivalLayer, ModalDepartureLayer, ModalTransitionEasing,
@@ -3332,6 +3819,7 @@ mod tests {
         SimpleModalUnitLayout,
     };
     use crate::sections::collection::CollectionEntry;
+    use iced::Color;
     use std::time::Instant;
     use std::{collections::HashMap, path::PathBuf};
 
@@ -3345,6 +3833,106 @@ mod tests {
             branch_fields: Vec::new(),
             assigns: Vec::new(),
         }
+    }
+
+    #[test]
+    fn error_modal_code_spans_do_not_leak_style_after_closing_backtick() {
+        let base = Color::from_rgb(0.1, 0.1, 0.1);
+        let param = Color::from_rgb(0.9, 0.8, 0.1);
+        let red = Color::from_rgb(0.9, 0.1, 0.1);
+        let green = Color::from_rgb(0.1, 0.9, 0.1);
+        let muted = Color::from_rgb(0.5, 0.5, 0.5);
+        let segments = vec![crate::diagnostics::RenderedTextSegment {
+            text: "**ln 8** `  - **collection**: back_all_prone_collection`\n\nb) Update the ID:"
+                .to_string(),
+            is_param: false,
+        }];
+
+        let spans = error_modal_styled_spans(
+            &segments,
+            base,
+            param,
+            red,
+            green,
+            muted,
+            Color::from_rgb(0.08, 0.08, 0.08),
+            Color::from_rgb(0.4, 0.4, 0.4),
+            iced::Font::MONOSPACE,
+        );
+
+        assert!(spans.iter().any(|span| {
+            span.text.as_ref() == "  - **collection**: back_all_prone_collection"
+                && span.color == Some(base)
+                && span.highlight.is_some()
+        }));
+    }
+
+    #[test]
+    fn split_rendered_text_lines_preserves_segment_flags_across_newlines() {
+        let lines = split_rendered_text_lines(&[
+            crate::diagnostics::RenderedTextSegment {
+                text: "alpha\nbeta".to_string(),
+                is_param: false,
+            },
+            crate::diagnostics::RenderedTextSegment {
+                text: " gamma".to_string(),
+                is_param: true,
+            },
+        ]);
+
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].len(), 1);
+        assert_eq!(lines[0][0].text, "alpha");
+        assert!(!lines[0][0].is_param);
+        assert_eq!(lines[1].len(), 2);
+        assert_eq!(lines[1][0].text, "beta");
+        assert!(!lines[1][0].is_param);
+        assert_eq!(lines[1][1].text, " gamma");
+        assert!(lines[1][1].is_param);
+    }
+
+    #[test]
+    fn parse_error_modal_fix_snippet_recognizes_context_line_rows() {
+        let snippet = parse_error_modal_fix_snippet("ln 2 `- id: subjective_section`");
+
+        assert_eq!(
+            snippet,
+            Some(ErrorModalFixSnippet {
+                line_label: Some("ln 2".to_string()),
+                code: "- id: subjective_section".to_string(),
+                accent: ErrorModalFixSnippetAccent::Context,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_error_modal_fix_snippet_recognizes_suggested_rows_and_strips_markup() {
+        let snippet = parse_error_modal_fix_snippet(
+            "**ln 8** `  - **collection**: back_all_prone_collection`",
+        );
+
+        assert_eq!(
+            snippet,
+            Some(ErrorModalFixSnippet {
+                line_label: Some("ln 8".to_string()),
+                code: "  - collection: back_all_prone_collection".to_string(),
+                accent: ErrorModalFixSnippetAccent::Suggested,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_error_modal_fix_snippet_recognizes_code_only_rows() {
+        let snippet = parse_error_modal_fix_snippet("`  **- id:** demo_field`");
+
+        assert_eq!(
+            snippet,
+            Some(ErrorModalFixSnippet {
+                line_label: None,
+                code: "  - id: demo_field".to_string(),
+                accent: ErrorModalFixSnippetAccent::Suggested,
+            })
+        );
     }
 
     fn collection(id: &str, label: &str, items: Vec<HierarchyItem>) -> CollectionEntry {

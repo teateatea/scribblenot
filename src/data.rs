@@ -1,5 +1,5 @@
+use crate::diagnostics::{ErrorKind, ErrorReport, ErrorSource};
 use anyhow::Result;
-use crate::error_report::{ErrorKind, ErrorReport, ErrorSource};
 use serde::{
     de::{self, value::MapAccessDeserializer, MapAccess, Visitor},
     Deserialize, Deserializer, Serialize,
@@ -204,6 +204,7 @@ pub struct DataValidationSummary {
 #[derive(Debug, Clone, Default)]
 pub struct SourceIndex {
     pub nodes: HashMap<String, SourceNode>,
+    child_refs: HashMap<ChildRefSourceKey, ErrorSource>,
 }
 
 impl SourceIndex {
@@ -215,6 +216,9 @@ impl SourceIndex {
         for (id, node) in other.nodes {
             self.insert(id, node);
         }
+        for (key, source) in other.child_refs {
+            self.child_refs.entry(key).or_insert(source);
+        }
     }
 
     fn source_for(&self, id: &str) -> Option<ErrorSource> {
@@ -224,6 +228,37 @@ impl SourceIndex {
             quoted_line: node.quoted_line.clone(),
         })
     }
+
+    fn insert_child_ref(&mut self, owner_id: &str, child: &HierarchyChildRef, source: ErrorSource) {
+        self.child_refs
+            .entry(ChildRefSourceKey {
+                owner_id: owner_id.to_string(),
+                child_kind: child.kind(),
+                child_id: child.id().to_string(),
+            })
+            .or_insert(source);
+    }
+
+    fn source_for_child_ref(
+        &self,
+        owner_id: &str,
+        child: &HierarchyChildRef,
+    ) -> Option<ErrorSource> {
+        self.child_refs
+            .get(&ChildRefSourceKey {
+                owner_id: owner_id.to_string(),
+                child_kind: child.kind(),
+                child_id: child.id().to_string(),
+            })
+            .cloned()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ChildRefSourceKey {
+    owner_id: String,
+    child_kind: TypeTag,
+    child_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -760,14 +795,25 @@ pub fn runtime_navigation(template: &RuntimeTemplate) -> Vec<NavigationEntry> {
 #[derive(Clone)]
 struct ValidationOwner {
     label: String,
+    kind: &'static str,
+    id: Option<String>,
     source_id: Option<String>,
 }
 
 impl ValidationOwner {
-    fn new(label: impl Into<String>, source_id: Option<&str>) -> Self {
+    fn new(kind: &'static str, id: Option<&str>) -> Self {
+        let id = id.map(str::to_string);
         Self {
-            label: label.into(),
-            source_id: source_id.map(str::to_string),
+            label: if kind == "template" {
+                "template".to_string()
+            } else {
+                id.as_ref()
+                    .map(|id| format!("{kind} '{id}'"))
+                    .unwrap_or_else(|| kind.to_string())
+            },
+            kind,
+            id: id.clone(),
+            source_id: id,
         }
     }
 
@@ -778,18 +824,125 @@ impl ValidationOwner {
     }
 }
 
-fn report(kind_id: &'static str, message: impl Into<String>, source: Option<ErrorSource>) -> ErrorReport {
+fn report(
+    kind_id: &'static str,
+    message: impl Into<String>,
+    source: Option<ErrorSource>,
+) -> ErrorReport {
     ErrorReport::generic(kind_id, message).with_source(source)
+}
+
+fn child_reference_report(
+    kind_id: &'static str,
+    message: impl Into<String>,
+    source: Option<ErrorSource>,
+    owner: &ValidationOwner,
+    referenced_kind: TypeTag,
+    referenced_id: &str,
+) -> ErrorReport {
+    report(kind_id, message, source)
+        .with_param("owner_label", owner.label.clone())
+        .with_param("owner_kind", owner.kind)
+        .with_param("owner_id", owner.id.clone().unwrap_or_default())
+        .with_param("referenced_kind", kind_label(referenced_kind))
+        .with_param("referenced_id", referenced_id)
+        .with_param("actual_kind", "")
+        .with_param("allowed_kinds", "")
+        .with_param("found_file", "")
+        .with_param("found_line", "")
+        .with_param("found_quoted_line", "")
+        .with_param("referenced_file", "")
+        .with_param("referenced_line", "")
+        .with_param("referenced_quoted_line", "")
+}
+
+fn child_reference_with_actual_kind(mut report: ErrorReport, actual_kind: TypeTag) -> ErrorReport {
+    let actual_kind = kind_label(actual_kind).to_string();
+    report.extra_params.retain(|(key, _)| key != "actual_kind");
+    report.with_param("actual_kind", actual_kind)
+}
+
+fn child_reference_with_allowed_kinds(
+    mut report: ErrorReport,
+    allowed_kinds: &[TypeTag],
+) -> ErrorReport {
+    report
+        .extra_params
+        .retain(|(key, _)| key != "allowed_kinds");
+    report.with_param("allowed_kinds", expected_kind_labels(allowed_kinds))
+}
+
+fn child_reference_with_found_source(
+    mut report: ErrorReport,
+    found_source: Option<ErrorSource>,
+) -> ErrorReport {
+    report.extra_params.retain(|(key, _)| {
+        key != "found_file" && key != "found_line" && key != "found_quoted_line"
+    });
+    let Some(found_source) = found_source else {
+        return report
+            .with_param("found_file", "")
+            .with_param("found_line", "")
+            .with_param("found_quoted_line", "");
+    };
+
+    let found_file = found_source.file.display().to_string();
+    let found_line = found_source.line.to_string();
+    let found_quoted_line = found_source.quoted_line.unwrap_or_default();
+    report
+        .with_param("found_file", found_file)
+        .with_param("found_line", found_line.clone())
+        .with_param("found_quoted_line", found_quoted_line.clone())
+}
+
+fn child_reference_with_reference_source(
+    mut report: ErrorReport,
+    reference_source: Option<ErrorSource>,
+) -> ErrorReport {
+    report.extra_params.retain(|(key, _)| {
+        key != "referenced_file" && key != "referenced_line" && key != "referenced_quoted_line"
+    });
+    let Some(reference_source) = reference_source else {
+        return report
+            .with_param("referenced_file", "")
+            .with_param("referenced_line", "")
+            .with_param("referenced_quoted_line", "");
+    };
+
+    report
+        .with_param(
+            "referenced_file",
+            reference_source.file.display().to_string(),
+        )
+        .with_param("referenced_line", reference_source.line.to_string())
+        .with_param(
+            "referenced_quoted_line",
+            reference_source.quoted_line.unwrap_or_default(),
+        )
+}
+
+fn reference_source_for_child(
+    owner: &ValidationOwner,
+    child: &HierarchyChildRef,
+    index: &SourceIndex,
+) -> Option<ErrorSource> {
+    owner
+        .id
+        .as_deref()
+        .and_then(|owner_id| index.source_for_child_ref(owner_id, child))
 }
 
 pub fn hierarchy_to_runtime(
     hf: HierarchyFile,
     index: &SourceIndex,
 ) -> std::result::Result<RuntimeHierarchy, ErrorReport> {
-    let template = hf
-        .template
-        .clone()
-        .ok_or_else(|| report("missing_template", "merged hierarchy is missing template", None))?;
+    let template = hf.template.clone().ok_or_else(|| {
+        report(
+            "missing_template",
+            "merged hierarchy is missing template",
+            None,
+        )
+    })?;
     let template_id = template
         .id
         .clone()
@@ -835,15 +988,19 @@ pub fn hierarchy_to_runtime(
                 template_owner.source(index),
             ));
         };
-        let hierarchy_group = groups_by_id
-            .get(group.as_str())
-            .ok_or_else(|| {
-                report(
+        let hierarchy_group = groups_by_id.get(group.as_str()).ok_or_else(|| {
+            child_reference_with_reference_source(
+                child_reference_report(
                     "runtime_unknown_group",
                     format!("unknown group '{}'", group),
                     template_owner.source(index),
-                )
-            })?;
+                    &template_owner,
+                    TypeTag::Group,
+                    group,
+                ),
+                reference_source_for_child(&template_owner, child, index),
+            )
+        })?;
         let group_note_label = hierarchy_group.note_label.clone();
         let group_nav_label = hierarchy_group
             .nav_label
@@ -860,15 +1017,23 @@ pub fn hierarchy_to_runtime(
         for child in &hierarchy_group.contains {
             match child {
                 HierarchyChildRef::Section { section } => {
-                    let section_data = sections_by_id
-                        .get(section.as_str())
-                        .ok_or_else(|| {
-                            report(
+                    let section_data = sections_by_id.get(section.as_str()).ok_or_else(|| {
+                        child_reference_with_reference_source(
+                            child_reference_report(
                                 "runtime_unknown_section",
                                 format!("unknown section '{}'", section),
                                 index.source_for(&hierarchy_group.id),
-                            )
-                        })?;
+                                &ValidationOwner::new("group", Some(&hierarchy_group.id)),
+                                TypeTag::Section,
+                                section,
+                            ),
+                            reference_source_for_child(
+                                &ValidationOwner::new("group", Some(&hierarchy_group.id)),
+                                child,
+                                index,
+                            ),
+                        )
+                    })?;
                     let section_config = section_to_config(
                         section_data,
                         &child_fallback_name,
@@ -886,13 +1051,22 @@ pub fn hierarchy_to_runtime(
                     );
                 }
                 HierarchyChildRef::Collection { collection } => {
-                    let collection_def = collections_by_id
-                        .get(collection.as_str())
-                        .ok_or_else(|| {
-                            report(
-                                "runtime_unknown_collection",
-                                format!("unknown collection '{}'", collection),
-                                index.source_for(&hierarchy_group.id),
+                    let collection_def =
+                        collections_by_id.get(collection.as_str()).ok_or_else(|| {
+                            child_reference_with_reference_source(
+                                child_reference_report(
+                                    "runtime_unknown_collection",
+                                    format!("unknown collection '{}'", collection),
+                                    index.source_for(&hierarchy_group.id),
+                                    &ValidationOwner::new("group", Some(&hierarchy_group.id)),
+                                    TypeTag::Collection,
+                                    collection,
+                                ),
+                                reference_source_for_child(
+                                    &ValidationOwner::new("group", Some(&hierarchy_group.id)),
+                                    child,
+                                    index,
+                                ),
                             )
                         })?;
                     let collection_config = collection_to_config(
@@ -918,14 +1092,27 @@ pub fn hierarchy_to_runtime(
                     );
                 }
                 other => {
-                    return Err(report(
-                        "runtime_group_child_invalid",
-                        format!(
-                            "group '{}' cannot contain {:?} at runtime",
-                            hierarchy_group.id,
-                            other.kind()
+                    return Err(child_reference_with_allowed_kinds(
+                        child_reference_with_reference_source(
+                            child_reference_report(
+                                "runtime_group_child_invalid",
+                                format!(
+                                    "group '{}' cannot contain {:?} at runtime",
+                                    hierarchy_group.id,
+                                    other.kind()
+                                ),
+                                index.source_for(&hierarchy_group.id),
+                                &ValidationOwner::new("group", Some(&hierarchy_group.id)),
+                                other.kind(),
+                                other.id(),
+                            ),
+                            reference_source_for_child(
+                                &ValidationOwner::new("group", Some(&hierarchy_group.id)),
+                                other,
+                                index,
+                            ),
                         ),
-                        index.source_for(&hierarchy_group.id),
+                        &[TypeTag::Section, TypeTag::Collection],
                     ));
                 }
             }
@@ -968,19 +1155,24 @@ fn section_to_config(
 ) -> std::result::Result<SectionConfig, ErrorReport> {
     let mut field_configs = Vec::new();
     let mut attached_lists = Vec::new();
+    let section_owner = ValidationOwner::new("section", Some(&section.id));
 
     for child in &section.contains {
         match child {
             HierarchyChildRef::Field { field } => {
-                let field_data = fields_by_id
-                    .get(field.as_str())
-                    .ok_or_else(|| {
-                        report(
+                let field_data = fields_by_id.get(field.as_str()).ok_or_else(|| {
+                    child_reference_with_reference_source(
+                        child_reference_report(
                             "runtime_unknown_field",
                             format!("unknown field '{}'", field),
                             index.source_for(&section.id),
-                        )
-                    })?;
+                            &section_owner,
+                            TypeTag::Field,
+                            field,
+                        ),
+                        reference_source_for_child(&section_owner, child, index),
+                    )
+                })?;
                 field_configs.push(resolve_field(
                     field_data,
                     fields_by_id,
@@ -992,15 +1184,19 @@ fn section_to_config(
             }
             HierarchyChildRef::List { list } => {
                 attached_lists.push(resolve_runtime_list(
-                    lists_by_id
-                        .get(list.as_str())
-                        .ok_or_else(|| {
-                            report(
+                    lists_by_id.get(list.as_str()).ok_or_else(|| {
+                        child_reference_with_reference_source(
+                            child_reference_report(
                                 "runtime_unknown_list",
                                 format!("unknown list '{}'", list),
                                 index.source_for(&section.id),
-                            )
-                        })?,
+                                &section_owner,
+                                TypeTag::List,
+                                list,
+                            ),
+                            reference_source_for_child(&section_owner, child, index),
+                        )
+                    })?,
                     fields_by_id,
                     collections_by_id,
                     lists_by_id,
@@ -1008,10 +1204,19 @@ fn section_to_config(
                 )?);
             }
             other => {
-                return Err(report(
-                    "runtime_section_child_invalid",
-                    format!("section '{}' cannot contain {:?}", section.id, other.kind()),
-                    index.source_for(&section.id),
+                return Err(child_reference_with_allowed_kinds(
+                    child_reference_with_reference_source(
+                        child_reference_report(
+                            "runtime_section_child_invalid",
+                            format!("section '{}' cannot contain {:?}", section.id, other.kind()),
+                            index.source_for(&section.id),
+                            &section_owner,
+                            other.kind(),
+                            other.id(),
+                        ),
+                        reference_source_for_child(&section_owner, other, index),
+                    ),
+                    &[TypeTag::Field, TypeTag::List],
                 ));
             }
         }
@@ -1089,28 +1294,46 @@ fn resolve_collection(
     index: &SourceIndex,
 ) -> std::result::Result<ResolvedCollectionConfig, ErrorReport> {
     let mut lists = Vec::new();
+    let collection_owner = ValidationOwner::new("collection", Some(&collection.id));
     for child in &collection.contains {
         match child {
             HierarchyChildRef::List { list } => lists.push(resolve_runtime_list(
-                lists_by_id
-                    .get(list.as_str())
-                    .ok_or_else(|| {
-                        report(
+                lists_by_id.get(list.as_str()).ok_or_else(|| {
+                    child_reference_with_reference_source(
+                        child_reference_report(
                             "runtime_unknown_list",
                             format!("unknown list '{}'", list),
                             index.source_for(&collection.id),
-                        )
-                    })?,
+                            &collection_owner,
+                            TypeTag::List,
+                            list,
+                        ),
+                        reference_source_for_child(&collection_owner, child, index),
+                    )
+                })?,
                 fields_by_id,
                 collections_by_id,
                 lists_by_id,
                 index,
             )?),
             other => {
-                return Err(report(
-                    "runtime_collection_child_invalid",
-                    format!("collection '{}' cannot contain {:?}", collection.id, other.kind()),
-                    index.source_for(&collection.id),
+                return Err(child_reference_with_allowed_kinds(
+                    child_reference_with_reference_source(
+                        child_reference_report(
+                            "runtime_collection_child_invalid",
+                            format!(
+                                "collection '{}' cannot contain {:?}",
+                                collection.id,
+                                other.kind()
+                            ),
+                            index.source_for(&collection.id),
+                            &collection_owner,
+                            other.kind(),
+                            other.id(),
+                        ),
+                        reference_source_for_child(&collection_owner, other, index),
+                    ),
+                    &[TypeTag::List],
                 ));
             }
         }
@@ -1198,15 +1421,25 @@ fn resolve_field_inner(
     let mut lists = Vec::new();
     let mut collections = Vec::new();
     let mut format_lists = Vec::new();
+    let field_owner = ValidationOwner::new("field", Some(&field.id));
     if !field.contains.is_empty() {
         for child in &field.contains {
             match child {
                 HierarchyChildRef::Field { field: child_id } => {
                     let child = fields_by_id.get(child_id.as_str()).ok_or_else(|| {
-                        report(
-                            "runtime_unknown_field",
-                            format!("field '{}' references unknown field '{}'", field.id, child_id),
-                            index.source_for(&field.id),
+                        child_reference_with_reference_source(
+                            child_reference_report(
+                                "runtime_unknown_field",
+                                format!(
+                                    "field '{}' references unknown field '{}'",
+                                    field.id, child_id
+                                ),
+                                index.source_for(&field.id),
+                                &field_owner,
+                                TypeTag::Field,
+                                child_id,
+                            ),
+                            reference_source_for_child(&field_owner, child, index),
                         )
                     })?;
                     fields.push(resolve_field(
@@ -1221,10 +1454,19 @@ fn resolve_field_inner(
                 HierarchyChildRef::List { list } => {
                     let list = resolve_runtime_list(
                         lists_by_id.get(list.as_str()).ok_or_else(|| {
-                            report(
-                                "runtime_unknown_list",
-                                format!("field '{}' references unknown list '{}'", field.id, list),
-                                index.source_for(&field.id),
+                            child_reference_with_reference_source(
+                                child_reference_report(
+                                    "runtime_unknown_list",
+                                    format!(
+                                        "field '{}' references unknown list '{}'",
+                                        field.id, list
+                                    ),
+                                    index.source_for(&field.id),
+                                    &field_owner,
+                                    TypeTag::List,
+                                    list,
+                                ),
+                                reference_source_for_child(&field_owner, child, index),
                             )
                         })?,
                         fields_by_id,
@@ -1241,13 +1483,19 @@ fn resolve_field_inner(
                 HierarchyChildRef::Collection { collection } => {
                     let collection =
                         collections_by_id.get(collection.as_str()).ok_or_else(|| {
-                            report(
-                                "runtime_unknown_collection",
-                                format!(
-                                    "field '{}' references unknown collection '{}'",
-                                    field.id, collection
+                            child_reference_with_reference_source(
+                                child_reference_report(
+                                    "runtime_unknown_collection",
+                                    format!(
+                                        "field '{}' references unknown collection '{}'",
+                                        field.id, collection
+                                    ),
+                                    index.source_for(&field.id),
+                                    &field_owner,
+                                    TypeTag::Collection,
+                                    collection,
                                 ),
-                                index.source_for(&field.id),
+                                reference_source_for_child(&field_owner, child, index),
                             )
                         })?;
                     let resolved = resolve_collection(
@@ -1265,10 +1513,19 @@ fn resolve_field_inner(
                     }
                 }
                 other => {
-                    return Err(report(
-                        "runtime_field_child_invalid",
-                        format!("field '{}' cannot contain {:?}", field.id, other.kind()),
-                        index.source_for(&field.id),
+                    return Err(child_reference_with_allowed_kinds(
+                        child_reference_with_reference_source(
+                            child_reference_report(
+                                "runtime_field_child_invalid",
+                                format!("field '{}' cannot contain {:?}", field.id, other.kind()),
+                                index.source_for(&field.id),
+                                &field_owner,
+                                other.kind(),
+                                other.id(),
+                            ),
+                            reference_source_for_child(&field_owner, other, index),
+                        ),
+                        &[TypeTag::Field, TypeTag::List, TypeTag::Collection],
                     ));
                 }
             }
@@ -1277,10 +1534,21 @@ fn resolve_field_inner(
         for list_id in &field.lists {
             lists.push(resolve_runtime_list(
                 lists_by_id.get(list_id.as_str()).ok_or_else(|| {
-                    report(
-                        "runtime_unknown_list",
-                        format!("field '{}' references unknown list '{}'", field.id, list_id),
-                        index.source_for(&field.id),
+                    child_reference_with_reference_source(
+                        child_reference_report(
+                            "runtime_unknown_list",
+                            format!("field '{}' references unknown list '{}'", field.id, list_id),
+                            index.source_for(&field.id),
+                            &field_owner,
+                            TypeTag::List,
+                            list_id,
+                        ),
+                        index.source_for_child_ref(
+                            &field.id,
+                            &HierarchyChildRef::List {
+                                list: list_id.clone(),
+                            },
+                        ),
                     )
                 })?,
                 fields_by_id,
@@ -1294,7 +1562,10 @@ fn resolve_field_inner(
                 lists_by_id.get(list_id.as_str()).ok_or_else(|| {
                     report(
                         "runtime_unknown_format_list",
-                        format!("field '{}' references unknown format list '{}'", field.id, list_id),
+                        format!(
+                            "field '{}' references unknown format list '{}'",
+                            field.id, list_id
+                        ),
                         index.source_for(&field.id),
                     )
                 })?,
@@ -1308,13 +1579,24 @@ fn resolve_field_inner(
             let collection = collections_by_id
                 .get(collection_id.as_str())
                 .ok_or_else(|| {
-                    report(
-                        "runtime_unknown_collection",
-                        format!(
-                            "field '{}' references unknown collection '{}'",
-                            field.id, collection_id
+                    child_reference_with_reference_source(
+                        child_reference_report(
+                            "runtime_unknown_collection",
+                            format!(
+                                "field '{}' references unknown collection '{}'",
+                                field.id, collection_id
+                            ),
+                            index.source_for(&field.id),
+                            &field_owner,
+                            TypeTag::Collection,
+                            collection_id,
                         ),
-                        index.source_for(&field.id),
+                        index.source_for_child_ref(
+                            &field.id,
+                            &HierarchyChildRef::Collection {
+                                collection: collection_id.clone(),
+                            },
+                        ),
                     )
                 })?;
             collections.push(resolve_collection(
@@ -1463,7 +1745,9 @@ fn checklist_items_from_lists(lists: &[HierarchyList]) -> Vec<String> {
         .collect()
 }
 
-fn read_hierarchy_dir(dir: &Path) -> std::result::Result<(HierarchyFile, SourceIndex, usize), ErrorReport> {
+fn read_hierarchy_dir(
+    dir: &Path,
+) -> std::result::Result<(HierarchyFile, SourceIndex, usize), ErrorReport> {
     let mut merged = HierarchyFile::default();
     let mut source_index = SourceIndex::default();
     let mut template_count = 0usize;
@@ -1511,7 +1795,10 @@ fn read_hierarchy_dir(dir: &Path) -> std::result::Result<(HierarchyFile, SourceI
             if merged.template.is_some() {
                 return Err(ErrorReport::generic(
                     "multiple_templates_across_files",
-                    format!("multiple templates found while loading '{}'", path.display()),
+                    format!(
+                        "multiple templates found while loading '{}'",
+                        path.display()
+                    ),
                 ));
             }
             merged.template = file.template;
@@ -1579,8 +1866,8 @@ fn parse_hierarchy_file_documents(
     let mut source_index = SourceIndex::default();
 
     for (doc_idx, doc) in split_yaml_documents(content).into_iter().enumerate() {
-        let value: serde_yaml::Value =
-            serde_yaml::from_str(doc.text).map_err(|err| yaml_doc_error(path, &doc, doc_idx + 1, err))?;
+        let value: serde_yaml::Value = serde_yaml::from_str(doc.text)
+            .map_err(|err| yaml_doc_error(path, &doc, doc_idx + 1, err))?;
         if contains_legacy_repeating_key(&value) {
             return Err(ErrorReport::generic(
                 "legacy_repeating_key",
@@ -1591,8 +1878,8 @@ fn parse_hierarchy_file_documents(
                 ),
             ));
         }
-        let mut file: HierarchyFile =
-            serde_yaml::from_str(doc.text).map_err(|err| yaml_doc_error(path, &doc, doc_idx + 1, err))?;
+        let mut file: HierarchyFile = serde_yaml::from_str(doc.text)
+            .map_err(|err| yaml_doc_error(path, &doc, doc_idx + 1, err))?;
         normalize_items(&mut file);
         file.item_hotkeys = extract_item_hotkeys_from_value(&value, &file);
         let doc_sources = build_source_index(&value, path, &doc);
@@ -1712,11 +1999,16 @@ fn quoted_line(text: &str, relative_line: usize) -> Option<String> {
         .map(|line| line.trim().to_string())
 }
 
-fn build_source_index(value: &serde_yaml::Value, path: &Path, doc: &YamlDocument<'_>) -> SourceIndex {
+fn build_source_index(
+    value: &serde_yaml::Value,
+    path: &Path,
+    doc: &YamlDocument<'_>,
+) -> SourceIndex {
     let mut index = SourceIndex::default();
     let Some(root) = value.as_mapping() else {
         return index;
     };
+    let lines: Vec<&str> = doc.text.lines().collect();
 
     if let Some(template) = root
         .get(serde_yaml::Value::String("template".to_string()))
@@ -1736,6 +2028,30 @@ fn build_source_index(value: &serde_yaml::Value, path: &Path, doc: &YamlDocument
                     raw: serde_yaml::Value::Mapping(template.clone()),
                 },
             );
+            if let Some(contains) = template
+                .get(serde_yaml::Value::String("contains".to_string()))
+                .and_then(serde_yaml::Value::as_sequence)
+            {
+                if let Some((start_idx, end_idx)) = top_level_block_range(&lines, "template") {
+                    let child_anchors = collect_child_ref_anchors(
+                        &lines[start_idx..end_idx],
+                        doc.start_line + start_idx,
+                    );
+                    for (child_value, child_anchor) in contains.iter().zip(child_anchors.iter()) {
+                        if let Some(child) = child_ref_from_value(child_value) {
+                            index.insert_child_ref(
+                                template_id,
+                                &child,
+                                ErrorSource {
+                                    file: path.to_path_buf(),
+                                    line: child_anchor.line,
+                                    quoted_line: child_anchor.quoted_line.clone(),
+                                },
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1766,23 +2082,69 @@ fn build_source_index(value: &serde_yaml::Value, path: &Path, doc: &YamlDocument
             let anchor = entry_anchors
                 .and_then(|entries| entries.get(idx))
                 .cloned()
-                .unwrap_or_else(|| SourceAnchor {
-                    line: doc.start_line,
-                    quoted_line: None,
+                .unwrap_or_else(|| EntryAnchor {
+                    anchor: SourceAnchor {
+                        line: doc.start_line,
+                        quoted_line: None,
+                    },
+                    start_idx: 0,
+                    end_idx: 0,
                 });
             index.insert(
                 id.to_string(),
                 SourceNode {
                     file: path.to_path_buf(),
-                    line: anchor.line,
-                    quoted_line: anchor.quoted_line,
+                    line: anchor.anchor.line,
+                    quoted_line: anchor.anchor.quoted_line.clone(),
                     raw: raw_entry.clone(),
                 },
             );
+            if let Some(contains) = raw_entry
+                .as_mapping()
+                .and_then(|mapping| mapping.get(serde_yaml::Value::String("contains".to_string())))
+                .and_then(serde_yaml::Value::as_sequence)
+            {
+                let child_anchors = collect_child_ref_anchors(
+                    &lines[anchor.start_idx..anchor.end_idx],
+                    doc.start_line + anchor.start_idx,
+                );
+                for (child_value, child_anchor) in contains.iter().zip(child_anchors.iter()) {
+                    if let Some(child) = child_ref_from_value(child_value) {
+                        index.insert_child_ref(
+                            id,
+                            &child,
+                            ErrorSource {
+                                file: path.to_path_buf(),
+                                line: child_anchor.line,
+                                quoted_line: child_anchor.quoted_line.clone(),
+                            },
+                        );
+                    }
+                }
+            }
         }
     }
 
     index
+}
+
+fn top_level_block_range(lines: &[&str], key: &str) -> Option<(usize, usize)> {
+    let mut start_idx = None;
+    for (idx, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if leading_spaces(line) == 0 && trimmed.starts_with(&format!("{key}:")) {
+            start_idx = Some(idx);
+            continue;
+        }
+        if start_idx.is_some()
+            && leading_spaces(line) == 0
+            && !trimmed.is_empty()
+            && !trimmed.starts_with('#')
+        {
+            return Some((start_idx?, idx));
+        }
+    }
+    start_idx.map(|start| (start, lines.len()))
 }
 
 #[derive(Debug, Clone)]
@@ -1791,7 +2153,19 @@ struct SourceAnchor {
     quoted_line: Option<String>,
 }
 
-fn find_mapping_anchor(doc_text: &str, start_line: usize, top_level_key: &str, id: &str) -> SourceAnchor {
+#[derive(Debug, Clone)]
+struct EntryAnchor {
+    anchor: SourceAnchor,
+    start_idx: usize,
+    end_idx: usize,
+}
+
+fn find_mapping_anchor(
+    doc_text: &str,
+    start_line: usize,
+    top_level_key: &str,
+    id: &str,
+) -> SourceAnchor {
     let mut current_key = None::<&str>;
     for (idx, line) in doc_text.lines().enumerate() {
         let absolute_line = start_line + idx;
@@ -1826,9 +2200,9 @@ fn find_mapping_anchor(doc_text: &str, start_line: usize, top_level_key: &str, i
 fn collect_top_level_entry_anchors(
     doc_text: &str,
     start_line: usize,
-) -> HashMap<String, Vec<SourceAnchor>> {
+) -> HashMap<String, Vec<EntryAnchor>> {
     let lines: Vec<&str> = doc_text.lines().collect();
-    let mut anchors: HashMap<String, Vec<SourceAnchor>> = HashMap::new();
+    let mut anchors: HashMap<String, Vec<EntryAnchor>> = HashMap::new();
     let mut current_key: Option<String> = None;
     let mut idx = 0usize;
 
@@ -1842,7 +2216,12 @@ fn collect_top_level_entry_anchors(
 
         if leading_spaces(line) == 0 {
             current_key = top_level_key_name(trimmed)
-                .filter(|key| matches!(*key, "groups" | "sections" | "collections" | "fields" | "lists" | "boilerplate"))
+                .filter(|key| {
+                    matches!(
+                        *key,
+                        "groups" | "sections" | "collections" | "fields" | "lists" | "boilerplate"
+                    )
+                })
                 .map(str::to_string);
             idx += 1;
             continue;
@@ -1866,14 +2245,16 @@ fn collect_top_level_entry_anchors(
                     }
                     idx += 1;
                 }
-                let anchor =
-                    find_entry_anchor(&lines[start_idx..idx], start_line + start_idx).unwrap_or(
-                        SourceAnchor {
-                            line: start_line + start_idx,
-                            quoted_line: Some(lines[start_idx].trim().to_string()),
-                        },
-                    );
-                anchors.entry(key).or_default().push(anchor);
+                let anchor = find_entry_anchor(&lines[start_idx..idx], start_line + start_idx)
+                    .unwrap_or(SourceAnchor {
+                        line: start_line + start_idx,
+                        quoted_line: Some(lines[start_idx].trim().to_string()),
+                    });
+                anchors.entry(key).or_default().push(EntryAnchor {
+                    anchor,
+                    start_idx,
+                    end_idx: idx,
+                });
                 continue;
             }
         }
@@ -1882,6 +2263,33 @@ fn collect_top_level_entry_anchors(
     }
 
     anchors
+}
+
+fn collect_child_ref_anchors(entry_lines: &[&str], start_line: usize) -> Vec<SourceAnchor> {
+    entry_lines
+        .iter()
+        .enumerate()
+        .filter_map(|(offset, line)| {
+            let trimmed = line.trim();
+            let matched = [
+                "- group:",
+                "- section:",
+                "- collection:",
+                "- field:",
+                "- list:",
+            ]
+            .iter()
+            .any(|prefix| trimmed.starts_with(prefix));
+            matched.then(|| SourceAnchor {
+                line: start_line + offset,
+                quoted_line: Some(trimmed.to_string()),
+            })
+        })
+        .collect()
+}
+
+fn child_ref_from_value(value: &serde_yaml::Value) -> Option<HierarchyChildRef> {
+    serde_yaml::from_value(value.clone()).ok()
 }
 
 fn find_entry_anchor(entry_lines: &[&str], start_line: usize) -> Option<SourceAnchor> {
@@ -2091,13 +2499,22 @@ fn validate_merged_hierarchy(
     file: &HierarchyFile,
     index: &SourceIndex,
 ) -> std::result::Result<(), ErrorReport> {
-    let template = file
-        .template
-        .as_ref()
-        .ok_or_else(|| report("missing_template", "merged hierarchy is missing template", None))?;
+    let template = file.template.as_ref().ok_or_else(|| {
+        report(
+            "missing_template",
+            "merged hierarchy is missing template",
+            None,
+        )
+    })?;
 
     let mut global_ids: HashMap<String, TypeTag> = HashMap::new();
-    register_global_ids(&mut global_ids, &file.groups, TypeTag::Group, |item| &item.id, index)?;
+    register_global_ids(
+        &mut global_ids,
+        &file.groups,
+        TypeTag::Group,
+        |item| &item.id,
+        index,
+    )?;
     register_global_ids(
         &mut global_ids,
         &file.sections,
@@ -2112,8 +2529,20 @@ fn validate_merged_hierarchy(
         |item| &item.id,
         index,
     )?;
-    register_global_ids(&mut global_ids, &file.fields, TypeTag::Field, |item| &item.id, index)?;
-    register_global_ids(&mut global_ids, &file.lists, TypeTag::List, |item| &item.id, index)?;
+    register_global_ids(
+        &mut global_ids,
+        &file.fields,
+        TypeTag::Field,
+        |item| &item.id,
+        index,
+    )?;
+    register_global_ids(
+        &mut global_ids,
+        &file.lists,
+        TypeTag::List,
+        |item| &item.id,
+        index,
+    )?;
 
     let mut boilerplate_ids = HashSet::new();
     for entry in &file.boilerplate {
@@ -2138,7 +2567,7 @@ fn validate_merged_hierarchy(
     )?;
     for group in &file.groups {
         validate_children(
-            ValidationOwner::new(&format!("group '{}'", group.id), Some(&group.id)),
+            ValidationOwner::new("group", Some(&group.id)),
             &[TypeTag::Section, TypeTag::Collection],
             &group.contains,
             &global_ids,
@@ -2147,7 +2576,7 @@ fn validate_merged_hierarchy(
     }
     for section in &file.sections {
         validate_children(
-            ValidationOwner::new(&format!("section '{}'", section.id), Some(&section.id)),
+            ValidationOwner::new("section", Some(&section.id)),
             &[TypeTag::Field, TypeTag::List],
             &section.contains,
             &global_ids,
@@ -2156,10 +2585,7 @@ fn validate_merged_hierarchy(
     }
     for collection in &file.collections {
         validate_children(
-            ValidationOwner::new(
-                &format!("collection '{}'", collection.id),
-                Some(&collection.id),
-            ),
+            ValidationOwner::new("collection", Some(&collection.id)),
             &[TypeTag::List],
             &collection.contains,
             &global_ids,
@@ -2201,7 +2627,7 @@ fn validate_merged_hierarchy(
     for field in &file.fields {
         if !field.contains.is_empty() {
             validate_children(
-                ValidationOwner::new(format!("field '{}'", field.id), Some(&field.id)),
+                ValidationOwner::new("field", Some(&field.id)),
                 &[TypeTag::Field, TypeTag::List, TypeTag::Collection],
                 &field.contains,
                 &global_ids,
@@ -2595,17 +3021,31 @@ fn validate_children(
     for child in children {
         validate_child_exists(child, global_ids, &owner, index)?;
         if !expected.contains(&child.kind()) {
-            return Err(report(
-                "invalid_child_kind",
-                format!(
-                    "{} may not contain {} '{}'; allowed child kinds: {}. {}",
-                    owner.label,
-                    kind_label(child.kind()),
-                    child.id(),
-                    expected_kind_labels(expected),
-                    invalid_child_fix_hint(&owner.label, expected, child.kind(), child.id())
+            return Err(child_reference_with_allowed_kinds(
+                child_reference_with_reference_source(
+                    child_reference_report(
+                        "invalid_child_kind",
+                        format!(
+                            "{} may not contain {} '{}'; allowed child kinds: {}. {}",
+                            owner.label,
+                            kind_label(child.kind()),
+                            child.id(),
+                            expected_kind_labels(expected),
+                            invalid_child_fix_hint(
+                                &owner.label,
+                                expected,
+                                child.kind(),
+                                child.id()
+                            )
+                        ),
+                        owner.source(index),
+                        &owner,
+                        child.kind(),
+                        child.id(),
+                    ),
+                    reference_source_for_child(&owner, child, index),
                 ),
-                owner.source(index),
+                expected,
             ));
         }
     }
@@ -2621,16 +3061,22 @@ fn validate_child_exists(
     match global_ids.get(child.id()) {
         Some(tag) if *tag == child.kind() => Ok(()),
         Some(tag) => Err(route_wrong_kind_error(child, *tag, owner, index)),
-        None => Err(report(
-            "missing_child",
-            format!(
-                "{} references missing {} '{}'. {}",
-                owner.label,
-                kind_label(child.kind()),
+        None => Err(child_reference_with_reference_source(
+            child_reference_report(
+                "missing_child",
+                format!(
+                    "{} references missing {} '{}'. {}",
+                    owner.label,
+                    kind_label(child.kind()),
+                    child.id(),
+                    missing_child_fix_hint(&owner.label, child.kind(), child.id())
+                ),
+                owner.source(index),
+                owner,
+                child.kind(),
                 child.id(),
-                missing_child_fix_hint(&owner.label, child.kind(), child.id())
             ),
-            owner.source(index),
+            reference_source_for_child(owner, child, index),
         )),
     }
 }
@@ -2642,49 +3088,102 @@ fn route_wrong_kind_error(
     index: &SourceIndex,
 ) -> ErrorReport {
     let source = owner.source(index);
+    let found_source = index.source_for(child.id());
+    let reference_source = reference_source_for_child(owner, child, index);
     let Some(node) = index.nodes.get(child.id()) else {
-        return report(
-            "wrong_kind_reference",
-            format!(
-                "{} references '{}' as {}, but that id is registered as {}. {}",
-                owner.label,
-                child.id(),
-                kind_label(child.kind()),
-                kind_label(actual_kind),
-                wrong_kind_fix_hint(&owner.label, child.kind(), actual_kind, child.id())
+        return child_reference_with_actual_kind(
+            child_reference_with_found_source(
+                child_reference_with_reference_source(
+                    child_reference_report(
+                        "wrong_kind_reference",
+                        format!(
+                            "{} references '{}' as {}, but that id is registered as {}. {}",
+                            owner.label,
+                            child.id(),
+                            kind_label(child.kind()),
+                            kind_label(actual_kind),
+                            wrong_kind_fix_hint(
+                                &owner.label,
+                                child.kind(),
+                                actual_kind,
+                                child.id()
+                            )
+                        ),
+                        source,
+                        owner,
+                        child.kind(),
+                        child.id(),
+                    ),
+                    reference_source,
+                ),
+                found_source,
             ),
-            source,
+            actual_kind,
         );
     };
 
     let found = fingerprint_kind(&node.raw);
     let Some((inferred_kind, found_names)) = inferred_fingerprint_kind(&found) else {
-        return report(
-            "wrong_kind_reference",
-            format!(
-                "{} references '{}' as {}, but that id is registered as {}. {}",
-                owner.label,
-                child.id(),
-                kind_label(child.kind()),
-                kind_label(actual_kind),
-                wrong_kind_fix_hint(&owner.label, child.kind(), actual_kind, child.id())
+        return child_reference_with_actual_kind(
+            child_reference_with_found_source(
+                child_reference_with_reference_source(
+                    child_reference_report(
+                        "wrong_kind_reference",
+                        format!(
+                            "{} references '{}' as {}, but that id is registered as {}. {}",
+                            owner.label,
+                            child.id(),
+                            kind_label(child.kind()),
+                            kind_label(actual_kind),
+                            wrong_kind_fix_hint(
+                                &owner.label,
+                                child.kind(),
+                                actual_kind,
+                                child.id()
+                            )
+                        ),
+                        source,
+                        owner,
+                        child.kind(),
+                        child.id(),
+                    ),
+                    reference_source.clone(),
+                ),
+                found_source,
             ),
-            source,
+            actual_kind,
         );
     };
 
     if inferred_kind != child.kind() {
-        return report(
-            "wrong_kind_reference",
-            format!(
-                "{} references '{}' as {}, but that id is registered as {}. {}",
-                owner.label,
-                child.id(),
-                kind_label(child.kind()),
-                kind_label(actual_kind),
-                wrong_kind_fix_hint(&owner.label, child.kind(), actual_kind, child.id())
+        return child_reference_with_actual_kind(
+            child_reference_with_found_source(
+                child_reference_with_reference_source(
+                    child_reference_report(
+                        "wrong_kind_reference",
+                        format!(
+                            "{} references '{}' as {}, but that id is registered as {}. {}",
+                            owner.label,
+                            child.id(),
+                            kind_label(child.kind()),
+                            kind_label(actual_kind),
+                            wrong_kind_fix_hint(
+                                &owner.label,
+                                child.kind(),
+                                actual_kind,
+                                child.id()
+                            )
+                        ),
+                        source,
+                        owner,
+                        child.kind(),
+                        child.id(),
+                    ),
+                    reference_source.clone(),
+                ),
+                found_source,
             ),
-            source,
+            actual_kind,
         );
     }
 
@@ -2704,6 +3203,7 @@ fn route_wrong_kind_error(
                 child.id(),
             ),
             source,
+            extra_params: Vec::new(),
         },
         TypeTag::Collection => ErrorReport {
             kind: ErrorKind::LooksLikeCollectionMissingKey {
@@ -2719,6 +3219,7 @@ fn route_wrong_kind_error(
                 child.id(),
             ),
             source,
+            extra_params: Vec::new(),
         },
         TypeTag::Section | TypeTag::Group => ErrorReport {
             kind: ErrorKind::LooksLikeSectionOrGroupMissingKey {
@@ -2739,18 +3240,31 @@ fn route_wrong_kind_error(
                 kind_label(inferred_kind),
             ),
             source,
+            extra_params: Vec::new(),
         },
-        TypeTag::Field => report(
-            "wrong_kind_reference",
-            format!(
-                "{} references '{}' as {}, but that id is registered as {}. {}",
-                owner.label,
-                child.id(),
-                kind_label(child.kind()),
-                kind_label(actual_kind),
-                wrong_kind_fix_hint(&owner.label, child.kind(), actual_kind, child.id())
+        TypeTag::Field => child_reference_with_actual_kind(
+            child_reference_with_found_source(
+                child_reference_with_reference_source(
+                    child_reference_report(
+                        "wrong_kind_reference",
+                        format!(
+                            "{} references '{}' as {}, but that id is registered as {}. {}",
+                            owner.label,
+                            child.id(),
+                            kind_label(child.kind()),
+                            kind_label(actual_kind),
+                            wrong_kind_fix_hint(&owner.label, child.kind(), actual_kind, child.id())
+                        ),
+                        source,
+                        owner,
+                        child.kind(),
+                        child.id(),
+                    ),
+                    reference_source,
+                ),
+                found_source,
             ),
-            source,
+            actual_kind,
         ),
     }
 }
@@ -2802,7 +3316,8 @@ fn inferred_fingerprint_kind(
 }
 
 fn format_fingerprint_names(names: &[String]) -> String {
-    names.iter()
+    names
+        .iter()
         .map(|name| format!("`{name}`"))
         .collect::<Vec<_>>()
         .join(", ")
@@ -3379,13 +3894,11 @@ mod tests {
 
     #[test]
     fn fingerprint_kind_reports_list_only_fields() {
-        let raw: serde_yaml::Value = serde_yaml::from_str(
-            concat!(
-                "id: demo\n",
-                "modal_start: search\n",
-                "sticky: true\n",
-            ),
-        )
+        let raw: serde_yaml::Value = serde_yaml::from_str(concat!(
+            "id: demo\n",
+            "modal_start: search\n",
+            "sticky: true\n",
+        ))
         .expect("raw yaml parses");
 
         assert_eq!(
@@ -3419,7 +3932,7 @@ mod tests {
                 list: "demo".to_string(),
             },
             &global_ids,
-            &ValidationOwner::new("section 'appointment'", None),
+            &ValidationOwner::new("section", Some("appointment")),
             &index,
         )
         .expect_err("wrong kind should fail");
@@ -3509,12 +4022,101 @@ mod tests {
     #[test]
     fn loader_missing_child_error_includes_fix_hint() {
         let (file, index) = parse_with_index(concat!(
-            "template:\n  contains:\n    - group: fake_group\n",
+            "template:\n  id: template\n  contains:\n    - group: fake_group\n",
             "groups: []\n",
         ));
         let err = validate_with_index(&file, &index).expect_err("missing child must fail");
         assert!(err.contains("template references missing group 'fake_group'"));
         assert!(err.contains("Fix: add a group with id 'fake_group'"));
+        let params = err.params().into_iter().collect::<HashMap<_, _>>();
+        assert_eq!(
+            params.get("owner_label").map(String::as_str),
+            Some("template")
+        );
+        assert_eq!(
+            params.get("referenced_kind").map(String::as_str),
+            Some("group")
+        );
+        assert_eq!(
+            params.get("referenced_id").map(String::as_str),
+            Some("fake_group")
+        );
+        assert_eq!(params.get("referenced_line").map(String::as_str), Some("4"));
+        assert_eq!(
+            params.get("referenced_quoted_line").map(String::as_str),
+            Some("- group: fake_group")
+        );
+    }
+
+    #[test]
+    fn wrong_kind_child_error_records_found_source_params() {
+        let mut index = SourceIndex::default();
+        index.insert(
+            "demo".to_string(),
+            SourceNode {
+                file: PathBuf::from("inline-test.yml"),
+                line: 7,
+                quoted_line: Some("- id: demo".to_string()),
+                raw: serde_yaml::from_str(
+                    concat!("id: demo\n", "label: Demo\n", "contains: []\n",),
+                )
+                .expect("raw yaml parses"),
+            },
+        );
+        index.insert_child_ref(
+            "appointment",
+            &HierarchyChildRef::Field {
+                field: "demo".to_string(),
+            },
+            ErrorSource {
+                file: PathBuf::from("inline-test.yml"),
+                line: 12,
+                quoted_line: Some("- field: demo".to_string()),
+            },
+        );
+        let mut global_ids = HashMap::new();
+        global_ids.insert("demo".to_string(), TypeTag::Collection);
+
+        let err = validate_child_exists(
+            &HierarchyChildRef::Field {
+                field: "demo".to_string(),
+            },
+            &global_ids,
+            &ValidationOwner::new("section", Some("appointment")),
+            &index,
+        )
+        .expect_err("wrong kind should fail");
+
+        let params = err.params().into_iter().collect::<HashMap<_, _>>();
+        assert_eq!(
+            params.get("owner_label").map(String::as_str),
+            Some("section 'appointment'")
+        );
+        assert_eq!(
+            params.get("referenced_kind").map(String::as_str),
+            Some("field")
+        );
+        assert_eq!(
+            params.get("actual_kind").map(String::as_str),
+            Some("collection")
+        );
+        assert_eq!(
+            params.get("referenced_line").map(String::as_str),
+            Some("12")
+        );
+        assert_eq!(
+            params.get("referenced_quoted_line").map(String::as_str),
+            Some("- field: demo")
+        );
+        assert_eq!(
+            params.get("found_file").map(String::as_str),
+            Some("inline-test.yml")
+        );
+        assert_eq!(params.get("found_line").map(String::as_str), Some("7"));
+        assert_eq!(
+            params.get("found_quoted_line").map(String::as_str),
+            Some("- id: demo")
+        );
     }
 
     #[test]

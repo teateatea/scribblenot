@@ -3,10 +3,9 @@ mod app;
 mod appkey_tests;
 mod config;
 mod data;
+mod diagnostics;
 mod document;
-mod error_report;
 mod import;
-mod messages;
 mod modal;
 mod modal_layout;
 mod note;
@@ -55,10 +54,10 @@ impl ScribbleApp {
     }
 }
 
-fn error_report_from_anyhow(err: anyhow::Error) -> error_report::ErrorReport {
-    match err.downcast::<error_report::ErrorReport>() {
+fn error_report_from_anyhow(err: anyhow::Error) -> diagnostics::ErrorReport {
+    match err.downcast::<diagnostics::ErrorReport>() {
         Ok(report) => report,
-        Err(err) => error_report::ErrorReport::generic("data_load_failed", err.to_string()),
+        Err(err) => diagnostics::ErrorReport::generic("data_load_failed", err.to_string()),
     }
 }
 

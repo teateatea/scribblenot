@@ -37,6 +37,7 @@ pub struct ErrorReport {
     pub kind: ErrorKind,
     pub message: String,
     pub source: Option<ErrorSource>,
+    pub extra_params: Vec<(String, String)>,
 }
 
 impl ErrorReport {
@@ -45,11 +46,17 @@ impl ErrorReport {
             kind: ErrorKind::Generic { kind_id },
             message: message.into(),
             source: None,
+            extra_params: Vec::new(),
         }
     }
 
     pub fn with_source(mut self, source: Option<ErrorSource>) -> Self {
         self.source = source;
+        self
+    }
+
+    pub fn with_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.extra_params.push((key.into(), value.into()));
         self
     }
 
@@ -64,26 +71,32 @@ impl ErrorReport {
         }
     }
 
-    pub fn params(&self) -> Vec<(&'static str, String)> {
-        match &self.kind {
+    pub fn params(&self) -> Vec<(String, String)> {
+        let mut params = match &self.kind {
             ErrorKind::Generic { .. } => Vec::new(),
             ErrorKind::LooksLikeListMissingItems {
                 id,
                 registered_as,
                 found_fingerprints,
             } => vec![
-                ("id", id.clone()),
-                ("registered_as", registered_as.clone()),
-                ("found_fingerprints", found_fingerprints.join(", ")),
+                ("id".to_string(), id.clone()),
+                ("registered_as".to_string(), registered_as.clone()),
+                (
+                    "found_fingerprints".to_string(),
+                    found_fingerprints.join(", "),
+                ),
             ],
             ErrorKind::LooksLikeCollectionMissingKey {
                 id,
                 registered_as,
                 found_fingerprints,
             } => vec![
-                ("id", id.clone()),
-                ("registered_as", registered_as.clone()),
-                ("found_fingerprints", found_fingerprints.join(", ")),
+                ("id".to_string(), id.clone()),
+                ("registered_as".to_string(), registered_as.clone()),
+                (
+                    "found_fingerprints".to_string(),
+                    found_fingerprints.join(", "),
+                ),
             ],
             ErrorKind::LooksLikeSectionOrGroupMissingKey {
                 id,
@@ -91,12 +104,17 @@ impl ErrorReport {
                 registered_as,
                 found_fingerprints,
             } => vec![
-                ("id", id.clone()),
-                ("inferred_kind", inferred_kind.clone()),
-                ("registered_as", registered_as.clone()),
-                ("found_fingerprints", found_fingerprints.join(", ")),
+                ("id".to_string(), id.clone()),
+                ("inferred_kind".to_string(), inferred_kind.clone()),
+                ("registered_as".to_string(), registered_as.clone()),
+                (
+                    "found_fingerprints".to_string(),
+                    found_fingerprints.join(", "),
+                ),
             ],
-        }
+        };
+        params.extend(self.extra_params.clone());
+        params
     }
 
     #[cfg(test)]

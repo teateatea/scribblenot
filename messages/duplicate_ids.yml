@@ -1,9 +1,0 @@
-errors:
-  - id: duplicate_id
-    title: "Duplicate ID"
-    description: "{message}"
-    fix: "Rename one of the conflicting hierarchy ids so every group, section, collection, field, and list id is globally unique."
-  - id: duplicate_boilerplate_id
-    title: "Duplicate Boilerplate ID"
-    description: "{message}"
-    fix: "Rename one boilerplate entry so each boilerplate id is unique."
