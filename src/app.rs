@@ -3,9 +3,10 @@
 
 use crate::config::Config;
 use crate::data::{
-    flat_sections_from_template, runtime_navigation, AppData, HeaderFieldConfig, NavigationEntry,
-    SectionConfig,
+    flat_sections_from_template, runtime_navigation, AppData, HeaderFieldConfig, KeyBindings,
+    NavigationEntry, RuntimeTemplate, SectionConfig,
 };
+use crate::diagnostics::{ErrorReport, Messages};
 use crate::document::build_initial_document;
 use crate::modal::{
     joined_repeating_value, resolved_item_labels_for_list, FieldAdvance, ListValueLookup,
@@ -232,6 +233,28 @@ pub struct StatusMsg {
     pub created_at: Instant,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorModalFlashKind {
+    Error,
+    Copy,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ErrorModalFlash {
+    pub kind: ErrorModalFlashKind,
+    pub until: Instant,
+}
+
+impl ErrorModalFlash {
+    fn new(kind: ErrorModalFlashKind, theme: &crate::theme::AppTheme) -> Self {
+        Self {
+            kind,
+            until: Instant::now()
+                + std::time::Duration::from_millis(theme.preview_copy_flash_duration_ms),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldCompositionSpanKind {
     Literal,
@@ -282,6 +305,10 @@ pub struct App {
     pub pane_swapped: bool,
     pub show_help: bool,
     pub status: Option<StatusMsg>,
+    pub error_modal: Option<ErrorReport>,
+    pub error_modal_flash: Option<ErrorModalFlash>,
+    pub messages: Messages,
+    pub copy_override_text: Option<String>,
     pub quit: bool,
     pub copy_requested: bool,
     pub copy_flash_until: Option<Instant>,
@@ -346,6 +373,28 @@ pub fn match_binding_str(binding: &str, key: &AppKey) -> bool {
     }
 }
 
+fn empty_app_data() -> AppData {
+    AppData {
+        template: RuntimeTemplate {
+            id: "error_state".to_string(),
+            children: Vec::new(),
+        },
+        list_data: HashMap::new(),
+        checklist_data: HashMap::new(),
+        collection_data: HashMap::new(),
+        boilerplate_texts: HashMap::new(),
+        keybindings: KeyBindings::default(),
+        hotkeys: Default::default(),
+    }
+}
+
+fn error_report_from_anyhow(err: anyhow::Error) -> ErrorReport {
+    match err.downcast::<ErrorReport>() {
+        Ok(report) => report,
+        Err(err) => ErrorReport::generic("data_load_failed", err.to_string()),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MapHintLabels {
     pub sections: Vec<String>,
@@ -378,6 +427,7 @@ impl App {
                 eprintln!("Warning: failed to load theme '{}': {err}", config.theme);
                 crate::theme::AppTheme::default()
             });
+        let messages = Messages::load();
         Self {
             navigation,
             section_states,
@@ -389,6 +439,10 @@ impl App {
             pane_swapped,
             show_help: false,
             status: None,
+            error_modal: None,
+            error_modal_flash: None,
+            messages,
+            copy_override_text: None,
             quit: false,
             copy_requested: false,
             copy_flash_until: None,
@@ -413,6 +467,58 @@ impl App {
             editable_note,
             note_headings_valid,
             note_structure_warning,
+            viewport_size: None,
+            assigned_contributions: BTreeMap::new(),
+        }
+    }
+
+    pub fn new_error_state(report: ErrorReport, config: Config, data_dir: PathBuf) -> Self {
+        let data = empty_app_data();
+        let ui_theme =
+            crate::theme::AppTheme::load(&data_dir, &config.theme).unwrap_or_else(|err| {
+                eprintln!("Warning: failed to load theme '{}': {err}", config.theme);
+                crate::theme::AppTheme::default()
+            });
+        let error_modal_flash = Some(ErrorModalFlash::new(ErrorModalFlashKind::Error, &ui_theme));
+        Self {
+            navigation: Vec::new(),
+            section_states: SectionStateStore::new(&[], Vec::new()),
+            current_idx: 0,
+            data,
+            config,
+            assigned_values: HashMap::new(),
+            ui_theme,
+            pane_swapped: false,
+            show_help: false,
+            status: None,
+            error_modal: Some(report),
+            error_modal_flash,
+            messages: Messages::load(),
+            copy_override_text: None,
+            quit: false,
+            copy_requested: false,
+            copy_flash_until: None,
+            evicted_collection_flash_until: HashMap::new(),
+            data_dir,
+            focus: Focus::Wizard,
+            map_cursor: 0,
+            map_return_idx: None,
+            map_hint_level: MapHintLevel::Groups,
+            note_scroll: 0,
+            modal: None,
+            hint_buffer: String::new(),
+            modal_mouse_mode: false,
+            modal_restore_snapshot: None,
+            modal_unit_layout: None,
+            active_unit_index: 0,
+            prev_prepared_unit: None,
+            next_prepared_unit: None,
+            modal_transitions: Vec::new(),
+            modal_composition_transition: None,
+            modal_composition_editing: false,
+            editable_note: String::new(),
+            note_headings_valid: true,
+            note_structure_warning: None,
             viewport_size: None,
             assigned_contributions: BTreeMap::new(),
         }
@@ -964,6 +1070,12 @@ impl App {
         {
             self.copy_flash_until = None;
         }
+        if self
+            .error_modal_flash
+            .is_some_and(|flash| Instant::now() >= flash.until)
+        {
+            self.error_modal_flash = None;
+        }
         self.evicted_collection_flash_until
             .retain(|_, until| Instant::now() < *until);
     }
@@ -972,9 +1084,45 @@ impl App {
         !self.evicted_collection_flash_until.is_empty()
     }
 
+    pub fn has_active_error_modal_flash(&self) -> bool {
+        self.error_modal_flash.is_some()
+    }
+
     /// Returns true when any transition layer is currently animating.
     pub fn has_active_modal_transition(&self) -> bool {
         !self.modal_transitions.is_empty() || self.modal_composition_transition.is_some()
+    }
+
+    pub fn error_modal_flash_amount(&self) -> Option<(ErrorModalFlashKind, f32)> {
+        let flash = self.error_modal_flash?;
+        let duration_ms = self.ui_theme.preview_copy_flash_duration_ms.max(1);
+        let remaining_ms = flash
+            .until
+            .saturating_duration_since(Instant::now())
+            .as_millis()
+            .min(u128::from(duration_ms)) as f32;
+        if remaining_ms <= 0.0 {
+            return None;
+        }
+        let t = remaining_ms / duration_ms as f32;
+        Some((flash.kind, t * t * (3.0 - 2.0 * t)))
+    }
+
+    pub fn flash_error_modal_copy(&mut self) {
+        if self.error_modal.is_some() {
+            self.error_modal_flash = Some(ErrorModalFlash::new(
+                ErrorModalFlashKind::Copy,
+                &self.ui_theme,
+            ));
+        }
+    }
+
+    fn show_error_modal(&mut self, report: ErrorReport) {
+        self.error_modal = Some(report);
+        self.error_modal_flash = Some(ErrorModalFlash::new(
+            ErrorModalFlashKind::Error,
+            &self.ui_theme,
+        ));
     }
 
     pub fn collection_text_flash_amount(&self, collection_id: &str) -> Option<f32> {
@@ -1066,11 +1214,11 @@ impl App {
     }
 
     fn is_refresh_theme(&self, key: &AppKey) -> bool {
-        matches!(key, AppKey::Char('/'))
+        self.matches_key(key, &self.data.keybindings.theme_reload)
     }
 
     fn is_refresh_data(&self, key: &AppKey) -> bool {
-        matches!(key, AppKey::Char('\\'))
+        self.matches_key(key, &self.data.keybindings.data_reload)
     }
 
     fn section_at_top_level(&self) -> bool {
@@ -1562,12 +1710,14 @@ impl App {
         Ok(())
     }
 
-    pub fn reload_data(&mut self) -> anyhow::Result<()> {
+    pub fn reload_data(&mut self) -> std::result::Result<(), ErrorReport> {
         let previous_section_id = self
             .navigation
             .get(self.current_idx)
             .map(|entry| entry.node_id.clone());
-        let data = AppData::load(self.data_dir.clone())?;
+        let messages = Messages::load();
+        self.messages = messages;
+        let data = AppData::load(self.data_dir.clone()).map_err(error_report_from_anyhow)?;
         self.navigation = runtime_navigation(&data.template);
         let sections = flat_sections_from_template(&data.template);
         self.section_states =
@@ -1598,9 +1748,68 @@ impl App {
             &data.boilerplate_texts,
         );
         self.data = data;
+        self.error_modal = None;
         self.refresh_note_structure();
         self.update_note_scroll();
         Ok(())
+    }
+
+    pub fn error_modal_markdown(&self) -> Option<String> {
+        let report = self.error_modal.as_ref()?;
+        let rendered = self.messages.render(report);
+        let mut markdown = format!("# {}\n\n", rendered.title);
+        markdown.push_str(&rendered.description);
+        markdown.push_str("\n\n");
+        if !rendered.source_blocks.is_empty() {
+            markdown.push_str("## Source\n\n");
+            Self::append_error_modal_source_markdown(&mut markdown, &rendered.source_blocks);
+        }
+        if !rendered.fix.trim().is_empty() {
+            markdown.push_str("## Next Steps\n\n");
+            markdown.push_str(&rendered.fix);
+            markdown.push('\n');
+        }
+        markdown.push_str("\n**Error ID:** `");
+        markdown.push_str(&rendered.id);
+        markdown.push_str("`\n");
+        if !rendered.source_blocks.is_empty() {
+            markdown.push_str("\n## Files\n\n");
+            for block in &rendered.source_blocks {
+                markdown.push_str("- `");
+                markdown.push_str(&block.file_path);
+                markdown.push_str("`\n");
+            }
+        }
+        Some(markdown)
+    }
+
+    fn append_error_modal_source_markdown(
+        markdown: &mut String,
+        source_blocks: &[crate::diagnostics::RenderedErrorSourceBlock],
+    ) {
+        for block in source_blocks {
+            markdown.push_str("### ");
+            markdown.push_str(&block.file_name);
+            markdown.push_str("\n\n```yaml\n");
+
+            let mut previous_line: Option<usize> = None;
+            for line in &block.lines {
+                if let Some(prev) = previous_line {
+                    if line.line > prev + 1 {
+                        markdown.push_str("...\n");
+                    }
+                }
+                markdown.push_str(&format!("ln {}", line.line));
+                if !line.quoted_line.is_empty() {
+                    markdown.push_str("  ");
+                    markdown.push_str(&line.quoted_line);
+                }
+                markdown.push('\n');
+                previous_line = Some(line.line);
+            }
+
+            markdown.push_str("```\n\n");
+        }
     }
 
     pub fn current_preview_scroll_line(&self) -> u16 {
@@ -1670,6 +1879,23 @@ impl App {
             return;
         }
 
+        if self.error_modal.is_some() {
+            if self.is_copy_note(&key) {
+                self.copy_override_text = self.error_modal_markdown();
+                self.copy_requested = self.copy_override_text.is_some();
+                return;
+            }
+            if self.is_back(&key) || self.is_refresh_data(&key) {
+                match self.reload_data() {
+                    Ok(()) => {
+                        self.status = Some(StatusMsg::success("Data refreshed from YAML."));
+                    }
+                    Err(report) => self.show_error_modal(report),
+                }
+            }
+            return;
+        }
+
         if self.modal.is_some() {
             self.handle_modal_key(key);
             return;
@@ -1731,9 +1957,7 @@ impl App {
                 Ok(()) => {
                     self.status = Some(StatusMsg::success("Data refreshed from YAML."));
                 }
-                Err(err) => {
-                    self.status = Some(StatusMsg::error(format!("Data refresh failed: {err}")));
-                }
+                Err(report) => self.show_error_modal(report),
             }
             return;
         }
@@ -4458,6 +4682,7 @@ mod composition_span_tests {
         ResolvedCollectionConfig, RuntimeGroup, RuntimeNode, RuntimeNodeKind, RuntimeTemplate,
         SectionConfig,
     };
+    use crate::diagnostics::{ErrorReport, ErrorSource, Messages};
     use crate::modal::SearchModal;
     use crate::modal_layout::ModalFocus;
     use crate::sections::header::HeaderFieldValue;
@@ -4973,6 +5198,152 @@ mod composition_span_tests {
         let temp = tempfile::tempdir().expect("temp dir");
         let app = app_with_single_field_in_data_dir(field, temp.path().to_path_buf());
         (app, temp)
+    }
+
+    fn write_valid_reload_fixture(dir: &std::path::Path) {
+        std::fs::write(
+            dir.join("reload.yml"),
+            concat!(
+                "template:\n",
+                "  id: test\n",
+                "  contains:\n",
+                "    - group: intake\n",
+                "groups:\n",
+                "  - id: intake\n",
+                "    contains:\n",
+                "      - section: request_section\n",
+                "sections:\n",
+                "  - id: request_section\n",
+                "    label: Request\n",
+                "    contains:\n",
+                "      - field: request_field\n",
+                "fields:\n",
+                "  - id: request_field\n",
+                "    label: Request\n",
+            ),
+        )
+        .expect("valid reload fixture writes");
+    }
+
+    #[test]
+    fn refresh_data_failure_sets_error_modal() {
+        let (mut app, temp) = temp_app_with_single_field(list_field(ModalStart::List));
+        std::fs::write(
+            temp.path().join("broken.yml"),
+            concat!(
+                "template:\n  contains:\n    - group: intake\n",
+                "groups:\n  - id: intake\n    contains:\n      - section: missing\n",
+            ),
+        )
+        .expect("fixture writes");
+
+        app.handle_key(AppKey::Char('\\'));
+
+        let report = app
+            .error_modal
+            .as_ref()
+            .expect("reload failure should open error modal");
+        assert!(report.message.contains("missing section 'missing'"));
+        assert!(app.status.is_none());
+    }
+
+    #[test]
+    fn reload_data_refreshes_messages_catalog() {
+        let (mut app, temp) = temp_app_with_single_field(list_field(ModalStart::List));
+        write_valid_reload_fixture(temp.path());
+        app.messages = Messages::default();
+
+        app.reload_data().expect("reload should succeed");
+
+        let rendered = app
+            .messages
+            .render(&ErrorReport::generic("missing_child", "raw"));
+        assert_eq!(rendered.title, "ID Not Found");
+    }
+
+    #[test]
+    fn reload_data_failure_still_refreshes_messages_catalog() {
+        let (mut app, temp) = temp_app_with_single_field(list_field(ModalStart::List));
+        std::fs::write(
+            temp.path().join("broken.yml"),
+            concat!(
+                "template:\n  contains:\n    - group: intake\n",
+                "groups:\n  - id: intake\n    contains:\n      - section: missing\n",
+            ),
+        )
+        .expect("fixture writes");
+        app.messages = Messages::default();
+
+        let _ = app.reload_data();
+
+        let rendered = app
+            .messages
+            .render(&ErrorReport::generic("missing_child", "raw"));
+        assert_eq!(rendered.title, "ID Not Found");
+    }
+
+    #[test]
+    fn copy_key_prepares_error_modal_markdown() {
+        let report = ErrorReport::generic("yaml_parse_failed", "bad yaml");
+        let mut app = App::new_error_state(report, Config::default(), PathBuf::new());
+
+        app.handle_key(AppKey::Char('c'));
+
+        assert!(app.copy_requested);
+        let copied = app
+            .copy_override_text
+            .as_ref()
+            .expect("error modal copy should set markdown payload");
+        assert!(copied.contains("# YAML Parse Error"));
+        assert!(copied.contains("**Error ID:** `yaml_parse_failed`"));
+        assert!(copied.find("**Error ID:**").unwrap() > copied.find("bad yaml").unwrap());
+        assert!(!app.quit);
+    }
+
+    #[test]
+    fn error_modal_markdown_groups_source_by_file_and_lists_full_paths() {
+        let report = ErrorReport::generic("wrong_kind_reference", "raw")
+            .with_source(Some(ErrorSource {
+                file: PathBuf::from("C:/demo/data/subjective.yml"),
+                line: 2,
+                quoted_line: Some("- id: subjective_section".to_string()),
+            }))
+            .with_param("owner_label", "section 'subjective_section'")
+            .with_param("referenced_kind", "field")
+            .with_param("referenced_id", "back_all_prone_collection")
+            .with_param("actual_kind", "collection")
+            .with_param("referenced_file", "C:/demo/data/subjective.yml")
+            .with_param("referenced_line", "8")
+            .with_param(
+                "referenced_quoted_line",
+                "- field: back_all_prone_collection".to_string(),
+            )
+            .with_param("found_file", "C:/demo/data/treatment.yml")
+            .with_param("found_line", "73")
+            .with_param(
+                "found_quoted_line",
+                "- id: back_all_prone_collection".to_string(),
+            );
+        let app = App::new_error_state(report, Config::default(), PathBuf::new());
+
+        let copied = app
+            .error_modal_markdown()
+            .expect("error modal markdown should render");
+
+        assert!(copied.contains("## Source"));
+        assert!(copied.contains("### subjective.yml"));
+        assert!(copied.contains("### treatment.yml"));
+        assert!(copied.contains("ln 2  - id: subjective_section"));
+        assert!(copied.contains("ln 73  - id: back_all_prone_collection"));
+        assert!(!copied.contains("It is defined at"));
+        let error_id_idx = copied.find("**Error ID:**").expect("error id present");
+        let next_steps_idx = copied.find("## Next Steps").expect("next steps present");
+        let files_idx = copied.find("## Files").expect("files present");
+        assert!(error_id_idx > next_steps_idx);
+        assert!(error_id_idx < files_idx);
+        assert!(copied.contains("## Files"));
+        assert!(copied.contains("C:/demo/data/subjective.yml"));
+        assert!(copied.contains("C:/demo/data/treatment.yml"));
     }
 
     fn app_with_free_text_sections(sections: Vec<SectionConfig>) -> App {
