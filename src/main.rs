@@ -3,6 +3,7 @@ mod app;
 mod appkey_tests;
 mod config;
 mod data;
+mod diagnostics;
 mod document;
 mod import;
 mod modal;
@@ -44,10 +45,19 @@ pub struct ScribbleApp {
 impl ScribbleApp {
     fn new_from_env() -> (Self, Task<Message>) {
         let data_dir = data::find_data_dir();
-        let app_data = data::AppData::load(data_dir.clone()).expect("failed to load app data");
         let config = config::Config::load(&data_dir).unwrap_or_default();
-        let inner = app::App::new(app_data, config, data_dir);
+        let inner = match data::AppData::load(data_dir.clone()) {
+            Ok(app_data) => app::App::new(app_data, config, data_dir),
+            Err(err) => app::App::new_error_state(error_report_from_anyhow(err), config, data_dir),
+        };
         (Self { inner }, Task::none())
+    }
+}
+
+fn error_report_from_anyhow(err: anyhow::Error) -> diagnostics::ErrorReport {
+    match err.downcast::<diagnostics::ErrorReport>() {
+        Ok(report) => report,
+        Err(err) => diagnostics::ErrorReport::generic("data_load_failed", err.to_string()),
     }
 }
 
@@ -114,16 +124,30 @@ fn update(state: &mut ScribbleApp, message: Message) -> Task<Message> {
 
     if state.inner.copy_requested {
         state.inner.copy_requested = false;
-        let export_text = document::export_editable_document(&state.inner.editable_note);
+        let copied_error_report = state.inner.copy_override_text.is_some();
+        let copy_status = if copied_error_report {
+            "Copied error report to clipboard."
+        } else {
+            "Copied note to clipboard."
+        };
+        let export_text = state
+            .inner
+            .copy_override_text
+            .take()
+            .unwrap_or_else(|| document::export_editable_document(&state.inner.editable_note));
         match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(export_text)) {
             Ok(()) => {
-                state.inner.status = Some(app::StatusMsg::success("Copied note to clipboard."));
-                state.inner.copy_flash_until = Some(
-                    Instant::now()
-                        + Duration::from_millis(
-                            state.inner.ui_theme.preview_copy_flash_duration_ms,
-                        ),
-                );
+                state.inner.status = Some(app::StatusMsg::success(copy_status));
+                if copied_error_report {
+                    state.inner.flash_error_modal_copy();
+                } else {
+                    state.inner.copy_flash_until = Some(
+                        Instant::now()
+                            + Duration::from_millis(
+                                state.inner.ui_theme.preview_copy_flash_duration_ms,
+                            ),
+                    );
+                }
             }
             Err(err) => {
                 state.inner.status = Some(app::StatusMsg::error(format!("Copy failed: {err}")));
@@ -174,6 +198,7 @@ fn subscription(state: &ScribbleApp) -> Subscription<Message> {
     let resize = iced::window::resize_events().map(|(_id, size)| Message::WindowResized(size));
     let tick_interval = if state.inner.copy_flash_until.is_some()
         || state.inner.has_active_text_flash()
+        || state.inner.has_active_error_modal_flash()
         || state.inner.has_active_modal_transition()
     {
         Duration::from_millis(33)
@@ -201,7 +226,7 @@ fn run() -> anyhow::Result<()> {
     if let Some(arg) = std::env::args().nth(1) {
         if arg == "--validate-data" || arg == "--validate" {
             let summary =
-                data::validate_data_dir(&data::find_data_dir()).map_err(anyhow::Error::msg)?;
+                data::validate_data_dir(&data::find_data_dir()).map_err(anyhow::Error::new)?;
             let keybindings = if summary.keybindings_present {
                 "keybindings checked"
             } else {
@@ -235,9 +260,11 @@ fn run() -> anyhow::Result<()> {
 
     if std::env::var("SCRIBBLENOT_HEADLESS").as_deref() == Ok("1") {
         let data_dir = data::find_data_dir();
-        let app_data = data::AppData::load(data_dir.clone()).expect("failed to load");
         let config = config::Config::load(&data_dir).unwrap_or_default();
-        let _ = app::App::new(app_data, config, data_dir);
+        let _ = match data::AppData::load(data_dir.clone()) {
+            Ok(app_data) => app::App::new(app_data, config, data_dir),
+            Err(err) => app::App::new_error_state(error_report_from_anyhow(err), config, data_dir),
+        };
         return Ok(());
     }
 

@@ -264,7 +264,7 @@ mod tests {
                             .get(&section.id)
                             .cloned()
                             .unwrap_or_default(),
-                        ))
+                    ))
                 }
                 SectionBodyMode::Collection => SectionState::Collection(CollectionState::new(
                     data.collection_data
