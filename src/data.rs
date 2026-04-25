@@ -344,8 +344,6 @@ impl AppData {
 pub struct GroupNoteMeta {
     #[serde(default)]
     pub note_label: Option<String>,
-    #[serde(default)]
-    pub boilerplate_refs: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -583,8 +581,6 @@ pub struct HierarchyGroup {
     #[serde(default)]
     pub note_label: Option<String>,
     #[serde(default)]
-    pub boilerplate_refs: Vec<String>,
-    #[serde(default)]
     pub contains: Vec<HierarchyChildRef>,
 }
 
@@ -671,6 +667,7 @@ pub enum HierarchyChildRef {
     Collection { collection: String },
     Field { field: String },
     List { list: String },
+    Boilerplate { boilerplate: String },
 }
 
 impl HierarchyChildRef {
@@ -681,6 +678,7 @@ impl HierarchyChildRef {
             Self::Collection { .. } => TypeTag::Collection,
             Self::Field { .. } => TypeTag::Field,
             Self::List { .. } => TypeTag::List,
+            Self::Boilerplate { .. } => TypeTag::Boilerplate,
         }
     }
 
@@ -691,6 +689,7 @@ impl HierarchyChildRef {
             Self::Collection { collection } => collection,
             Self::Field { field } => field,
             Self::List { list } => list,
+            Self::Boilerplate { boilerplate } => boilerplate,
         }
     }
 }
@@ -710,7 +709,7 @@ pub struct HierarchyFile {
     #[serde(default)]
     pub lists: Vec<HierarchyList>,
     #[serde(default)]
-    pub boilerplate: Vec<BoilerplateEntry>,
+    pub boilerplates: Vec<BoilerplateEntry>,
     #[serde(skip)]
     pub item_hotkeys: HashMap<String, HashMap<String, String>>,
 }
@@ -722,6 +721,7 @@ pub enum TypeTag {
     Collection,
     Field,
     List,
+    Boilerplate,
 }
 
 #[allow(dead_code)]
@@ -745,12 +745,21 @@ pub struct RuntimeGroup {
 pub enum RuntimeNode {
     Section(SectionConfig),
     Collection(SectionConfig),
+    Boilerplate(String),
 }
 
 impl RuntimeNode {
     pub fn config(&self) -> &SectionConfig {
         match self {
             Self::Section(config) | Self::Collection(config) => config,
+            Self::Boilerplate(_) => panic!("config() called on Boilerplate node"),
+        }
+    }
+
+    pub fn as_config(&self) -> Option<&SectionConfig> {
+        match self {
+            Self::Section(config) | Self::Collection(config) => Some(config),
+            Self::Boilerplate(_) => None,
         }
     }
 }
@@ -777,7 +786,7 @@ pub fn flat_sections_from_template(template: &RuntimeTemplate) -> Vec<SectionCon
         .children
         .iter()
         .flat_map(|group| group.children.iter())
-        .map(|node| node.config().clone())
+        .filter_map(|node| node.as_config().cloned())
         .collect()
 }
 
@@ -785,7 +794,9 @@ pub fn runtime_navigation(template: &RuntimeTemplate) -> Vec<NavigationEntry> {
     let mut entries = Vec::new();
     for (group_index, group) in template.children.iter().enumerate() {
         for node in &group.children {
-            let config = node.config();
+            let Some(config) = node.as_config() else {
+                continue;
+            };
             entries.push(NavigationEntry {
                 node_id: config.id.clone(),
                 group_id: group.id.clone(),
@@ -835,6 +846,39 @@ fn report(
     source: Option<ErrorSource>,
 ) -> ErrorReport {
     ErrorReport::generic(kind_id, message).with_source(source)
+}
+
+fn format_placeholder_report(
+    kind_id: &'static str,
+    field_id: &str,
+    placeholder_id: &str,
+    message: impl Into<String>,
+    source: Option<ErrorSource>,
+) -> ErrorReport {
+    report(kind_id, message, source)
+        .with_param("owner_label", format!("field '{field_id}'"))
+        .with_param("owner_id", field_id)
+        .with_param("placeholder_id", placeholder_id)
+}
+
+fn assign_rule_report(
+    kind_id: &'static str,
+    source_list_id: &str,
+    source_item_id: &str,
+    target_list_id: &str,
+    target_item_id: &str,
+    message: impl Into<String>,
+    source: Option<ErrorSource>,
+) -> ErrorReport {
+    report(kind_id, message, source)
+        .with_param(
+            "owner_label",
+            format!("item '{source_item_id}' in list '{source_list_id}'"),
+        )
+        .with_param("source_list_id", source_list_id)
+        .with_param("source_item_id", source_item_id)
+        .with_param("target_list_id", target_list_id)
+        .with_param("target_item_id", target_item_id)
 }
 
 fn child_reference_report(
@@ -987,11 +1031,15 @@ pub fn hierarchy_to_runtime(
 
     for child in &template.contains {
         let HierarchyChildRef::Group { group } = child else {
-            return Err(report(
-                "template_runtime_child_invalid",
-                "template runtime build expected only group refs",
-                template_owner.source(index),
-            ));
+            return Err(
+                report(
+                    "template_runtime_child_invalid",
+                    "template runtime build expected only group refs",
+                    template_owner.source(index),
+                )
+                .with_param("template_child_kind", kind_label(child.kind()))
+                .with_param("template_child_id", child.id()),
+            );
         };
         let hierarchy_group = groups_by_id.get(group.as_str()).ok_or_else(|| {
             child_reference_with_reference_source(
@@ -1013,7 +1061,6 @@ pub fn hierarchy_to_runtime(
             .unwrap_or_else(|| hierarchy_group.id.clone());
         let group_note = GroupNoteMeta {
             note_label: group_note_label.clone(),
-            boilerplate_refs: hierarchy_group.boilerplate_refs.clone(),
         };
         let child_fallback_name = group_note_label
             .clone()
@@ -1096,6 +1143,9 @@ pub fn hierarchy_to_runtime(
                         )?],
                     );
                 }
+                HierarchyChildRef::Boilerplate { boilerplate } => {
+                    runtime_children.push(RuntimeNode::Boilerplate(boilerplate.clone()));
+                }
                 other => {
                     return Err(child_reference_with_allowed_kinds(
                         child_reference_with_reference_source(
@@ -1132,7 +1182,7 @@ pub fn hierarchy_to_runtime(
     }
 
     let boilerplate_texts = hf
-        .boilerplate
+        .boilerplates
         .into_iter()
         .map(|entry| (entry.id, entry.text))
         .collect();
@@ -1387,11 +1437,15 @@ fn resolve_field(
     if visiting.iter().any(|existing| existing == &field.id) {
         let mut path = visiting.clone();
         path.push(field.id.clone());
-        return Err(report(
-            "runtime_field_cycle",
-            format!("field cycle detected: {}", path.join(" -> ")),
-            index.source_for(&field.id),
-        ));
+        let cycle_path = path.join(" -> ");
+        return Err(
+            report(
+                "runtime_field_cycle",
+                format!("field cycle detected: {cycle_path}"),
+                index.source_for(&field.id),
+            )
+            .with_param("cycle_path", cycle_path),
+        );
     }
     visiting.push(field.id.clone());
 
@@ -1542,8 +1596,10 @@ fn resolve_field_inner(
         }
         format_lists.push(resolve_runtime_list(
             lists_by_id.get(list_id.as_str()).ok_or_else(|| {
-                report(
+                format_placeholder_report(
                     "runtime_unknown_format_list",
+                    &field.id,
+                    &list_id,
                     format!(
                         "field '{}' references unknown format list '{}'",
                         field.id, list_id
@@ -1556,6 +1612,32 @@ fn resolve_field_inner(
             lists_by_id,
             index,
         )?);
+    }
+    // Also discover format lists referenced in item output strings.
+    // Only IDs that resolve to an actual list are added; branch-field references and
+    // other non-list placeholders in item outputs are silently ignored.
+    for list in &lists {
+        for item in &list.items {
+            for list_id in referenced_placeholder_ids(item.output.as_deref()) {
+                let list_is_primary = lists.iter().any(|l| l.id == list_id);
+                let format_list_is_primary = format_lists.iter().any(|l| l.id == list_id);
+                let collection_matches = collections.iter().any(|c| c.id == list_id);
+                let field_matches = fields.iter().any(|f| f.id == list_id);
+                if list_is_primary || format_list_is_primary || collection_matches || field_matches {
+                    continue;
+                }
+                let Some(list_def) = lists_by_id.get(list_id.as_str()) else {
+                    continue;
+                };
+                format_lists.push(resolve_runtime_list(
+                    list_def,
+                    fields_by_id,
+                    collections_by_id,
+                    lists_by_id,
+                    index,
+                )?);
+            }
+        }
     }
     Ok(HeaderFieldConfig {
         id: field.id.clone(),
@@ -1714,13 +1796,16 @@ fn read_hierarchy_dir(
         if file.template.is_some() {
             template_count += 1;
             if merged.template.is_some() {
-                return Err(ErrorReport::generic(
-                    "multiple_templates_across_files",
-                    format!(
-                        "multiple templates found while loading '{}'",
-                        path.display()
-                    ),
-                ));
+                return Err(
+                    ErrorReport::generic(
+                        "multiple_templates_across_files",
+                        format!(
+                            "multiple templates found while loading '{}'",
+                            path.display()
+                        ),
+                    )
+                    .with_param("conflicting_file", path.display().to_string()),
+                );
             }
             merged.template = file.template;
         }
@@ -1730,18 +1815,21 @@ fn read_hierarchy_dir(
         merged.collections.extend(file.collections);
         merged.fields.extend(file.fields);
         merged.lists.extend(file.lists);
-        merged.boilerplate.extend(file.boilerplate);
+        merged.boilerplates.extend(file.boilerplates);
         source_index.merge(file_sources);
     }
 
     if template_count != 1 {
-        return Err(ErrorReport::generic(
-            "template_count_invalid",
-            format!(
-                "expected exactly 1 template across data files, found {}",
-                template_count
-            ),
-        ));
+        return Err(
+            ErrorReport::generic(
+                "template_count_invalid",
+                format!(
+                    "expected exactly 1 template across data files, found {}",
+                    template_count
+                ),
+            )
+            .with_param("found_count", template_count.to_string()),
+        );
     }
 
     Ok((merged, source_index, hierarchy_file_count))
@@ -1768,7 +1856,7 @@ pub fn validate_data_dir(dir: &Path) -> std::result::Result<DataValidationSummar
         collection_count: merged.collections.len(),
         field_count: merged.fields.len(),
         list_count: merged.lists.len(),
-        boilerplate_count: merged.boilerplate.len(),
+        boilerplate_count: merged.boilerplates.len(),
     };
     hierarchy_to_runtime(merged, &source_index).map_err(|err| {
         ErrorReport::generic(
@@ -1811,8 +1899,11 @@ fn parse_hierarchy_file_documents(
                 ),
             ));
         }
+        if let Some(report) = find_unknown_top_level_key_report(path, &doc, doc_idx + 1, &value) {
+            return Err(report);
+        }
         let mut file: HierarchyFile = serde_yaml::from_str(doc.text)
-            .map_err(|err| yaml_doc_error(path, &doc, doc_idx + 1, err))?;
+            .map_err(|err| authored_yaml_doc_error(path, &doc, doc_idx + 1, &value, err))?;
         normalize_items(&mut file);
         file.item_hotkeys = extract_item_hotkeys_from_value(&value, &file);
         let doc_sources = build_source_index(&value, path, &doc);
@@ -1832,7 +1923,7 @@ fn parse_hierarchy_file_documents(
         merged.collections.extend(file.collections);
         merged.fields.extend(file.fields);
         merged.lists.extend(file.lists);
-        merged.boilerplate.extend(file.boilerplate);
+        merged.boilerplates.extend(file.boilerplates);
         for (list_id, item_hotkeys) in file.item_hotkeys {
             merged
                 .item_hotkeys
@@ -1915,6 +2006,122 @@ fn yaml_doc_error(
         line: doc.start_line + location.line().saturating_sub(1),
         quoted_line: quoted_line(doc.text, location.line()),
     });
+    let message = err.to_string();
+
+    if let Some(details) = parse_unclosed_yaml_structure_error(&message) {
+        return unclosed_yaml_structure_report(
+            details,
+            normalize_unclosed_yaml_source(doc, source),
+            path,
+            doc_number,
+        );
+    }
+
+    if let Some(raw_line) = err
+        .location()
+        .and_then(|loc| doc.text.lines().nth(loc.line().saturating_sub(1)))
+    {
+        if let Some(key) = detect_indented_top_level_key(&message, raw_line) {
+            return indented_top_level_key_report(key, source, path, doc_number);
+        }
+    }
+
+    ErrorReport::generic(
+        "yaml_parse_failed",
+        format!(
+            "failed to parse '{}' document {}: {err}",
+            path.display(),
+            doc_number
+        ),
+    )
+    .with_source(source)
+}
+
+fn authored_yaml_doc_error(
+    path: &Path,
+    doc: &YamlDocument<'_>,
+    doc_number: usize,
+    value: &serde_yaml::Value,
+    err: serde_yaml::Error,
+) -> ErrorReport {
+    let source = err.location().map(|location| ErrorSource {
+        file: path.to_path_buf(),
+        line: doc.start_line + location.line().saturating_sub(1),
+        quoted_line: quoted_line(doc.text, location.line()),
+    });
+    let message = err.to_string();
+
+    if let Some(details) = parse_unknown_field_error(&message) {
+        if let Some(context) = authored_unknown_key_context(value, details.path.as_deref()) {
+            return unsupported_authored_key_report(
+                context,
+                &details.key_name,
+                source,
+                path,
+                doc_number,
+            );
+        }
+    }
+
+    if let Some(details) = parse_missing_field_error(&message) {
+        if let Some(context) = authored_unknown_key_context(value, details.path.as_deref()) {
+            return missing_required_authored_key_report(
+                context,
+                &details.key_name,
+                source,
+                path,
+                doc_number,
+            );
+        }
+    }
+
+    if let Some(details) = parse_invalid_type_error(&message) {
+        if let Some((context, key_name)) = authored_property_context(value, details.path.as_deref())
+        {
+            return invalid_authored_value_type_report(
+                context,
+                &key_name,
+                &details.actual_type,
+                &details.expected_type,
+                value,
+                source,
+                path,
+                doc_number,
+            );
+        }
+    }
+
+    if let Some(details) = parse_unknown_variant_error(&message) {
+        if details.field_name.as_deref() == Some("joiner_style") {
+            return joiner_style_unknown_variant_report(&details.provided, source, path, doc_number);
+        }
+    }
+
+    if let Some(details) = parse_unclosed_yaml_structure_error(&message) {
+        return unclosed_yaml_structure_report(
+            details,
+            normalize_unclosed_yaml_source(doc, source),
+            path,
+            doc_number,
+        );
+    }
+
+    if let Some(rel_line) = detect_invalid_child_ref_line(&message, doc, &err) {
+        return ErrorReport::generic(
+            "yaml_parse_failed",
+            format!(
+                "failed to parse '{}' document {}: {err}",
+                path.display(),
+                doc_number
+            ),
+        )
+        .with_source(Some(ErrorSource {
+            file: path.to_path_buf(),
+            line: doc.start_line + rel_line - 1,
+            quoted_line: quoted_line(doc.text, rel_line),
+        }));
+    }
+
     ErrorReport::generic(
         "yaml_parse_failed",
         format!(
@@ -2276,6 +2483,672 @@ fn find_legacy_field_child_key(value: &serde_yaml::Value) -> Option<(String, &'s
     None
 }
 
+struct UnknownFieldParse {
+    path: Option<String>,
+    key_name: String,
+}
+
+struct MissingFieldParse {
+    path: Option<String>,
+    key_name: String,
+}
+
+struct InvalidTypeParse {
+    path: Option<String>,
+    actual_type: String,
+    expected_type: String,
+}
+
+#[derive(Debug)]
+struct ResolvedAuthoredOwnerContext {
+    owner_kind: &'static str,
+    owner_label: String,
+    owner_id: Option<String>,
+}
+
+#[derive(Clone, Copy)]
+struct UnclosedYamlStructure {
+    structure_label: &'static str,
+    opening_token: &'static str,
+    closing_token: &'static str,
+}
+
+fn parse_unknown_field_error(message: &str) -> Option<UnknownFieldParse> {
+    let (prefix, rest) = message.split_once(": unknown field `")?;
+    let (key_name, _) = rest.split_once('`')?;
+    let path = if prefix.trim().is_empty() {
+        None
+    } else {
+        Some(prefix.trim().to_string())
+    };
+    Some(UnknownFieldParse {
+        path,
+        key_name: key_name.to_string(),
+    })
+}
+
+fn parse_missing_field_error(message: &str) -> Option<MissingFieldParse> {
+    let (prefix, rest) = message.split_once(": missing field `")?;
+    let (key_name, _) = rest.split_once('`')?;
+    let path = if prefix.trim().is_empty() {
+        None
+    } else {
+        Some(prefix.trim().to_string())
+    };
+    Some(MissingFieldParse {
+        path,
+        key_name: key_name.to_string(),
+    })
+}
+
+fn parse_invalid_type_error(message: &str) -> Option<InvalidTypeParse> {
+    let (prefix, rest) = message.split_once(": invalid type: ")?;
+    let (actual_type, expected_rest) = rest.split_once(", expected ")?;
+    let expected_type = expected_rest
+        .split_once(" at line ")
+        .map(|(expected, _)| expected)
+        .unwrap_or(expected_rest);
+    let path = if prefix.trim().is_empty() {
+        None
+    } else {
+        Some(prefix.trim().to_string())
+    };
+    Some(InvalidTypeParse {
+        path,
+        actual_type: actual_type.trim().to_string(),
+        expected_type: expected_type.trim().to_string(),
+    })
+}
+
+struct UnknownVariantParse {
+    field_name: Option<String>,
+    provided: String,
+}
+
+fn parse_unknown_variant_error(message: &str) -> Option<UnknownVariantParse> {
+    let (prefix, rest) = message.split_once(": unknown variant `")
+        .or_else(|| message.split_once(": unknown variant '"))?;
+    let (provided, _) = rest.split_once(['`', '\''])?;
+    let field_name = prefix
+        .rsplit_once('.')
+        .map(|(_, field)| field.to_string())
+        .or_else(|| if !prefix.is_empty() { Some(prefix.trim().to_string()) } else { None });
+    Some(UnknownVariantParse {
+        field_name,
+        provided: provided.to_string(),
+    })
+}
+
+fn joiner_style_unknown_variant_report(
+    provided: &str,
+    source: Option<ErrorSource>,
+    path: &Path,
+    doc_number: usize,
+) -> ErrorReport {
+    ErrorReport::generic(
+        "joiner_style_unknown_variant",
+        format!(
+            "failed to parse '{}' document {}: '{}' is not a valid joiner_style.",
+            path.display(),
+            doc_number,
+            provided,
+        ),
+    )
+    .with_source(source)
+    .with_param("provided", provided)
+}
+
+fn parse_unclosed_yaml_structure_error(message: &str) -> Option<UnclosedYamlStructure> {
+    if !message.contains("unexpected end of stream") {
+        return None;
+    }
+
+    if message.contains("quoted scalar") {
+        return Some(UnclosedYamlStructure {
+            structure_label: "quoted value",
+            opening_token: "\"",
+            closing_token: "\"",
+        });
+    }
+
+    if message.contains("flow sequence") {
+        return Some(UnclosedYamlStructure {
+            structure_label: "flow list",
+            opening_token: "[",
+            closing_token: "]",
+        });
+    }
+
+    if message.contains("flow mapping") {
+        return Some(UnclosedYamlStructure {
+            structure_label: "flow mapping",
+            opening_token: "{",
+            closing_token: "}",
+        });
+    }
+
+    None
+}
+
+fn detect_indented_top_level_key<'a>(message: &str, raw_line: &'a str) -> Option<&'static str> {
+    if !message.contains("did not find expected key") {
+        return None;
+    }
+    if !raw_line.starts_with(' ') && !raw_line.starts_with('\t') {
+        return None;
+    }
+    let trimmed = raw_line.trim();
+    allowed_keys_for_owner_kind("document")
+        .iter()
+        .copied()
+        .find(|&key| trimmed == key || trimmed.starts_with(&format!("{key}:")))
+}
+
+fn indented_top_level_key_report(
+    key: &'static str,
+    source: Option<ErrorSource>,
+    path: &Path,
+    doc_number: usize,
+) -> ErrorReport {
+    ErrorReport::generic(
+        "yaml_indented_top_level_key",
+        format!(
+            "failed to parse '{}' document {}: `{key}:` is a top-level block but has leading indentation.",
+            path.display(),
+            doc_number,
+        ),
+    )
+    .with_source(source)
+    .with_param("key", key)
+}
+
+fn detect_invalid_child_ref_line(
+    message: &str,
+    doc: &YamlDocument<'_>,
+    err: &serde_yaml::Error,
+) -> Option<usize> {
+    if !message.contains("did not match any variant of untagged enum HierarchyChildRef") {
+        return None;
+    }
+    let location = err.location()?;
+    let start = location.line().saturating_sub(1);
+    let indent = location.column().saturating_sub(1);
+    let valid = [
+        "group", "section", "collection", "field", "list", "boilerplate",
+    ];
+    doc.text
+        .lines()
+        .enumerate()
+        .skip(start)
+        .find(|(_, line)| {
+            let leading = line.chars().take_while(|c| *c == ' ').count();
+            if leading != indent {
+                return false;
+            }
+            let trimmed = line.trim();
+            if !trimmed.starts_with("- ") {
+                return false;
+            }
+            let after_dash = trimmed[2..].trim();
+            after_dash
+                .split_once(':')
+                .map(|(key, _)| !valid.contains(&key.trim()))
+                .unwrap_or(false)
+        })
+        .map(|(idx, _)| idx + 1)
+}
+
+fn authored_unknown_key_context(
+    value: &serde_yaml::Value,
+    path: Option<&str>,
+) -> Option<ResolvedAuthoredOwnerContext> {
+    let Some(root) = value.as_mapping() else {
+        return None;
+    };
+    let path = path?;
+    if path == "template" {
+        return Some(ResolvedAuthoredOwnerContext {
+            owner_kind: "template",
+            owner_label: "template".to_string(),
+            owner_id: root
+                .get(serde_yaml::Value::String("template".to_string()))
+                .and_then(serde_yaml::Value::as_mapping)
+                .and_then(|mapping| mapping.get(serde_yaml::Value::String("id".to_string())))
+                .and_then(serde_yaml::Value::as_str)
+                .map(str::to_string),
+        });
+    }
+
+    let parts = path.split('.').collect::<Vec<_>>();
+    match parts.as_slice() {
+        [entry] => context_for_top_level_entry(root, entry),
+        [entry, "note"] => context_for_note_block(root, entry),
+        [list_entry, item_entry] if item_entry.starts_with("items[") => {
+            context_for_item(root, list_entry, item_entry)
+        }
+        [list_entry, item_entry, assign_entry]
+            if item_entry.starts_with("items[") && assign_entry.starts_with("assigns[") =>
+        {
+            context_for_assign(root, list_entry, item_entry)
+        }
+        _ => None,
+    }
+}
+
+fn authored_property_context(
+    value: &serde_yaml::Value,
+    path: Option<&str>,
+) -> Option<(ResolvedAuthoredOwnerContext, String)> {
+    let path = path?;
+    let mut parts = path.split('.').collect::<Vec<_>>();
+    let key_name = parts.pop()?.to_string();
+    let owner_path = if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("."))
+    };
+    let context = authored_unknown_key_context(value, owner_path.as_deref())?;
+    Some((context, key_name))
+}
+
+fn context_for_top_level_entry(
+    root: &serde_yaml::Mapping,
+    entry: &str,
+) -> Option<ResolvedAuthoredOwnerContext> {
+    let (bucket, idx) = parse_indexed_path_segment(entry)?;
+    let owner_kind = match bucket {
+        "groups" => "group",
+        "sections" => "section",
+        "collections" => "collection",
+        "fields" => "field",
+        "lists" => "list",
+        "boilerplate" => "boilerplate entry",
+        _ => return None,
+    };
+    let mapping = root
+        .get(serde_yaml::Value::String(bucket.to_string()))?
+        .as_sequence()?
+        .get(idx)?
+        .as_mapping()?;
+    let owner_id = mapping
+        .get(serde_yaml::Value::String("id".to_string()))
+        .and_then(serde_yaml::Value::as_str)
+        .map(str::to_string);
+    let owner_label = match owner_kind {
+        "boilerplate entry" => owner_id
+            .as_ref()
+            .map(|id| format!("boilerplate entry '{id}'"))
+            .unwrap_or_else(|| "boilerplate entry".to_string()),
+        _ => owner_id
+            .as_ref()
+            .map(|id| format!("{owner_kind} '{id}'"))
+            .unwrap_or_else(|| owner_kind.to_string()),
+    };
+    Some(ResolvedAuthoredOwnerContext {
+        owner_kind,
+        owner_label,
+        owner_id,
+    })
+}
+
+fn context_for_note_block(
+    root: &serde_yaml::Mapping,
+    entry: &str,
+) -> Option<ResolvedAuthoredOwnerContext> {
+    let parent = context_for_top_level_entry(root, entry)?;
+    let owner_kind = match parent.owner_kind {
+        "section" => "section_note",
+        "collection" => "collection_note",
+        _ => return None,
+    };
+    Some(ResolvedAuthoredOwnerContext {
+        owner_kind,
+        owner_label: format!("note block on {}", parent.owner_label),
+        owner_id: parent.owner_id,
+    })
+}
+
+fn context_for_item(
+    root: &serde_yaml::Mapping,
+    list_entry: &str,
+    item_entry: &str,
+) -> Option<ResolvedAuthoredOwnerContext> {
+    let list_ctx = context_for_top_level_entry(root, list_entry)?;
+    let (_, list_idx) = parse_indexed_path_segment(list_entry)?;
+    let (_, item_idx) = parse_indexed_path_segment(item_entry)?;
+    let list_mapping = root
+        .get(serde_yaml::Value::String("lists".to_string()))?
+        .as_sequence()?
+        .get(list_idx)?
+        .as_mapping()?;
+    let items = list_mapping
+        .get(serde_yaml::Value::String("items".to_string()))?
+        .as_sequence()?;
+    let item = items.get(item_idx)?;
+    let item_label = item
+        .as_mapping()
+        .and_then(|mapping| {
+            mapping
+                .get(serde_yaml::Value::String("id".to_string()))
+                .and_then(serde_yaml::Value::as_str)
+                .map(str::to_string)
+                .or_else(|| {
+                    mapping
+                        .get(serde_yaml::Value::String("label".to_string()))
+                        .and_then(serde_yaml::Value::as_str)
+                        .map(str::to_string)
+                })
+        })
+        .or_else(|| item.as_str().map(str::to_string))
+        .unwrap_or_else(|| format!("item {}", item_idx + 1));
+    Some(ResolvedAuthoredOwnerContext {
+        owner_kind: "item",
+        owner_label: format!("item '{item_label}' in {}", list_ctx.owner_label),
+        owner_id: Some(item_label),
+    })
+}
+
+fn context_for_assign(
+    root: &serde_yaml::Mapping,
+    list_entry: &str,
+    item_entry: &str,
+) -> Option<ResolvedAuthoredOwnerContext> {
+    let item_ctx = context_for_item(root, list_entry, item_entry)?;
+    Some(ResolvedAuthoredOwnerContext {
+        owner_kind: "assign",
+        owner_label: format!("assign entry on {}", item_ctx.owner_label),
+        owner_id: item_ctx.owner_id,
+    })
+}
+
+fn parse_indexed_path_segment(segment: &str) -> Option<(&str, usize)> {
+    let (key, remainder) = segment.split_once('[')?;
+    let idx = remainder.strip_suffix(']')?.parse().ok()?;
+    Some((key, idx))
+}
+
+fn unsupported_authored_key_report(
+    context: ResolvedAuthoredOwnerContext,
+    key_name: &str,
+    source: Option<ErrorSource>,
+    path: &Path,
+    doc_number: usize,
+) -> ErrorReport {
+    ErrorReport::generic(
+        "unsupported_authored_key",
+        format!(
+            "failed to parse '{}' document {}: {} uses unsupported key `{}`.",
+            path.display(),
+            doc_number,
+            context.owner_label,
+            key_name
+        ),
+    )
+    .with_source(source)
+    .with_param("owner_kind", context.owner_kind)
+    .with_param("owner_label", context.owner_label)
+    .with_param("owner_id", context.owner_id.unwrap_or_default())
+    .with_param("key_name", key_name)
+    .with_param("expected_keys", format_key_list(allowed_keys_for_owner_kind(context.owner_kind)))
+}
+
+fn missing_required_authored_key_report(
+    context: ResolvedAuthoredOwnerContext,
+    key_name: &str,
+    source: Option<ErrorSource>,
+    path: &Path,
+    doc_number: usize,
+) -> ErrorReport {
+    ErrorReport::generic(
+        "missing_required_authored_key",
+        format!(
+            "failed to parse '{}' document {}: {} is missing required key `{}`.",
+            path.display(),
+            doc_number,
+            context.owner_label,
+            key_name
+        ),
+    )
+    .with_source(source)
+    .with_param("owner_kind", context.owner_kind)
+    .with_param("owner_label", context.owner_label)
+    .with_param("owner_id", context.owner_id.unwrap_or_default())
+    .with_param("key_name", key_name)
+    .with_param("required_keys", format_key_list(required_keys_for_owner_kind(context.owner_kind)))
+}
+
+fn invalid_authored_value_type_report(
+    context: ResolvedAuthoredOwnerContext,
+    key_name: &str,
+    actual_type: &str,
+    expected_type: &str,
+    value: &serde_yaml::Value,
+    source: Option<ErrorSource>,
+    path: &Path,
+    doc_number: usize,
+) -> ErrorReport {
+    let inline_map_details = source.as_ref().and_then(|source| {
+        source
+            .quoted_line
+            .as_deref()
+            .and_then(parse_inline_map_token_from_source_line)
+    });
+    let mut report = ErrorReport::generic(
+        "invalid_authored_value_type",
+        format!(
+            "failed to parse '{}' document {}: {} expects {}, but `{}` was written as {}.",
+            path.display(),
+            doc_number,
+            context.owner_label,
+            expected_type,
+            key_name,
+            actual_type
+        ),
+    )
+    .with_source(source)
+    .with_param("owner_kind", context.owner_kind)
+    .with_param("owner_label", context.owner_label)
+    .with_param("owner_id", context.owner_id.unwrap_or_default())
+    .with_param("key_name", key_name)
+    .with_param("actual_type", actual_type)
+    .with_param("expected_type", expected_type);
+
+    if let Some((inline_map_token, inline_map_identifier)) = inline_map_details {
+        let list_exists = raw_value_contains_list_id(value, &inline_map_identifier);
+        report = report
+            .with_param("inline_map_token", inline_map_token)
+            .with_param("inline_map_identifier", inline_map_identifier)
+            .with_param("inline_map_list_exists", list_exists.to_string());
+    }
+
+    report
+}
+
+fn parse_inline_map_token_from_source_line(source_line: &str) -> Option<(String, String)> {
+    let (_, value) = source_line.split_once(':')?;
+    let value = value.trim();
+    if !value.starts_with('{') || !value.ends_with('}') || value.contains(':') {
+        return None;
+    }
+    let identifier = value
+        .strip_prefix('{')?
+        .strip_suffix('}')?
+        .trim()
+        .to_string();
+    if identifier.is_empty() {
+        return None;
+    }
+    Some((value.to_string(), identifier))
+}
+
+fn raw_value_contains_list_id(value: &serde_yaml::Value, list_id: &str) -> bool {
+    value.get("lists")
+        .and_then(serde_yaml::Value::as_sequence)
+        .map(|lists| {
+            lists.iter().any(|list| {
+                list.as_mapping()
+                    .and_then(|mapping| mapping.get(serde_yaml::Value::String("id".to_string())))
+                    .and_then(serde_yaml::Value::as_str)
+                    == Some(list_id)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn unclosed_yaml_structure_report(
+    details: UnclosedYamlStructure,
+    source: Option<ErrorSource>,
+    path: &Path,
+    doc_number: usize,
+) -> ErrorReport {
+    ErrorReport::generic(
+        "yaml_unclosed_structure",
+        format!(
+            "failed to parse '{}' document {}: this YAML {} starts with `{}` but never closes with `{}`.",
+            path.display(),
+            doc_number,
+            details.structure_label,
+            details.opening_token,
+            details.closing_token
+        ),
+    )
+    .with_source(source)
+    .with_param("structure_label", details.structure_label)
+    .with_param("opening_token", details.opening_token)
+    .with_param("closing_token", details.closing_token)
+}
+
+fn normalize_unclosed_yaml_source(
+    doc: &YamlDocument<'_>,
+    source: Option<ErrorSource>,
+) -> Option<ErrorSource> {
+    source.map(|mut source| {
+        if source.quoted_line.is_none() && source.line > doc.start_line {
+            source.line -= 1;
+            source.quoted_line = quoted_line(doc.text, source.line - doc.start_line + 1);
+        }
+        source
+    })
+}
+
+fn find_unknown_top_level_key_report(
+    path: &Path,
+    doc: &YamlDocument<'_>,
+    doc_number: usize,
+    value: &serde_yaml::Value,
+) -> Option<ErrorReport> {
+    let root = value.as_mapping()?;
+    for key in root.keys().filter_map(serde_yaml::Value::as_str) {
+        if allowed_keys_for_owner_kind("document").contains(&key) {
+            continue;
+        }
+        let source = doc
+            .text
+            .lines()
+            .enumerate()
+            .find(|(_, line)| leading_spaces(line) == 0 && line.trim().starts_with(&format!("{key}:")))
+            .map(|(idx, _)| ErrorSource {
+                file: path.to_path_buf(),
+                line: doc.start_line + idx,
+                quoted_line: quoted_line(doc.text, idx + 1),
+            });
+        return Some(
+            unsupported_authored_key_report(
+                ResolvedAuthoredOwnerContext {
+                    owner_kind: "document",
+                    owner_label: "document root".to_string(),
+                    owner_id: None,
+                },
+                key,
+                source,
+                path,
+                doc_number,
+            ),
+        );
+    }
+    None
+}
+
+fn allowed_keys_for_owner_kind(owner_kind: &str) -> &'static [&'static str] {
+    match owner_kind {
+        "document" => &[
+            "template",
+            "groups",
+            "sections",
+            "collections",
+            "fields",
+            "lists",
+            "boilerplates",
+        ],
+        "template" => &["id", "contains"],
+        "group" => &["id", "nav_label", "note_label", "contains"],
+        "section" => &[
+            "id",
+            "label",
+            "nav_label",
+            "hotkey",
+            "show_field_labels",
+            "contains",
+            "note",
+        ],
+        "section_note" | "collection_note" => &["note_label"],
+        "collection" => &[
+            "id",
+            "label",
+            "nav_label",
+            "note_label",
+            "default_enabled",
+            "joiner_style",
+            "contains",
+            "note",
+        ],
+        "field" => &[
+            "id",
+            "label",
+            "nav_label",
+            "hotkey",
+            "format",
+            "preview",
+            "contains",
+            "joiner_style",
+            "max_entries",
+            "max_actives",
+        ],
+        "list" => &[
+            "id",
+            "label",
+            "preview",
+            "sticky",
+            "default",
+            "modal_start",
+            "joiner_style",
+            "max_entries",
+            "items",
+        ],
+        "item" => &["id", "label", "default_enabled", "output", "hotkey", "fields", "assigns"],
+        "assign" => &["list", "item"],
+        "boilerplate entry" => &["id", "text"],
+        _ => &[],
+    }
+}
+
+fn required_keys_for_owner_kind(owner_kind: &str) -> &'static [&'static str] {
+    match owner_kind {
+        "group" | "section" | "collection" | "list" => &["id"],
+        "field" => &["id", "label"],
+        "assign" => &["list", "item"],
+        "boilerplate entry" => &["id", "text"],
+        _ => &[],
+    }
+}
+
+fn format_key_list(keys: &[&str]) -> String {
+    keys.iter()
+        .map(|key| format!("`{key}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn validate_keybindings_file(path: &Path) -> Result<bool, String> {
     if !path.exists() {
         return Ok(false);
@@ -2416,8 +3289,12 @@ fn resolve_runtime_list(
         }
         for assign in &mut item.assigns {
             let target_list = lists_by_id.get(assign.list_id.as_str()).ok_or_else(|| {
-                report(
+                assign_rule_report(
                     "runtime_assign_unknown_list",
+                    &list.id,
+                    &item.id,
+                    &assign.list_id,
+                    &assign.item_id,
                     format!(
                         "list '{}' item '{}' assigns unknown list '{}'",
                         list.id, item.id, assign.list_id
@@ -2430,8 +3307,12 @@ fn resolve_runtime_list(
                 .iter()
                 .find(|target| target.id == assign.item_id)
                 .ok_or_else(|| {
-                    report(
+                    assign_rule_report(
                         "runtime_assign_unknown_item",
+                        &list.id,
+                        &item.id,
+                        &assign.list_id,
+                        &assign.item_id,
                         format!(
                             "list '{}' item '{}' assigns unknown item '{}' in list '{}'",
                             list.id, item.id, assign.item_id, assign.list_id
@@ -2494,19 +3375,13 @@ fn validate_merged_hierarchy(
         index,
     )?;
 
-    let mut boilerplate_ids = HashSet::new();
-    for entry in &file.boilerplate {
-        if !boilerplate_ids.insert(entry.id.clone()) {
-            return Err(report(
-                "duplicate_boilerplate_id",
-                format!(
-                    "duplicate boilerplate id '{}'. Fix: rename one boilerplate entry so each boilerplate id is unique.",
-                    entry.id
-                ),
-                index.source_for(&entry.id),
-            ));
-        }
-    }
+    register_global_ids(
+        &mut global_ids,
+        &file.boilerplates,
+        TypeTag::Boilerplate,
+        |item| &item.id,
+        index,
+    )?;
 
     validate_children(
         ValidationOwner::new("template", template.id.as_deref()),
@@ -2518,7 +3393,7 @@ fn validate_merged_hierarchy(
     for group in &file.groups {
         validate_children(
             ValidationOwner::new("group", Some(&group.id)),
-            &[TypeTag::Section, TypeTag::Collection],
+            &[TypeTag::Section, TypeTag::Collection, TypeTag::Boilerplate],
             &group.contains,
             &global_ids,
             index,
@@ -2601,26 +3476,33 @@ fn validate_merged_hierarchy(
             match global_ids.get(list_id.as_str()) {
                 Some(TypeTag::List) => {}
                 Some(other) => {
-                    return Err(report(
-                        "field_expected_format_list_wrong_kind",
-                        format!(
-                            "field '{}' expected format list '{}', found {}. {}",
-                            field.id,
-                            list_id,
-                            kind_label(*other),
-                            expected_reference_kind_fix_hint(
-                                &field.id,
-                                TypeTag::List,
-                                *other,
-                                &list_id
-                            )
-                        ),
-                        index.source_for(&field.id),
-                    ))
+                    return Err(
+                        format_placeholder_report(
+                            "field_expected_format_list_wrong_kind",
+                            &field.id,
+                            &list_id,
+                            format!(
+                                "field '{}' expected format list '{}', found {}. {}",
+                                field.id,
+                                list_id,
+                                kind_label(*other),
+                                expected_reference_kind_fix_hint(
+                                    &field.id,
+                                    TypeTag::List,
+                                    *other,
+                                    &list_id
+                                )
+                            ),
+                            index.source_for(&field.id),
+                        )
+                        .with_param("actual_kind", kind_label(*other)),
+                    )
                 }
                 None => {
-                    return Err(report(
+                    return Err(format_placeholder_report(
                         "field_unknown_format_list",
+                        &field.id,
+                        &list_id,
                         format!(
                             "field '{}' references unknown format list '{}'. {}",
                             field.id,
@@ -2675,8 +3557,12 @@ fn validate_merged_hierarchy(
             }
             for assign in &item.assigns {
                 if assign.list_id == list.id {
-                    return Err(report(
+                    return Err(assign_rule_report(
                         "assign_self_reference",
+                        &list.id,
+                        &item.id,
+                        &assign.list_id,
+                        &assign.item_id,
                         format!(
                             "list '{}' item '{}' cannot assign back into the same list '{}'. Fix: remove that self-assignment or target a different list.",
                             list.id, item.id, assign.list_id
@@ -2685,8 +3571,12 @@ fn validate_merged_hierarchy(
                     ));
                 }
                 let Some(target_list) = lists_by_id.get(assign.list_id.as_str()) else {
-                    return Err(report(
+                    return Err(assign_rule_report(
                         "assign_unknown_list",
+                        &list.id,
+                        &item.id,
+                        &assign.list_id,
+                        &assign.item_id,
                         format!(
                             "list '{}' item '{}' assigns unknown list '{}'. Fix: point `assigns` at an existing list id.",
                             list.id, item.id, assign.list_id
@@ -2699,8 +3589,12 @@ fn validate_merged_hierarchy(
                     .iter()
                     .any(|target| target.id == assign.item_id)
                 {
-                    return Err(report(
+                    return Err(assign_rule_report(
                         "assign_unknown_item",
+                        &list.id,
+                        &item.id,
+                        &assign.list_id,
+                        &assign.item_id,
                         format!(
                             "list '{}' item '{}' assigns unknown item '{}' in list '{}'. Fix: use an existing target item id.",
                             list.id, item.id, assign.item_id, assign.list_id
@@ -2722,6 +3616,7 @@ fn kind_label(tag: TypeTag) -> &'static str {
         TypeTag::Collection => "collection",
         TypeTag::Field => "field",
         TypeTag::List => "list",
+        TypeTag::Boilerplate => "boilerplate",
     }
 }
 
@@ -3109,6 +4004,7 @@ fn route_wrong_kind_error(
             source,
             extra_params: Vec::new(),
         },
+        TypeTag::Boilerplate => unreachable!("boilerplate refs are skipped before wrong-kind checks"),
         TypeTag::Field => child_reference_with_actual_kind(
             child_reference_with_found_source(
                 child_reference_with_reference_source(
@@ -3155,9 +4051,6 @@ fn fingerprint_kind(raw: &serde_yaml::Value) -> Vec<(&'static str, TypeTag)> {
     }
     if mapping.contains_key(serde_yaml::Value::String("show_field_labels".to_string())) {
         found.push(("show_field_labels", TypeTag::Section));
-    }
-    if mapping.contains_key(serde_yaml::Value::String("boilerplate_refs".to_string())) {
-        found.push(("boilerplate_refs", TypeTag::Group));
     }
     if mapping.contains_key(serde_yaml::Value::String("note_label".to_string())) {
         found.push(("note_label", TypeTag::Group));
@@ -3627,7 +4520,7 @@ mod tests {
             .children
             .iter()
             .flat_map(|group| group.children.iter())
-            .map(|node| node.config())
+            .filter_map(|node| node.as_config())
             .find(|section| section.id == "appointment")
             .and_then(|section| section.fields.as_ref())
             .and_then(|fields| fields.iter().find(|field| field.id == "request"))
@@ -3721,6 +4614,34 @@ mod tests {
     }
 
     #[test]
+    fn parser_rejects_authored_format_lists_key_with_specific_guidance() {
+        let yaml = concat!(
+            "fields:\n",
+            "  - id: consent_pecs_field\n",
+            "    label: Consent\n",
+            "    format: \"{year}-{month}-{day}: {patientconsents}\"\n",
+            "    contains:\n",
+            "      - list: patientconsents\n",
+            "    format_lists:\n",
+            "      - year\n",
+            "      - month\n",
+            "      - day\n",
+        );
+        let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
+            .expect_err("authored format_lists key should fail");
+
+        assert_eq!(err.kind_id(), "unsupported_authored_key");
+        assert!(err.contains("field 'consent_pecs_field' uses unsupported key `format_lists`"));
+        assert_eq!(err.source.as_ref().map(|source| source.line), Some(7));
+        assert_eq!(
+            err.source
+                .as_ref()
+                .and_then(|source| source.quoted_line.as_deref()),
+            Some("format_lists:")
+        );
+    }
+
+    #[test]
     fn parser_rejects_unknown_section_key() {
         let yaml = concat!(
             "sections:\n",
@@ -3731,7 +4652,15 @@ mod tests {
         );
         let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
             .expect_err("unknown section key should fail");
-        assert!(err.contains("unknown field `body`"));
+        assert_eq!(err.kind_id(), "unsupported_authored_key");
+        assert!(err.contains("section 'subjective' uses unsupported key `body`"));
+        assert_eq!(err.source.as_ref().map(|source| source.line), Some(4));
+        assert_eq!(
+            err.source
+                .as_ref()
+                .and_then(|source| source.quoted_line.as_deref()),
+            Some("body: checklist")
+        );
     }
 
     #[test]
@@ -3746,7 +4675,9 @@ mod tests {
         );
         let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
             .expect_err("unknown item key should fail");
-        assert!(err.contains("unknown field `bogus`"));
+        assert_eq!(err.kind_id(), "unsupported_authored_key");
+        assert!(err.contains("item 'alpha' in list 'demo' uses unsupported key `bogus`"));
+        assert_eq!(err.source.as_ref().map(|source| source.line), Some(6));
     }
 
     #[test]
@@ -3785,7 +4716,105 @@ mod tests {
         );
         let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
             .expect_err("authored branch_fields should fail");
-        assert!(err.contains("unknown field `branch_fields`"));
+        assert_eq!(err.kind_id(), "unsupported_authored_key");
+        assert!(err.contains("item 'alpha' in list 'demo' uses unsupported key `branch_fields`"));
+        assert_eq!(err.source.as_ref().map(|source| source.line), Some(6));
+    }
+
+    #[test]
+    fn parser_rejects_unknown_top_level_key() {
+        let yaml = concat!("widgets:\n", "  - id: nope\n");
+        let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
+            .expect_err("unknown top-level key should fail");
+
+        assert_eq!(err.kind_id(), "unsupported_authored_key");
+        assert!(err.contains("document root uses unsupported key `widgets`"));
+        assert_eq!(err.source.as_ref().map(|source| source.line), Some(1));
+        assert_eq!(
+            err.source
+                .as_ref()
+                .and_then(|source| source.quoted_line.as_deref()),
+            Some("widgets:")
+        );
+    }
+
+    #[test]
+    fn parser_rejects_missing_required_field_key() {
+        let yaml = concat!("fields:\n", "  - id: consent_glutes_field\n");
+        let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
+            .expect_err("missing field label should fail");
+
+        assert_eq!(err.kind_id(), "missing_required_authored_key");
+        assert!(err.contains("field 'consent_glutes_field' is missing required key `label`"));
+        assert_eq!(err.source.as_ref().map(|source| source.line), Some(2));
+        assert_eq!(
+            err.source
+                .as_ref()
+                .and_then(|source| source.quoted_line.as_deref()),
+            Some("- id: consent_glutes_field")
+        );
+    }
+
+    #[test]
+    fn parser_rejects_inline_map_where_field_label_expects_string() {
+        let yaml = concat!(
+            "fields:\n",
+            "  - id: pt_info\n",
+            "    label: {pt_pronouns}\n",
+            "    contains:\n",
+            "      - list: pt_pronouns\n",
+        );
+        let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
+            .expect_err("inline map field label should fail");
+
+        assert_eq!(err.kind_id(), "invalid_authored_value_type");
+        assert!(err.contains("field 'pt_info' expects a string"));
+        assert!(err.contains("`label` was written as map"));
+        assert_eq!(err.source.as_ref().map(|source| source.line), Some(3));
+        assert_eq!(
+            err.source
+                .as_ref()
+                .and_then(|source| source.quoted_line.as_deref()),
+            Some("label: {pt_pronouns}")
+        );
+    }
+
+    #[test]
+    fn parser_rejects_unclosed_quoted_yaml_value() {
+        let yaml = concat!(
+            "fields:\n",
+            "  - id: consent_glutes_field\n",
+            "    label: \"Consent Glutes\n",
+        );
+        let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
+            .expect_err("unterminated quoted scalar should fail");
+
+        assert_eq!(err.kind_id(), "yaml_unclosed_structure");
+        assert!(err.contains("quoted value starts with `\"` but never closes with `\"`"));
+        assert_eq!(err.source.as_ref().map(|source| source.line), Some(3));
+        assert_eq!(
+            err.source
+                .as_ref()
+                .and_then(|source| source.quoted_line.as_deref()),
+            Some("label: \"Consent Glutes")
+        );
+    }
+
+    #[test]
+    fn parser_rejects_indented_top_level_key() {
+        let yaml = concat!(
+            "sections:\n",
+            "  - id: s\n",
+            "    label: S\n",
+            " boilerplates:\n",
+            "  - id: b\n",
+            "    text: hi\n",
+        );
+        let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
+            .expect_err("indented top-level key should fail");
+
+        assert_eq!(err.kind_id(), "yaml_indented_top_level_key");
+        assert!(err.contains("`boilerplates:`"));
     }
 
     #[test]
@@ -4077,7 +5106,7 @@ mod tests {
             .children
             .iter()
             .flat_map(|group| group.children.iter())
-            .map(|node| node.config())
+            .filter_map(|node| node.as_config())
             .find(|section| section.id == "s")
             .expect("section exists");
         let item = section.lists[0]
@@ -4110,7 +5139,7 @@ mod tests {
             .children
             .iter()
             .flat_map(|group| group.children.iter())
-            .map(|node| node.config())
+            .filter_map(|node| node.as_config())
             .find(|section| section.id == "tx_regions")
             .expect("collection exists");
         let list_ids: Vec<&str> = collection
@@ -4300,10 +5329,6 @@ mod tests {
             assert_eq!(
                 runtime_group.note.note_label.as_deref(),
                 expected_note_label.as_deref()
-            );
-            assert_eq!(
-                runtime_group.note.boilerplate_refs,
-                authored_group.boilerplate_refs
             );
         }
     }

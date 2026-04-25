@@ -107,8 +107,9 @@ sections:
 - (later): `free_text` sections (empty `contains`) have no input mechanism - you can navigate
   to them but there is no way to actually enter text. Needs a text entry UI to be useful.
 - unknown keys on authored blocks now hard-error during parse (for example `body: checklist`
-  on a section). This currently uses serde's generic unknown-field message; richer author-facing
-  diagnostics still belong to `#24` / `#44`.
+  on a section). Common authoring mistakes now route through bespoke diagnostics, including
+  unsupported authored keys, missing required keys, template-root mistakes, format placeholder
+  mismatches, field cycles, and `assigns:` teaching messages.
 - (next/#47): in `fields + lists` sections, lists are stored in `SectionConfig.lists` but the
   `multi_field` renderer ignores them - they are silently dropped from the output. Intended
   behaviour needs to be defined and implemented.

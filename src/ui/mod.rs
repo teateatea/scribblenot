@@ -1356,7 +1356,7 @@ fn panel_status_text(app: &App) -> String {
             ModalFocus::List => "list",
         };
         return format!(
-            "Modal: {focus} | {} matches | Confirm commits | Left/Right browse parts | Space enters list | Ctrl+E edits entry | Esc closes",
+            "Modal: {focus} | {} matches | Confirm commits | Left/Right browse parts | Space enters list | Double-space from search enters list | Ctrl+E edits entry | Esc closes",
             modal.filtered.len()
         );
     }
@@ -1376,7 +1376,7 @@ fn map_status_text(app: &App) -> String {
     if !app.hint_buffer.is_empty() {
         parts.push(format!("Hint: {}", app.hint_buffer));
     }
-    parts.push("Select enters section | Esc returns".to_string());
+    parts.push("Select/Confirm enters section | Esc returns".to_string());
     parts.join(" | ")
 }
 
@@ -1402,7 +1402,7 @@ fn wizard_status_text(app: &App) -> String {
                     ));
                 }
             }
-            parts.push("Select opens choices".to_string());
+            parts.push("Select/Confirm opens choices".to_string());
         }
         Some(SectionState::FreeText(state)) => {
             let mode = match state.mode {
@@ -3292,6 +3292,19 @@ enum ErrorModalFixSnippetAccent {
     Suggested,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ErrorModalCodeFence {
+    language: Option<String>,
+    code: String,
+    consumed_lines: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ErrorModalYamlPropertyTone {
+    Required,
+    Optional,
+}
+
 fn error_modal_styled_spans(
     segments: &[crate::diagnostics::RenderedTextSegment],
     base_color: Color,
@@ -3513,9 +3526,12 @@ fn error_modal_fix_block<'a>(
             .into(),
     ];
 
-    for line in fix_lines {
+    let mut idx = 0usize;
+    while idx < fix_lines.len() {
+        let line = &fix_lines[idx];
         if line.is_empty() {
             items.push(Space::with_height(Length::Fixed(6.0)).into());
+            idx += 1;
             continue;
         }
 
@@ -3523,6 +3539,13 @@ fn error_modal_fix_block<'a>(
         let trimmed = line_text.trim();
         if trimmed.is_empty() {
             items.push(Space::with_height(Length::Fixed(6.0)).into());
+            idx += 1;
+            continue;
+        }
+
+        if let Some(fence) = parse_error_modal_code_fence(&fix_lines, idx) {
+            items.push(error_modal_fenced_code_block(app, &fence));
+            idx += fence.consumed_lines;
             continue;
         }
 
@@ -3533,11 +3556,13 @@ fn error_modal_fix_block<'a>(
                     .color(app.ui_theme.muted)
                     .into(),
             );
+            idx += 1;
             continue;
         }
 
         if let Some(snippet) = parse_error_modal_fix_snippet(&line_text) {
             items.push(error_modal_fix_snippet_row(app, &snippet));
+            idx += 1;
             continue;
         }
 
@@ -3559,9 +3584,91 @@ fn error_modal_fix_block<'a>(
                 .width(Length::Fill)
                 .into(),
         );
+        idx += 1;
     }
 
     column(items).spacing(8).into()
+}
+
+fn error_modal_fenced_code_block<'a>(
+    app: &'a App,
+    fence: &ErrorModalCodeFence,
+) -> Element<'a, Message> {
+    let mut items: Vec<Element<'a, Message>> = Vec::new();
+
+    if let Some(language) = &fence.language {
+        items.push(
+            text(language.clone())
+                .font(app.ui_theme.font_status)
+                .size(14)
+                .color(app.ui_theme.muted)
+                .into(),
+        );
+    }
+
+    let required_keys = yaml_required_keys_for_code_block(&fence.code);
+    let code_lines = fence
+        .code
+        .lines()
+        .map(|line| error_modal_fenced_code_line(app, line, required_keys))
+        .collect::<Vec<_>>();
+
+    items.push(
+        container(column(code_lines).spacing(4))
+            .padding([8.0, 12.0])
+            .width(Length::Fill)
+            .style(move |_| {
+                background_style(
+                    app.ui_theme.modal_input_background,
+                    app.ui_theme.modal_input_border,
+                )
+            })
+            .into(),
+    );
+
+    column(items).spacing(4).into()
+}
+
+fn error_modal_fenced_code_line<'a>(
+    app: &'a App,
+    line: &str,
+    required_keys: &[&str],
+) -> Element<'a, Message> {
+    if line.is_empty() {
+        return Space::with_height(Length::Fixed(8.0)).into();
+    }
+
+    let Some((prefix, key, suffix)) = split_yaml_property_segments(line) else {
+        return text(line.to_string())
+            .font(app.ui_theme.font_modal)
+            .size(16)
+            .color(app.ui_theme.text)
+            .width(Length::Fill)
+            .into();
+    };
+
+    let key_color = match yaml_property_tone(key, required_keys) {
+        ErrorModalYamlPropertyTone::Required => app.ui_theme.selected,
+        ErrorModalYamlPropertyTone::Optional => app.ui_theme.active,
+    };
+
+    row![
+        text(prefix.to_string())
+            .font(app.ui_theme.font_modal)
+            .size(16)
+            .color(app.ui_theme.text),
+        text(format!("{key}:"))
+            .font(app.ui_theme.font_modal)
+            .size(16)
+            .color(key_color),
+        text(suffix.to_string())
+            .font(app.ui_theme.font_modal)
+            .size(16)
+            .color(app.ui_theme.muted),
+    ]
+    .spacing(0)
+    .width(Length::Fill)
+    .into()
 }
 
 fn error_modal_fix_snippet_row<'a>(
@@ -3639,6 +3746,71 @@ fn flatten_rendered_text_segments(segments: &[crate::diagnostics::RenderedTextSe
         .iter()
         .map(|segment| segment.text.as_str())
         .collect()
+}
+
+fn parse_error_modal_code_fence(
+    lines: &[Vec<crate::diagnostics::RenderedTextSegment>],
+    start_idx: usize,
+) -> Option<ErrorModalCodeFence> {
+    let opening = flatten_rendered_text_segments(lines.get(start_idx)?);
+    let opening = opening.trim();
+    let language = opening.strip_prefix("```")?;
+    let language = if language.trim().is_empty() {
+        None
+    } else {
+        Some(language.trim().to_string())
+    };
+
+    let mut code_lines = Vec::new();
+    for idx in start_idx + 1..lines.len() {
+        let line = flatten_rendered_text_segments(&lines[idx]);
+        if line.trim() == "```" {
+            return Some(ErrorModalCodeFence {
+                language,
+                code: code_lines.join("\n"),
+                consumed_lines: idx - start_idx + 1,
+            });
+        }
+        code_lines.push(line);
+    }
+
+    None
+}
+
+fn yaml_required_keys_for_code_block(code: &str) -> &'static [&'static str] {
+    let Some(first_line) = code.lines().find(|line| !line.trim().is_empty()) else {
+        return &[];
+    };
+
+    match first_line.trim().strip_suffix(':') {
+        Some("fields") => &["id", "label"],
+        Some("groups" | "sections" | "collections" | "lists") => &["id"],
+        _ => &[],
+    }
+}
+
+fn split_yaml_property_segments(line: &str) -> Option<(&str, &str, &str)> {
+    let trimmed = line.trim_start();
+    let indent_len = line.len().saturating_sub(trimmed.len());
+
+    let (prefix, remainder) = if let Some(rest) = trimmed.strip_prefix("- ") {
+        (&line[..indent_len + 2], rest)
+    } else {
+        (&line[..indent_len], trimmed)
+    };
+
+    let colon_idx = remainder.find(':')?;
+    let key = &remainder[..colon_idx];
+    let suffix = &remainder[colon_idx + 1..];
+    Some((prefix, key, suffix))
+}
+
+fn yaml_property_tone(key: &str, required_keys: &[&str]) -> ErrorModalYamlPropertyTone {
+    if required_keys.contains(&key) {
+        ErrorModalYamlPropertyTone::Required
+    } else {
+        ErrorModalYamlPropertyTone::Optional
+    }
 }
 
 fn parse_error_modal_fix_snippet(line: &str) -> Option<ErrorModalFixSnippet> {
@@ -3796,10 +3968,12 @@ mod tests {
         build_modal_open_rendered_unit, build_rendered_modal_unit, collection_preview_card_height,
         collection_preview_metrics, collection_preview_strip_layout, default_stub_mode,
         entry_composition_panel_width, error_modal_styled_spans, modal_close_shift,
-        modal_open_shift, modal_unit_runway_layout, parse_error_modal_fix_snippet,
-        retained_close_root_width, retained_modal_close_transition, should_render_modal_overlay,
-        simple_modal_unit_root_width, split_rendered_text_lines, transition_unit_display_width,
-        ErrorModalFixSnippet, ErrorModalFixSnippetAccent, ModalUnitCardKind, ModalUnitSide,
+        modal_open_shift, modal_unit_runway_layout, parse_error_modal_code_fence,
+        parse_error_modal_fix_snippet, retained_close_root_width, retained_modal_close_transition,
+        should_render_modal_overlay, simple_modal_unit_root_width, split_rendered_text_lines,
+        split_yaml_property_segments, transition_unit_display_width, yaml_property_tone,
+        yaml_required_keys_for_code_block, ErrorModalCodeFence, ErrorModalFixSnippet,
+        ErrorModalFixSnippetAccent, ErrorModalYamlPropertyTone, ModalUnitCardKind, ModalUnitSide,
         COLLECTION_STREAM_SPACING,
     };
     use crate::app::{
@@ -3863,6 +4037,60 @@ mod tests {
                 && span.color == Some(base)
                 && span.highlight.is_some()
         }));
+    }
+
+    #[test]
+    fn parse_error_modal_code_fence_collects_language_and_body() {
+        let lines = split_rendered_text_lines(&[crate::diagnostics::RenderedTextSegment {
+            text: "```yaml\nfields:\n  - id: consent_pecs_field\n```\ntrailing".to_string(),
+            is_param: false,
+        }]);
+
+        let fence =
+            parse_error_modal_code_fence(&lines, 0).expect("fenced code block should parse");
+
+        assert_eq!(
+            fence,
+            ErrorModalCodeFence {
+                language: Some("yaml".to_string()),
+                code: "fields:\n  - id: consent_pecs_field".to_string(),
+                consumed_lines: 4,
+            }
+        );
+    }
+
+    #[test]
+    fn split_yaml_property_segments_preserves_indent_and_value() {
+        assert_eq!(
+            split_yaml_property_segments("  - id: consent_pecs_field"),
+            Some(("  - ", "id", " consent_pecs_field"))
+        );
+        assert_eq!(
+            split_yaml_property_segments("    preview: \"[Preview]\""),
+            Some(("    ", "preview", " \"[Preview]\""))
+        );
+        assert_eq!(split_yaml_property_segments("not yaml"), None);
+    }
+
+    #[test]
+    fn yaml_property_tone_marks_required_and_optional_keys() {
+        let required = yaml_required_keys_for_code_block(
+            "fields:\n  - id: consent_pecs_field\n    label: \"Field Label\"",
+        );
+
+        assert_eq!(required, &["id", "label"]);
+        assert_eq!(
+            yaml_property_tone("id", required),
+            ErrorModalYamlPropertyTone::Required
+        );
+        assert_eq!(
+            yaml_property_tone("label", required),
+            ErrorModalYamlPropertyTone::Required
+        );
+        assert_eq!(
+            yaml_property_tone("preview", required),
+            ErrorModalYamlPropertyTone::Optional
+        );
     }
 
     #[test]

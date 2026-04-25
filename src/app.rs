@@ -357,6 +357,7 @@ pub fn match_binding_str(binding: &str, key: &AppKey) -> bool {
         "esc" => matches!(key, AppKey::Esc),
         "space" => matches!(key, AppKey::Space),
         "backspace" => matches!(key, AppKey::Backspace),
+        "tab" => matches!(key, AppKey::Tab),
         "shift+enter" => matches!(key, AppKey::ShiftEnter),
         s if s
             .strip_prefix("ctrl+")
@@ -1177,6 +1178,14 @@ impl App {
         self.matches_key(key, &self.data.keybindings.confirm)
     }
 
+    fn is_text_entry_printable_key(key: &AppKey) -> bool {
+        matches!(key, AppKey::Char(_) | AppKey::Space)
+    }
+
+    fn is_search_bar_confirm(&self, key: &AppKey) -> bool {
+        self.is_confirm(key) && !Self::is_text_entry_printable_key(key)
+    }
+
     fn is_add_entry(&self, key: &AppKey) -> bool {
         self.matches_key(key, &self.data.keybindings.add_entry)
     }
@@ -1312,7 +1321,7 @@ impl App {
             }
             return;
         }
-        if self.is_select(&key) {
+        if self.is_select(&key) || self.is_confirm(&key) {
             self.hint_buffer.clear();
             self.current_idx = self.map_cursor;
             self.map_return_idx = None;
@@ -1366,7 +1375,8 @@ impl App {
             .children
             .iter()
             .flat_map(|group| group.children.iter())
-            .find_map(|node| (node.config().id == node_id).then_some(node.config()))
+            .filter_map(|node| node.as_config())
+            .find(|config| config.id == node_id)
     }
 
     pub fn config_for_index(&self, flat_idx: usize) -> Option<&SectionConfig> {
@@ -2226,7 +2236,7 @@ impl App {
             return;
         }
 
-        if self.is_select(&key) || self.is_nav_right(&key) {
+        if self.is_select(&key) || self.is_confirm(&key) || self.is_nav_right(&key) {
             self.open_header_modal();
         }
     }
@@ -2357,7 +2367,7 @@ impl App {
                     return;
                 }
 
-                if self.is_confirm(&key) {
+                if self.is_search_bar_confirm(&key) {
                     if self
                         .modal
                         .as_ref()
@@ -2408,6 +2418,21 @@ impl App {
                         .modal
                         .as_ref()
                         .is_some_and(|modal| modal.query.is_empty())
+                    {
+                        if self
+                            .modal
+                            .as_ref()
+                            .is_some_and(|modal| !modal.filtered.is_empty())
+                        {
+                            self.modal.as_mut().unwrap().focus = ModalFocus::List;
+                        }
+                        return;
+                    }
+
+                    if self
+                        .modal
+                        .as_ref()
+                        .is_some_and(|modal| modal.query.ends_with(' '))
                     {
                         if self
                             .modal
@@ -3899,24 +3924,32 @@ pub fn compute_field_composition_spans(
             if let Some(i) = flow.lists.iter().position(|list| list.id == id) {
                 if i < flow.values.len() {
                     spans.push(FieldCompositionSpan {
-                        text: flow.values[i].clone(),
+                        text: substitute_format_lists(
+                            flow.values[i].clone(),
+                            &flow.format_lists,
+                            lookup,
+                        ),
                         kind: FieldCompositionSpanKind::Confirmed,
                     });
                 } else if i == flow.list_idx && !flow.repeat_values.is_empty() {
                     spans.push(FieldCompositionSpan {
-                        text: joined_repeating_value(&flow.lists[i], &flow.repeat_values)
-                            .unwrap_or_else(|| flow.repeat_values.join(", ")),
+                        text: substitute_format_lists(
+                            joined_repeating_value(&flow.lists[i], &flow.repeat_values)
+                                .unwrap_or_else(|| flow.repeat_values.join(", ")),
+                            &flow.format_lists,
+                            lookup,
+                        ),
                         kind: FieldCompositionSpanKind::Confirmed,
                     });
                 } else if i == flow.list_idx {
                     if let Some(value) = active_value.clone().filter(|value| !value.is_empty()) {
                         spans.push(FieldCompositionSpan {
-                            text: value,
+                            text: substitute_format_lists(value, &flow.format_lists, lookup),
                             kind: FieldCompositionSpanKind::Active,
                         });
                     } else if let Some(value) = fallback_list_value(&flow.lists[i], lookup) {
                         spans.push(FieldCompositionSpan {
-                            text: value,
+                            text: substitute_format_lists(value, &flow.format_lists, lookup),
                             kind: FieldCompositionSpanKind::Preview,
                         });
                     } else {
@@ -3928,7 +3961,7 @@ pub fn compute_field_composition_spans(
                     }
                 } else if let Some(value) = fallback_list_value(&flow.lists[i], lookup) {
                     spans.push(FieldCompositionSpan {
-                        text: value,
+                        text: substitute_format_lists(value, &flow.format_lists, lookup),
                         kind: FieldCompositionSpanKind::Preview,
                     });
                 } else {
@@ -4031,6 +4064,21 @@ fn fallback_list_value(
     lookup: ListValueLookup<'_>,
 ) -> Option<String> {
     lookup.fallback_value(list)
+}
+
+fn substitute_format_lists(
+    mut text: String,
+    format_lists: &[crate::data::HierarchyList],
+    lookup: ListValueLookup<'_>,
+) -> String {
+    for list in format_lists {
+        let placeholder = format!("{{{}}}", list.id);
+        if text.contains(&placeholder) {
+            let value = lookup.fallback_value(list).unwrap_or_default();
+            text = text.replace(&placeholder, &value);
+        }
+    }
+    text
 }
 
 fn find_line_containing(text: &str, needle: &str) -> Option<u16> {
@@ -5832,6 +5880,57 @@ mod composition_span_tests {
         let modal = app.modal.as_ref().expect("modal should remain open");
         assert_eq!(modal.focus, ModalFocus::SearchBar);
         assert_eq!(modal.query, "h ");
+    }
+
+    #[test]
+    fn modal_search_double_space_after_typing_enters_list() {
+        let mut app = app_with_single_field(list_field(ModalStart::Search));
+        app.open_header_modal();
+
+        app.handle_key(AppKey::Char('h'));
+        app.handle_key(AppKey::Space);
+        app.handle_key(AppKey::Space);
+
+        let modal = app.modal.as_ref().expect("modal should remain open");
+        assert_eq!(modal.focus, ModalFocus::List);
+        assert_eq!(modal.query, "h ");
+    }
+
+    #[test]
+    fn modal_search_treats_character_confirm_binding_as_text_input() {
+        let mut app = app_with_single_field(list_field(ModalStart::Search));
+        app.data.keybindings.confirm = vec!["d".to_string()];
+        app.open_header_modal();
+
+        app.handle_key(AppKey::Char('d'));
+
+        let modal = app.modal.as_ref().expect("modal should remain open");
+        assert_eq!(modal.focus, ModalFocus::SearchBar);
+        assert_eq!(modal.query, "d");
+    }
+
+    #[test]
+    fn map_confirm_binding_enters_section_like_select() {
+        let mut app = app_with_free_text_sections(vec![free_text_section("first", "First", "group_a")]);
+        app.focus = Focus::Map;
+        app.current_idx = 0;
+        app.map_cursor = 0;
+        app.data.keybindings.confirm = vec!["d".to_string()];
+
+        app.handle_key(AppKey::Char('d'));
+
+        assert_eq!(app.focus, Focus::Wizard);
+        assert_eq!(app.current_idx, 0);
+    }
+
+    #[test]
+    fn header_confirm_binding_opens_choices_like_select() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+        app.data.keybindings.confirm = vec!["d".to_string()];
+
+        app.handle_key(AppKey::Char('d'));
+
+        assert!(app.modal.is_some(), "confirm binding should open header modal");
     }
 
     #[test]
