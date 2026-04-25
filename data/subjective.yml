@@ -3,7 +3,7 @@ sections:
     label: "Subjective"
     nav_label: "Symptoms"
     show_field_labels: false
-    hotkey: z
+  #  hotkey: z
     contains:
       - field: sumuscle_field
     note:
@@ -12,7 +12,7 @@ sections:
 fields:
   - id: sumuscle_field
     label: "Signs / Symptoms"
-    format: "{year}-{month}-{day}: {place}{region}: {patientdescribes} {subjective_tag}{starting_since}{starting_frequency}{duration_unit}{pluralizer}{starting_ago}."
+    format: "{year}-{month}-{day}: {place}{region}: {patientdescribes} {subjective_tag}{starting_since}{starting_frequency}{duration_unit}." # {pluralizer}{starting_ago}."
     max_entries: 12
     contains:
       - { list: place }
@@ -86,7 +86,8 @@ lists:
         output: "Paraspinal Muscles"
       ## ARMS REGION
       - "Lateral Thoracic"
-      - "Wrist"
+      - label: "Wrist"
+        output: "Wrist"
       - "Elbow"
       - label: "1 Arm"
         output: "Arm"
@@ -167,26 +168,31 @@ lists:
         output: "Feet (Soles)"
 
   - id: patientdescribes
-    label: "Patient describes"
+    label: "Patient [DESCRIBES]"
     default: pt_describes
     items:
       - id: pt_describes
-        label: "Pt describes DD"
+        label: "describes"
         output: "Pt describes"
-      - label: "Pt describes continued DC"
+      - label: "describes continued"
         output: "Pt describes continued"
-      - label: "Pt describes intermittent DI"
+      - label: "describes intermittent"
         output: "Pt describes intermittent"
-      - label: "Pt describes ongoing DO"
+      - label: "describes ongoing"
         output: "Pt describes ongoing"
-      - label: "Pt reports RR"
+      - label: "reports"
         output: "Pt reports"
-      - label: "Pt reports continued RC"
+      - label: "reports continued"
         output: "Pt reports continued"
-      - label: "Pt reports intermittent II"
+      - label: "reports intermittent"
         output: "Pt reports intermittent"
-      - label: "Pt reports ongoing RO"
+      - label: "reports ongoing"
         output: "Pt reports ongoing"
+      - label: "enjoys" # probably should break this out for just exercise?
+        output: "Pt enjoys"
+      - label: "previously enjoyed"
+        output: "Pt previously enjoyed"
+        
 
  # -------------------
   - id: subjective_tag
@@ -261,23 +267,25 @@ lists:
   - id: starting_since
     label: "(starting"
     default: empty_space
-    modal_start: search
-    preview: " (starting"
+    modal_start: list
+    preview: " (starting)"
    # joiner_style: comma
    # max_entries: 3
     items:
       - id: empty_space
-        label: "1 (Empty Space)"
+        label: "(empty)"
         output: ""
         assigns:
           - list: starting_ago
-            item: empty_space
+            item: ago
       - id: in_the_past
         label: "in the past"
         output: ", in the past"
         assigns:
           - list: starting_ago
             item: empty_space
+       # fields:
+       #   - appointment_date_field
       - id: starting
         label: "starting"
         output: ", starting"
@@ -302,133 +310,160 @@ lists:
         assigns:
           - list: starting_ago
             item: empty_space
+      - id: for
+        label: "for"
+        output: ", for"
+        assigns:
+          - list: starting_ago
+            item: empty_space
+      - id: for_over
+        label: "for over"
+        output: ", for over"
+        assigns:
+          - list: starting_ago
+            item: empty_space
       - id: progressing_over_the_past
         label: "progressing over the past"
         output: ", progressing over the past"
         assigns:
           - list: starting_ago
             item: empty_space
-      - id: since_his_last_appointment
-        label: "since his last appointment"
-        output: ", since his last appointment"
-        assigns:
-          - list: starting_ago
-            item: empty_space
-      - id: since_her_last_appointment
-        label: "since her last appointment"
-        output: ", since her last appointment"
-        assigns:
-          - list: starting_ago
-            item: empty_space
+   #   - id: since_his_last_appointment
+   #     label: "since his last appointment"
+   #     output: ", since his last appointment"
+   #     assigns:
+   #       - list: starting_ago
+   #         item: empty_space
+   #   - id: since_her_last_appointment
+   #     label: "since her last appointment"
+   #     output: ", since her last appointment"
+   #     assigns:
+   #       - list: starting_ago
+   #         item: empty_space
       - id: since_their_last_appointment
-        label: "since their last appointment"
-        output: ", since their last appointment"
+        label: "since {pos_pronoun} last appointment"
+        output: ", since {pos_pronoun} last appointment"
         assigns:
           - list: starting_ago
             item: empty_space
-      - id: since_his_injury
-        label: "since his injury"
-        output: ", since his injury"
-        assigns:
-          - list: starting_ago
-            item: empty_space
-      - id: since_her_injury
-        label: "since her injury"
-        output: ", since her injury"
-        assigns:
-          - list: starting_ago
-            item: empty_space
-      - id: since_their_injury
-        label: "since their injury"
-        output: ", since their injury"
-        assigns:
-          - list: starting_ago
-            item: empty_space
-      - id: since_his_surgery
-        label: "since his surgery"
-        output: ", since his surgery"
-        assigns:
-          - list: starting_ago
-            item: empty_space
-      - id: since_her_surgery
-        label: "since her surgery"
-        output: ", since her surgery"
-        assigns:
-          - list: starting_ago
-            item: empty_space
-      - id: since_their_surgery
-        label: "since their surgery"
-        output: ", since their surgery"
-        assigns:
-          - list: starting_ago
-            item: empty_space
-      # - ago -
-      - id: since_last_appointment_his_ago
-        label: "since his last appointment ... ago"
-        output: ", since his last appointment"
-        assigns:
-          - list: starting_ago
-            item: ago
-      - id: since_her_last_appointment_ago
-        label: "since her last appointment ... ago"
-        output: ", since her last appointment"
-        assigns:
-          - list: starting_ago
-            item: ago
       - id: since_their_last_appointment_ago
-        label: "since their last appointment ... ago"
-        output: ", since their last appointment"
+        label: "since {pos_pronoun} last appointment ... ago"
+        output: ", since {pos_pronoun} last appointment"
         assigns:
           - list: starting_ago
             item: ago
-      - id: since_his_injury_ago
-        label: "since his injury ... ago"
-        output: ", since his injury"
+    #  - id: since_his_injury
+    #    label: "since his injury"
+    #    output: ", since his injury"
+    #    assigns:
+    #      - list: starting_ago
+    #        item: empty_space
+    #  - id: since_her_injury
+    #    label: "since her injury"
+    #    output: ", since her injury"
+    #    assigns:
+    #      - list: starting_ago
+    #        item: empty_space
+      - id: since_their_injury
+        label: "since {pos_pronoun} injury"
+        output: ", since {pos_pronoun} injury"
         assigns:
           - list: starting_ago
-            item: ago
-      - id: since_her_injury_ago
-        label: "since her injury ... ago"
-        output: ", since her injury"
-        assigns:
-          - list: starting_ago
-            item: ago
+            item: empty_space
       - id: since_their_injury_ago
-        label: "since their injury ... ago"
-        output: ", since their injury"
+        label: "since {pos_pronoun} injury ... ago"
+        output: ", since {pos_pronoun} injury"
         assigns:
           - list: starting_ago
             item: ago
-      - id: since_his_surgery_ago
-        label: "since his surgery ... ago"
-        output: ", since his surgery"
+    #  - id: since_his_surgery
+    #    label: "since his surgery"
+    #    output: ", since his surgery"
+    #    assigns:
+    #      - list: starting_ago
+    #        item: empty_space
+    #  - id: since_her_surgery
+    #    label: "since her surgery"
+    #    output: ", since her surgery"
+    #    assigns:
+    #      - list: starting_ago
+    #        item: empty_space
+      - id: since_their_surgery
+        label: "since {pos_pronoun} surgery"
+        output: ", since {pos_pronoun} surgery"
         assigns:
           - list: starting_ago
-            item: ago
-      - id: since_her_surgery_ago
-        label: "since her surgery ... ago"
-        output: ", since her surgery"
-        assigns:
-          - list: starting_ago
-            item: ago
+            item: empty_space
       - id: since_their_surgery_ago
-        label: "since their surgery ... ago"
-        output: ", since their surgery"
+        label: "since {pos_pronoun} surgery ... ago"
+        output: ", since {pos_pronoun} surgery"
         assigns:
           - list: starting_ago
             item: ago
+      # - ago -
+  #    - id: since_last_appointment_his_ago
+  #      label: "since his last appointment ... ago"
+  #      output: ", since his last appointment"
+  #      assigns:
+  #        - list: starting_ago
+  #          item: ago
+  #    - id: since_her_last_appointment_ago
+  #      label: "since her last appointment ... ago"
+  #      output: ", since her last appointment"
+  #      assigns:
+  #        - list: starting_ago
+  #          item: ago
+
+   #   - id: since_his_injury_ago
+   #     label: "since his injury ... ago"
+   #     output: ", since his injury"
+   #     assigns:
+   #       - list: starting_ago
+   #         item: ago
+   #   - id: since_her_injury_ago
+   #     label: "since her injury ... ago"
+   #     output: ", since her injury"
+   #     assigns:
+   #       - list: starting_ago
+   #         item: ago
+
+   #   - id: since_his_surgery_ago
+   #     label: "since his surgery ... ago"
+   #     output: ", since his surgery"
+   #     assigns:
+   #       - list: starting_ago
+   #         item: ago
+   #   - id: since_her_surgery_ago
+   #     label: "since her surgery ... ago"
+   #     output: ", since her surgery"
+   #     assigns:
+   #       - list: starting_ago
+   #         item: ago
+
 
   - id: starting_frequency
     label: "[#]"
     default: empty_space
-    modal_start: search
-    preview: " [#]"
+    modal_start: list
+    preview: ""
    # joiner_style: comma
    # max_entries: 3
     items:
       - id: empty_space
         label: "(Empty Space)"
         output: ""
+        assigns:
+          - list: pluralizer
+            item: singular
+      - id: freq_this
+        label: "1"
+        output: " this"
+        assigns:
+          - list: pluralizer
+            item: singular
+      - id: freq_last
+        label: "1"
+        output: " last"
         assigns:
           - list: pluralizer
             item: singular
@@ -536,28 +571,28 @@ lists:
             item: plural
       
   - id: duration_unit
-    label: "[unit]"
+    label: "[unit])"
     default: empty_space
-    modal_start: search
-    preview: " [unit]"
+    modal_start: list
+    preview: ""
    # joiner_style: comma
    # max_entries: 3
     items:
       - id: empty_space
-        label: "1 (Empty Space)"
+        label: "(empty)"
         output: ""
       - id: day
-        label: "day{pluralizer}"
-        output: " day"
+        label: "day{pluralizer}{starting_ago}"
+        output: " day{pluralizer}{starting_ago}"
       - id: week
-        label: "week{pluralizer}"
-        output: " week"
+        label: "week{pluralizer}{starting_ago}"
+        output: " week{pluralizer}{starting_ago}"
       - id: month
-        label: "month{pluralizer}"
-        output: " month"
+        label: "month{pluralizer}{starting_ago}"
+        output: " month{pluralizer}{starting_ago}"
       - id: year
-        label: "year{pluralizer}"
-        output: " year"
+        label: "year{pluralizer}{starting_ago}"
+        output: " year{pluralizer}{starting_ago}"
       - id: today
         label: "today"
         output: " today"

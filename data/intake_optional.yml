@@ -1,0 +1,311 @@
+sections:
+  - id: intake_optional
+    label: ""
+    nav_label: "Intake"
+    # hotkey: d
+    show_field_labels: false
+    contains:
+      - field: int_exha_field
+      - field: int_adl_field
+      - field: int_specialist_field
+
+
+fields:
+  - id: pt_info
+    label: "Pronouns: {pt_pronouns}"
+    format: ""
+    contains:
+      - list: pt_pronouns
+  - id: int_adl_field
+    label: "Activities of Daily Living"
+    format: "{int_adl_list}"
+   # max_entries: 3
+   # joiner_style: newline
+    contains:
+      - list: int_adl_list
+      
+  - id: int_exha_field
+    label: "Exercise Habits"
+    format: "{year}-{month}-{day}: {patientdescribes} {int_exha_list}{starting_since}{starting_frequency}{duration_unit}." # {pluralizer}{starting_ago}."
+    max_entries: 12
+   # joiner_style: newline
+    contains:
+      - list: patientdescribes
+      - list: int_exha_list
+      - list: starting_since
+      - list: starting_frequency
+      - list: duration_unit
+      
+  - id: int_specialist_field
+    label: "Specialists & Treatment"
+    format: "{year}-{month}-{day}: {practioner_start} {int_practioner_list}{starting_since}{starting_frequency}{duration_unit}." # {pluralizer}{starting_ago}."
+    max_entries: 12
+   # joiner_style: newline
+    contains:
+      - list: practioner_start
+      - list: int_practioner_list
+      - list: starting_since
+      - list: starting_frequency
+      - list: duration_unit
+
+lists:
+  - id: int_exha_list
+    label: "[ACTIVITY]"
+    preview: "[ACTIVITY]"
+    max_entries: 1
+    joiner_style: comma_and
+    modal_start: list
+    items:
+      - id: exha_1
+        output: "training"
+      - id: exha_2
+        output: "walking"
+      - id: exha_3
+        output: "exercising"
+      - id: exha_4
+        output: "exercising regularly each week,"
+      - id: exha_5
+        output: "close adherence to assigned rehab exercises,"
+      - id: exha_6
+        output: "reasonable adherence to assigned rehab exercises,"
+      - id: exha_7
+        output: "poor adherence to assigned exercises,"
+      - id: exha_8
+        output: "a physically demanding work day"
+      - id: exha_9
+        output: "physical work that demands most or all of the Pt's daily energy"
+      - id: exha_10
+        output: "irregular exercise habits,"
+      - id: exha_11
+        output: "a return to previously assigned rehab exercises"
+      - id: exha_12
+        output: "reduced activity"
+      - id: exha_13
+        output: "resting without exercise"
+      - id: exha_14
+        output: "great interest in exercising more"
+      - id: exha_15
+        output: "interest in exercising more"
+      - id: exha_16
+        output: "low interest in exercising more"
+      - id: exha_17
+        output: "yoga"
+      - id: exha_18
+        output: "working out (cardio)"
+        
+        
+  - id: int_adl_list
+    max_entries: 3
+    joiner_style: newline
+    items:
+      - id: adl_1
+        output: "first activity"
+      - id: adl_2
+        output: "second activity"
+
+
+  - id: pt_pronouns
+    label: "Patient Prononuns"
+    default: they_them
+    items:
+      - id: they_them
+        label: "they/them"
+        output: "they/them"
+        assigns:
+          - list: obj_pronoun
+            item: obj_them
+          - list: sub_pronoun
+            item: sub_they
+          - list: pos_pronoun
+            item: pos_their
+          - list: pecs_detail
+            item: pecs_male
+      - id: he_him
+        label: "he/him"
+        output: "he/him"
+        assigns:
+          - list: obj_pronoun
+            item: obj_him
+          - list: sub_pronoun
+            item: sub_he
+          - list: pos_pronoun
+            item: pos_his
+          - list: pecs_detail
+            item: pecs_male
+      - id: she_her
+        label: "she/her"
+        output: "she/her"
+        assigns:
+          - list: obj_pronoun
+            item: obj_her
+          - list: sub_pronoun
+            item: sub_she
+          - list: pos_pronoun
+            item: pos_her
+          - list: pecs_detail
+            item: pecs_female
+            
+  - id: sub_pronoun # they_he_she
+    label: "subject Pronouns"
+    default: sub_they
+    items:
+      - id: sub_they
+        label: "they"
+        output: "they"
+      - id: sub_he
+        label: "he"
+        output: "he"
+      - id: sub_she
+        label: "she"
+        output: "she"
+        
+  - id: obj_pronoun # them_him_her
+    label: "object Pronouns"
+    default: obj_them
+    items:
+      - id: obj_them
+        label: "them"
+        output: "them"
+      - id: obj_him
+        label: "him"
+        output: "him"
+      - id: obj_her
+        label: "her"
+        output: "her"
+  - id: pos_pronoun # their_his_her
+    label: "Possessive Pronouns"
+    default: pos_their
+    items:
+      - id: pos_their
+        label: "their"
+        output: "their"
+      - id: pos_his
+        label: "his"
+        output: "his"
+      - id: pos_her
+        label: "her"
+        output: "her"
+
+  - id: int_practioner_list
+    label: "[PRACTITIONER]"
+    preview: "[PRACTITIONER]"
+   # max_entries: 1
+   # joiner_style: comma_and
+    items:
+    #  - id: pract_
+    #    label: "1 (Empty Space)"
+    #    output: ""
+      - id: pract_mvjg
+        label: "MV RMT JG Joseph Gormley massage therapy"
+        output: "massage therapy treatment with Mr. Joseph Gormley"
+      - id: pract_pt
+        label: "2 PTPT Physiotherapy treatment"
+        output: "physiotherapy treatment"
+      - id: pract_rmt
+        label: "2 MTMT Massage Therapy treatment"
+        output: "massage therapy treatment"
+      - id: pract_dc
+        label: "2 DCDC Chiropractic treatment"
+        output: "chiropractic treatment"
+      - id: pract_na
+        label: "28 NANA Naturopathic treatment"
+        output: "naturopathic treatment"
+      - id: pract_ac
+        label: "9 ACAC Acupunture treatment"
+        output: "acupuncture treatment"
+        
+      
+      # VAUGHAN PHYSIOTHERAPY CLINIC
+      - id: pract_vcyf
+        label: "VDC YF Yechiel Fine chiropractor chiropractic"
+        output: "chiropractic treatment with Dr. Yechiel Fine"
+      - id: pract_vcas
+        label: "VDC VAS Arvin Sepahdoost chiropractor chiropractic"
+        output: "chiropractic treatment with Dr. Arvin Sepahdoost"
+        
+      - id: pract_vphd
+        label: "VPT VHD Hafiz Damji physiotherapist physiotherapy"
+        output: "physiotherapy treatment with Mr. Hafiz Damji"
+      - id: pract_vpvh
+        label: "VPT VVH Victoria Haitov physiotherapist physiotherapy"
+        output: "physiotherapy treatment with Ms. Victoria Haitov"
+      - id: pract_vpds
+        label: "VPT VDS Derrick Shao physiotherapist physiotherapy"
+        output: "physiotherapy treatment with Mr. Derrick Shao"
+      - id: pract_vprs
+        label: "VPT VRS Ronnie Ronggang Shao physiotherapist physiotherapy"
+        output: "physiotherapy treatment with Mr. Ronggang Shao"
+      - id: pract_vpss
+        label: "VPT VSS Sam Salimpour physiotherapist physiotherapy"
+        output: "physiotherapy treatment with Mr. Sam Salimpour"
+      - id: pract_vpms
+        label: "VPT VMS Mitra Soltanpanahi physiotherapist physiotherapy"
+        output: "physiotherapy treatment with Ms. Seyedeh Mitra Soltanpanahi"
+      - id: pract_vpbt
+        label: "VPT VBT Basile Billy Tsakonas physiotherapist physiotherapy"
+        output: "physiotherapy treatment with Mr. Basile Tsakonas"
+      - id: pract_vpjy
+        label: "VPT VJY Jorde Yang physiotherapist physiotherapy"
+        output: "physiotherapy treatment with Mr. Jorde Yang"
+      - id: pract_vpdz
+        label: "VPT VDZ David Zhao physiotherapist physiotherapy"
+        output: "physiotherapy treatment with Mr. David Zhao"
+      
+      - id: pract_vmar
+        label: "VMT VAR Anna Rinaldo massage therapy"
+        output: "massage therapy treatment with Ms. Anna Rinaldo"
+      - id: pract_vmrh
+        label: "VMT VRJ Richard Rong Hua Jiang massage therapy"
+        output: "massage therapy treatment with Mr. Rong Hua (Richard) Jiang"
+        
+      # MYOMED CLINIC
+      - id: pract_mcec
+        label: "MDC MEC Emily Chan chiropractor chiropractic"
+        output: "chiropractic treatment with Dr. Emily Chan"
+      - id: pract_mcil
+        label: "MDC MIL Iris Lau chiropractor chiropractic"
+        output: "chiropractic treatment with Dr. Iris Lau"
+      - id: pract_mcpl
+        label: "MDC MPL Paul Lee chiropractor chiropractic"
+        output: "chiropractic treatment with Dr. Paul Lee"
+      - id: pract_mcal
+        label: "MDC MAL Andrew Li chiropractor chiropractic"
+        output: "chiropractic treatment with Dr. Andrew Li"
+        
+      - id: pract_mpac
+        label: "MPT MAC Alexander Chan physiotherapist physiotherapy"
+        output: "physiotherapy treatment with Mr. Alexander Chan"
+      - id: pract_mpjc
+        label: "MPT MJC Julien Chen physiotherapist physiotherapy"
+        output: "physiotherapy treatment with Mr. Julien Chen"
+           
+  - id: practioner_start
+    label: "Patient previously attended"
+    default: ps_8
+    modal_start: search
+    preview: " (starting)"
+   # joiner_style: comma
+   # max_entries: 3
+    items:
+      - id: ps_6
+        label: "previously attended"
+        output: "Pt previously attended"
+      - id: ps_7
+        label: "regularly attends"
+        output: "Pt regularly attends"
+      - id: ps_8
+        label: "attends"
+        output: "Pt attends"
+      - id: ps_1
+        label: "begins"
+        output: "Pt begins"
+      - id: ps_2
+        label: "begins regular"
+        output: "Pt begins regular"
+      - id: ps_3
+        label: "continues regular"
+        output: "Pt continues regular"
+      - id: ps_4
+        label: "continues"
+        output: "Pt continues"
+

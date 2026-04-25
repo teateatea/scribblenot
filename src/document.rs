@@ -59,8 +59,8 @@ pub fn editable_section_specs(template: &RuntimeTemplate) -> Vec<SectionAnchorSp
         .children
         .iter()
         .flat_map(|group| group.children.iter())
-        .map(|node| {
-            let cfg = node.config();
+        .filter_map(|node| node.as_config())
+        .map(|cfg| {
             let heading = managed_heading_for_section(cfg).filter(|heading| !heading.is_empty());
             SectionAnchorSpec {
                 section_id: cfg.id.clone(),

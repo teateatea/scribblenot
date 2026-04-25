@@ -148,33 +148,37 @@ lists:                                           # BACK PRONE
         label: "0 (Next)"
         output: ""
       - id: challenge_very_gentle
-        label: "1 Very Gentle Treatment"
+        label: "0 Very Gentle Treatment"
         output: |
-          - VERY GENTLE TREATMENT: Pt prefers a gentle treatment: Avoid all challenging techniques.
+          - VERY GENTLE TREATMENT: Avoid ALL challenging techniques.
       - id: challenge_gentle
-        label: "2 Gentle Treatment"
+        label: "1 Gentle Treatment"
         output: |
-          - GENTLE TREATMENT: Pt prefers a gentle treatment: Avoid challenging techniques.
+          - GENTLE TREATMENT: Avoid unnecessary challenging techniques.
       - id: challenge_relaxed
-        label: "3 Relaxed Treatment"
+        label: "2 Relaxed Treatment (0-1)"
         output: |
-          - RELAXED TREATMENT: Pt prefers a relaxed treatment, but may tolerate some challenge.
+          - RELAXED TREATMENT: Pt prefers limited or no challenging techniques.
       - id: challenge_comfortable
+        label: "3 Comfortable Treatment (2-3)"
+        output: |
+          - COMFORTABLE TREATMENT: Pt tolerates limited challenging techniques, when necessary for treatment goals.
+      - id: challenge_therapeutic
         label: "4 Comfortable Treatment"
         output: |
-          - COMFORTABLE TREATMENT: Pt prefers a challenge only when necessary for treatment.
+          - THERAPEUTIC TREATMENT: Pt tolerates challenging techniques, when necessary for treatment goals.
       - id: challenge_strong
         label: "5 Strong Treatment"
         output: |
-          - STRONG TREATMENT: Pt prefers a strong treatment, with some challenge expected.
+          - STRONG TREATMENT: Pt expects some challenging techniques.
       - id: challenge_challenging
         label: "7 Challenging Treatment"
         output: |
-          - CHALLENGING TREATMENT: Pt prefers a challenging treatment, with pressure that approaches discomfort.
+          - CHALLENGING TREATMENT: Pt expects challenging techniques, and tolerates discomfort.
       - id: challenge_painful
         label: "8 Painful Treatment"
         output: |
-          - CHALLENGING TREATMENT: Pt prefers a very challenging treatment, with discomfort expected.
+          - CHALLENGING TREATMENT: Pt prefers challenging techniques, with discomfort expected.
   - id: tx_mood
     label: "Mood (from you)"
     preview: "MOOD"
@@ -292,6 +296,11 @@ lists:                                           # BACK PRONE
                  - - Avoid using prone position.
                  - - Dim lighting when possible.
                  - - For today's appointment, extremely moderated pressure. ("Just saying hello to all the muscles.")
+            - id: mod_anti_chiro
+              label: "Karen - Anti-Chiro, No Head Manipulations"
+              output: |
+                 - AVOID JOINT CAVITATIONs: Patient strongly dislikes all joint cracking noise/sensation.
+                 - AVOID REPOSITIONING HEAD: Patient dislikes {pos_pronoun} head being moved. 
             - id: mod_mva_whiplash
               label: "4 MVA Whiplash (Lights)"
               output: |
@@ -447,6 +456,9 @@ lists:                                           # BACK PRONE
       - id: back_spcomp_teres
         label: "- Teres Major & Minor"
         output: "  - Teres Major & Minor"
+      - id: broad_comp_triceps
+        label: "Broad Compressions (Triceps)"
+        output: "- Broad Compressions (Triceps Brachii)"
       - id: stretch_sa
         label: "Stretch (Serratus Anterior)"
         output: "- Stretch (Serratus Anterior)"
@@ -900,10 +912,12 @@ lists:
       - id: spec_comp_subscap
         label: "Specific Compressions (Subscapularis)"
         output: "- Specific Compressions (Subscapularis)"
+        default_enabled: false
       - id: pin_active_subscap
         label: "Pin & Active Release (Subscapularis)"
         output: "- Pin & Active Release (Subscapularis)"
-        
+        default_enabled: false
+
         
 ---
 # ARMS
@@ -926,7 +940,7 @@ collections:                                     # ARMS
 
 lists:
   - id: arms_supine
-    label: "ARMS (Supine)"
+    label: "ARMS & HANDS (Supine)"
     items:
       - id: swedish
         label: "General Swedish Techniques"
@@ -979,21 +993,30 @@ lists:
       - id: picking_up_scm
         label: "Picking Up (SCM)"
         output: "- Picking Up (SCM)"
-      - id: traction_breathing
-        label: "Traction Neck & Diaphragmatic Breathing Cues"
-        output: "- Traction Neck & Diaphragmatic Breathing Cues"
+      - id: traction
+        label: "Traction Neck"
+        output: "- Traction C-Spine (up to Gr II)"
+      - id: breathing
+        label: "Diaphragmatic Breathing Cues"
+        output: "- Diaphragmatic Breathing Cues"
+        default_enabled: false
       - id: myofascial_scm
         label: "Myofascial Techniques (over SCM)"
         output: "- Myofascial Techniques (over SCM)"
+        default_enabled: false
       - id: spec_comp_tmj
         label: "Specific Compressions (Masseter, Temporalis - TMJ)"
         output: "- Specific Compressions (Scalene Muscles, SCM, Masseter, Temporalis)"
+        default_enabled: false
       - id: myofascial_skull
         label: "Myofascial Techniques (Frontal, Temporal bone)"
         output: "- Myofascial Techniques (Frontal bone, Temporal bone)"
+        default_enabled: false
       - id: broad_comp_skull
         label: "Broad Compressions (Parietal, Temporal bone)"
         output: "- Broad Compressions (Parietal bone, Temporal bone)"
+        default_enabled: false
+
 ---
 collections:
   - id: tx_regions

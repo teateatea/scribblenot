@@ -109,28 +109,36 @@ fn render_document(
             group_parts.push(format!("\n\n{}", heading));
         }
 
-        for boilerplate_id in &group.note.boilerplate_refs {
-            if let Some(text) = boilerplate_texts.get(boilerplate_id) {
-                if !text.trim().is_empty() {
-                    group_parts.push(format!("\n{}", text));
-                }
-            }
-        }
-
         for node in &group.children {
-            let config = node.config();
-            let Some(state) = states.by_id(&config.id) else {
-                continue;
-            };
-            let body =
-                render_section_body(config, state, assigned_values, sticky_values, mode.clone());
-            if editable {
-                append_managed_section(&mut group_parts, config, body);
-            } else if body.trim().is_empty() {
-                continue;
-            } else if let Some(heading) = managed_heading_for_section(config) {
-                group_parts.push(format!("\n\n{}", heading));
-                group_parts.push(format!("\n{}", body));
+            match node {
+                crate::data::RuntimeNode::Boilerplate(id) => {
+                    if let Some(text) = boilerplate_texts.get(id.as_str()) {
+                        if !text.trim().is_empty() {
+                            group_parts.push(format!("\n{}", text));
+                        }
+                    }
+                }
+                _ => {
+                    let config = node.config();
+                    let Some(state) = states.by_id(&config.id) else {
+                        continue;
+                    };
+                    let body = render_section_body(
+                        config,
+                        state,
+                        assigned_values,
+                        sticky_values,
+                        mode.clone(),
+                    );
+                    if editable {
+                        append_managed_section(&mut group_parts, config, body);
+                    } else if body.trim().is_empty() {
+                        continue;
+                    } else if let Some(heading) = managed_heading_for_section(config) {
+                        group_parts.push(format!("\n\n{}", heading));
+                        group_parts.push(format!("\n{}", body));
+                    }
+                }
             }
         }
 
@@ -158,7 +166,8 @@ fn runtime_config_by_id<'a>(
         .children
         .iter()
         .flat_map(|group| group.children.iter())
-        .find_map(|node| (node.config().id == section_id).then_some(node.config()))
+        .filter_map(|node| node.as_config())
+        .find(|config| config.id == section_id)
 }
 
 fn append_managed_section(parts: &mut Vec<String>, cfg: &SectionConfig, body: String) {
@@ -596,7 +605,6 @@ mod tests {
                 nav_label: "GROUP A".to_string(),
                 note: GroupNoteMeta {
                     note_label: Some("## GROUP A".to_string()),
-                    boilerplate_refs: Vec::new(),
                 },
                 children: vec![
                     RuntimeNode::Section(first.clone()),

@@ -1,0 +1,27 @@
+sections:
+  - id: infection_section
+    label: "Where does this go"
+    nav_label: "InfSec"
+    show_field_labels: false
+    note:
+      note_label: "#### Section Heading"
+    contains:
+    #  - field: 
+      
+boilerplates:
+  - id: sub_informed_boilerplate
+    text: |
+      #### INFORMED CONSENT
+      Patient has been informed of the risks and benefits of massage therapy, and has given informed consent to assessment and treatment.
+  - id: treatment_boilerplate
+    text: |
+      Regions and locations are bilateral unless indicated otherwise.
+      Patient is pillowed under ankles when prone, and under knees when supine.
+  - id: infection_boilerplate
+    text: |
+      - [x] Disinfected patient contact points before & after appointment (door knob, coat hooks, patient chair).
+      - [x] Disinfected equipment before & after appointment (massage table, face cradle, RMT chair, oil bottle).
+      - [x] Clean Linens used (fitted sheet, flat sheet, face cradle cover, blanket).
+      - [x] RMT washed hands before & after treatment.
+      - [x] Mask worn by RMT.
+      

@@ -328,19 +328,17 @@ groups:
   - id: subjective_group
     nav_label: SUBJECTIVE
     note_label: "## SUBJECTIVE"
-    boilerplate_refs:
-      - intake_header
     contains:
+      - boilerplate: intake_header
       - { section: subjective_section }
 ```
 
 | Key | Required | Meaning |
 |-----|----------|---------|
 | `id` | yes | Unique group ID |
-| `contains` | yes | Ordered `section` and `collection` refs |
+| `contains` | yes | Ordered `section`, `collection`, and `boilerplate` refs |
 | `nav_label` | no | Map label, used as authored |
 | `note_label` | no | Group heading in the note |
-| `boilerplate_refs` | no | Boilerplate IDs inserted after group heading |
 
 If `note_label` is omitted, the group does not render a top-level note heading.
 
@@ -566,10 +564,10 @@ collections:
 
 If a field attaches multiple collections and sets `max_actives: 1`, they behave like radio groups.
 
-### `boilerplate` block
+### `boilerplates` block
 
 ```yaml
-boilerplate:
+boilerplates:
   - id: intake_header
     text: |
       **Patient Intake**
@@ -578,8 +576,8 @@ boilerplate:
 
 | Key | Required | Meaning |
 |-----|----------|---------|
-| `id` | yes | Boilerplate ID |
-| `text` | yes | Literal text inserted after group heading |
+| `id` | yes | Boilerplate ID, referenced from group `contains:` |
+| `text` | yes | Literal text inserted at the position in the group |
 
 ## Common Patterns
 

@@ -26,8 +26,7 @@
 #    id
 #    nav_label?             # map label; uppercased at runtime
 #    note_label?            # top-level note heading for the whole group
-#    boilerplate_refs[]?
-#    contains[]
+#    contains[]            # accepts: section, collection, boilerplate
 #
 #  - section:
 #    id
@@ -84,44 +83,9 @@
 #    note_label = group top-level note heading
 #    section.note.note_label = note subsection heading
 
-groups:
-  - id: safety_group
-    nav_label: SAFETY
-    contains:
-      - section: contraindications_section
-     # - section: freetext_test_section
-
-sections:
-  - id: contraindications_section
-    label: Contraindications
-    nav_label: CONTRA
-    contains:
-      - field: test_field
-      - field: appointment_requested_field
-fields:
-  - id: test_field
-    label: Free
-    joiner_style: comma_and
-   # max_entries: 3
-    contains:
-      - list: contraindications_list
-      - list: region
 
 
-lists:
-  - id: contraindications_list
-    label: Contraindications
-    items:
-      - id: Fever
-        label: "fever"
-        output: "Fever item"
-        # fields: [appointment_date_field]
-      - Open wound
-      - New rash
-      - Dizziness
-      - Severe headache
 
----
 
 template:
   id: patient_standard_template
@@ -130,19 +94,23 @@ template:
     - group: subjective_group
     - group: treatment_group
     - group: objective_group
-    - group: safety_group
+    - group: infection_group
 
 groups:
   - id: intake_group
     nav_label: INTAKE
     contains:
       - section: appointment_section
+      - section: intake_optional
       
   - id: subjective_group
     nav_label: SUBJECTIVE
     note_label: "## SUBJECTIVE"
     contains:
       - section: subjective_section
+      - boilerplate: sub_informed_boilerplate
+      - section: consent_section
+    #  - collection: consent_collection
 
   - id: treatment_group
     nav_label: TREATMENT
@@ -160,6 +128,13 @@ groups:
     note_label: "## OBJECTIVE / OBSERVATIONS"
     contains:
       - section: objective_section
+      
+  - id: infection_group
+    nav_label: INF
+    note_label: "## STANDARD INFECTION CONTROL PRECAUTIONS"
+    contains:
+      - boilerplate: infection_boilerplate
+  #    - section: infection_section
 
 
 sections:
@@ -167,13 +142,14 @@ sections:
     label: Appointment
     nav_label: "Appointment"
     show_field_labels: false
-    hotkey: Z
+   # hotkey: Z
     contains:
     #  - field: date_field
       - field: appointment_date_field
       - field: appointment_requested_field
-    #  - field: patient_pronoun
-
+    #  - field: consent_pecs_field
+      - field: pt_info
+     
  
 
 #  - collection:
@@ -215,6 +191,7 @@ fields:
     contains:
       - list: appointment_type_list
       - field: requested_regions #
+     # - list: break
 
 
   - id: requested_regions

@@ -202,7 +202,7 @@ lists:
       # HEAD - TMJ EXTRAORAL
       - id: ests_mm_item
         label: "Erector Thoracic MM"
-        output: "{ests_mm_field}"
+        output: "Eretor Spinae Thoracic"
         fields:
           - ests_mm_field
       - label: "Masseter (TMJ)"
@@ -233,7 +233,7 @@ lists:
   - id: place
     label: "(direction)" # {region}"
     preview: "(direction) "
-    modal_start: search
+    modal_start: list
     default: empty_space
     items:
       - id: empty_space
