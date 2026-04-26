@@ -6,12 +6,14 @@ use std::path::{Path, PathBuf};
 
 // Pure data shape types live in `crate::data_model` after the data.rs split
 // (slice 1). Hint-label helpers live in `crate::data_hints` after slice 2.
-// Re-exporting from both keeps `crate::data::TypeName` and
-// `crate::data::resolve_hint` style callers and the internal data.rs code
-// working unchanged. The glob also brings these items into local scope so the
-// loader/normalizer code below can call them by their bare names.
+// Source-index types and YAML anchor helpers live in `crate::data_source`
+// after slice 3. Re-exporting from all three keeps `crate::data::TypeName`
+// style callers and the internal data.rs code working unchanged. The globs
+// also bring these items into local scope so the loader/normalizer code
+// below can call them by their bare names.
 pub use crate::data_hints::*;
 pub use crate::data_model::*;
+pub use crate::data_source::*;
 use crate::data_model::{slug_source_for_item, slugify_id};
 
 #[derive(Debug)]
@@ -24,80 +26,6 @@ pub struct AppData {
     pub boilerplate_texts: HashMap<String, String>,
     pub keybindings: KeyBindings,
     pub hotkeys: AuthoredHotkeys,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct SourceIndex {
-    pub nodes: HashMap<String, SourceNode>,
-    child_refs: HashMap<ChildRefSourceKey, ErrorSource>,
-}
-
-impl SourceIndex {
-    fn insert(&mut self, id: String, node: SourceNode) {
-        self.nodes.entry(id).or_insert(node);
-    }
-
-    fn merge(&mut self, other: SourceIndex) {
-        for (id, node) in other.nodes {
-            self.insert(id, node);
-        }
-        for (key, source) in other.child_refs {
-            self.child_refs.entry(key).or_insert(source);
-        }
-    }
-
-    fn source_for(&self, id: &str) -> Option<ErrorSource> {
-        self.nodes.get(id).map(|node| ErrorSource {
-            file: node.file.clone(),
-            line: node.line,
-            quoted_line: node.quoted_line.clone(),
-        })
-    }
-
-    fn insert_child_ref(&mut self, owner_id: &str, child: &HierarchyChildRef, source: ErrorSource) {
-        self.child_refs
-            .entry(ChildRefSourceKey {
-                owner_id: owner_id.to_string(),
-                child_kind: child.kind(),
-                child_id: child.id().to_string(),
-            })
-            .or_insert(source);
-    }
-
-    fn source_for_child_ref(
-        &self,
-        owner_id: &str,
-        child: &HierarchyChildRef,
-    ) -> Option<ErrorSource> {
-        self.child_refs
-            .get(&ChildRefSourceKey {
-                owner_id: owner_id.to_string(),
-                child_kind: child.kind(),
-                child_id: child.id().to_string(),
-            })
-            .cloned()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct ChildRefSourceKey {
-    owner_id: String,
-    child_kind: TypeTag,
-    child_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SourceNode {
-    pub file: PathBuf,
-    pub line: usize,
-    pub quoted_line: Option<String>,
-    pub raw: serde_yaml::Value,
-}
-
-#[derive(Debug, Clone)]
-pub struct LoadedHierarchy {
-    pub hierarchy: HierarchyFile,
-    pub source_index: SourceIndex,
 }
 
 impl AppData {
@@ -1488,12 +1416,6 @@ fn authored_yaml_doc_error(
     .with_source(source)
 }
 
-fn quoted_line(text: &str, relative_line: usize) -> Option<String> {
-    text.lines()
-        .nth(relative_line.saturating_sub(1))
-        .map(|line| line.trim().to_string())
-}
-
 fn build_source_index(
     value: &serde_yaml::Value,
     path: &Path,
@@ -1621,191 +1543,6 @@ fn build_source_index(
     }
 
     index
-}
-
-fn top_level_block_range(lines: &[&str], key: &str) -> Option<(usize, usize)> {
-    let mut start_idx = None;
-    for (idx, line) in lines.iter().enumerate() {
-        let trimmed = line.trim();
-        if leading_spaces(line) == 0 && trimmed.starts_with(&format!("{key}:")) {
-            start_idx = Some(idx);
-            continue;
-        }
-        if start_idx.is_some()
-            && leading_spaces(line) == 0
-            && !trimmed.is_empty()
-            && !trimmed.starts_with('#')
-        {
-            return Some((start_idx?, idx));
-        }
-    }
-    start_idx.map(|start| (start, lines.len()))
-}
-
-#[derive(Debug, Clone)]
-struct SourceAnchor {
-    line: usize,
-    quoted_line: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-struct EntryAnchor {
-    anchor: SourceAnchor,
-    start_idx: usize,
-    end_idx: usize,
-}
-
-fn find_mapping_anchor(
-    doc_text: &str,
-    start_line: usize,
-    top_level_key: &str,
-    id: &str,
-) -> SourceAnchor {
-    let mut current_key = None::<&str>;
-    for (idx, line) in doc_text.lines().enumerate() {
-        let absolute_line = start_line + idx;
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            continue;
-        }
-        if leading_spaces(line) == 0 {
-            current_key = top_level_key_name(trimmed);
-            continue;
-        }
-        if current_key == Some(top_level_key) && trimmed.starts_with("id:") {
-            let maybe_id = trimmed
-                .trim_start_matches("id:")
-                .trim()
-                .trim_matches('"')
-                .trim_matches('\'');
-            if maybe_id == id {
-                return SourceAnchor {
-                    line: absolute_line,
-                    quoted_line: Some(trimmed.to_string()),
-                };
-            }
-        }
-    }
-    SourceAnchor {
-        line: start_line,
-        quoted_line: None,
-    }
-}
-
-fn collect_top_level_entry_anchors(
-    doc_text: &str,
-    start_line: usize,
-) -> HashMap<String, Vec<EntryAnchor>> {
-    let lines: Vec<&str> = doc_text.lines().collect();
-    let mut anchors: HashMap<String, Vec<EntryAnchor>> = HashMap::new();
-    let mut current_key: Option<String> = None;
-    let mut idx = 0usize;
-
-    while idx < lines.len() {
-        let line = lines[idx];
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') {
-            idx += 1;
-            continue;
-        }
-
-        if leading_spaces(line) == 0 {
-            current_key = top_level_key_name(trimmed)
-                .filter(|key| {
-                    matches!(
-                        *key,
-                        "groups" | "sections" | "collections" | "fields" | "lists" | "boilerplate"
-                    )
-                })
-                .map(str::to_string);
-            idx += 1;
-            continue;
-        }
-
-        if leading_spaces(line) == 2 && trimmed.starts_with("- ") {
-            if let Some(key) = current_key.clone() {
-                let start_idx = idx;
-                idx += 1;
-                while idx < lines.len() {
-                    let next = lines[idx];
-                    let next_trimmed = next.trim();
-                    if next_trimmed.is_empty() || next_trimmed.starts_with('#') {
-                        idx += 1;
-                        continue;
-                    }
-                    if leading_spaces(next) == 0
-                        || (leading_spaces(next) == 2 && next_trimmed.starts_with("- "))
-                    {
-                        break;
-                    }
-                    idx += 1;
-                }
-                let anchor = find_entry_anchor(&lines[start_idx..idx], start_line + start_idx)
-                    .unwrap_or(SourceAnchor {
-                        line: start_line + start_idx,
-                        quoted_line: Some(lines[start_idx].trim().to_string()),
-                    });
-                anchors.entry(key).or_default().push(EntryAnchor {
-                    anchor,
-                    start_idx,
-                    end_idx: idx,
-                });
-                continue;
-            }
-        }
-
-        idx += 1;
-    }
-
-    anchors
-}
-
-fn collect_child_ref_anchors(entry_lines: &[&str], start_line: usize) -> Vec<SourceAnchor> {
-    entry_lines
-        .iter()
-        .enumerate()
-        .filter_map(|(offset, line)| {
-            let trimmed = line.trim();
-            let matched = [
-                "- group:",
-                "- section:",
-                "- collection:",
-                "- field:",
-                "- list:",
-            ]
-            .iter()
-            .any(|prefix| trimmed.starts_with(prefix));
-            matched.then(|| SourceAnchor {
-                line: start_line + offset,
-                quoted_line: Some(trimmed.to_string()),
-            })
-        })
-        .collect()
-}
-
-fn child_ref_from_value(value: &serde_yaml::Value) -> Option<HierarchyChildRef> {
-    serde_yaml::from_value(value.clone()).ok()
-}
-
-fn find_entry_anchor(entry_lines: &[&str], start_line: usize) -> Option<SourceAnchor> {
-    for (offset, line) in entry_lines.iter().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("- id:") || trimmed.starts_with("id:") || trimmed.contains("{ id:") {
-            return Some(SourceAnchor {
-                line: start_line + offset,
-                quoted_line: Some(trimmed.to_string()),
-            });
-        }
-    }
-    None
-}
-
-fn top_level_key_name(line: &str) -> Option<&str> {
-    line.split_once(':').map(|(key, _)| key)
-}
-
-fn leading_spaces(line: &str) -> usize {
-    line.chars().take_while(|ch| *ch == ' ').count()
 }
 
 fn contains_legacy_repeating_key(value: &serde_yaml::Value) -> bool {
