@@ -38,38 +38,38 @@ lists:
     preview: "(consent statement)"
     items:
       - id: consent_pecs_continued
-        label: "Pecs Continued"
+        label: "Continue Pecs"
         output: "Patient verbally consented to the continued assessment and treatment of the {pecs_detail}."
       - id: consent_glutes_continued
-        label: "Glutes Continued"
+        label: "Continue Glutes"
         output: "Patient verbally consented to the continued assessment and treatment of the Buttocks (gluteal muscles)."
       - id: consent_both_continued
-        label: "Both Continued"
+        label: "Continue Both"
         output: "Patient verbally consented to the continued assessment and treatment of the {pecs_detail}, and the Buttocks (gluteal muscles)."
       - id: consent_pecs_initial
-        label: "Pecs Initial"
+        label: "Initial Pecs"
         output: "Patient verbally consented to the assessment and treatment of the {pecs_detail}."
       - id: consent_glutes_initial
-        label: "Glutes Initial"
+        label: "Initial Glutes"
         output: "Patient verbally consented to the assessment and treatment of the Buttocks (gluteal muscles)."
       - id: consent_both_initial
-        label: "Both Initial"
+        label: "Initial Both"
         output: "Patient verbally consented to the assessment and treatment of the {pecs_detail}, and the Buttocks (gluteal muscles)."
       - id: consent_pecs_no_temp
-        label: "Pecs No Temp"
+        label: "Not Pecs"
         output: "Patient specifically refused assessment and treatment of the {pecs_detail}."
       - id: consent_glutes_no_temp
-        label: "Glutes No Temp"
+        label: "Not Glutes"
         output: "Patient specifically refused assessment and treatment of the Buttocks (gluteal muscles)."
       - id: consent_both_no_temp
-        label: "Both No Temp"
+        label: "Not Both"
         output: "Patient specifically refused assessment and treatment of the {pecs_detail}, and the Buttocks (gluteal muscles)."
       - id: consent_pecs_no_ongoing
-        label: "Pecs No Ongoing"
+        label: "Deny Pecs (Ongoing)"
         output: "Patient specifically refused assessment and treatment of the {pecs_detail}.\n  - {year}-{month}-{day}: Avoid asking for this unnecessarily."
       - id: consent_glutes_no_ongoing
-        label: "Glutes No Ongoing"
+        label: "Deny Glutes (Ongoing)"
         output: "Patient specifically refused assessment and treatment of the Buttocks (gluteal muscles).\n  - {year}-{month}-{day}: Avoid asking for this unnecessarily."
       - id: consent_both_no_ongoing
-        label: "Both No Ongoing"
+        label: "Deny Both (Ongoing)"
         output: "Patient specifically refused assessment and treatment of the {pecs_detail}, and the Buttocks (gluteal muscles).\n  - {year}-{month}-{day}: Avoid asking for this unnecessarily."

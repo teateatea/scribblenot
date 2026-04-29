@@ -164,7 +164,7 @@ lists:                                           # BACK PRONE
         output: |
           - COMFORTABLE TREATMENT: Pt tolerates limited challenging techniques, when necessary for treatment goals.
       - id: challenge_therapeutic
-        label: "4 Comfortable Treatment"
+        label: "4 Therapeutic Treatment"
         output: |
           - THERAPEUTIC TREATMENT: Pt tolerates challenging techniques, when necessary for treatment goals.
       - id: challenge_strong

@@ -99,6 +99,8 @@ lists:
         output: "irregular exercise habits,"
       - id: exha_11
         output: "a return to previously assigned rehab exercises"
+      - id: exha_11b
+        output: "returning to regular exercise habits"
       - id: exha_12
         output: "reduced activity"
       - id: exha_13
