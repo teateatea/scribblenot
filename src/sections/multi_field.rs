@@ -693,6 +693,7 @@ fn join_repeat_values(values: &[String], style: &JoinerStyle) -> String {
     let values = dedupe_values(values);
     match style {
         JoinerStyle::Comma => values.join(", "),
+        JoinerStyle::Space => values.join(" "),
         JoinerStyle::Semicolon => values.join("; "),
         JoinerStyle::Newline => values.join("\n"),
         JoinerStyle::CommaAnd => join_with_final(&values, ", ", " and ", ", and "),
@@ -980,6 +981,22 @@ mod tests {
         );
 
         assert!(matches!(resolved, ResolvedMultiFieldValue::Empty));
+    }
+
+    #[test]
+    fn repeated_field_space_joiner_uses_single_spaces() {
+        assert_eq!(
+            join_repeat_values(
+                &[
+                    "bilateral".to_string(),
+                    "inferior".to_string(),
+                    "low back".to_string(),
+                    "inferior".to_string()
+                ],
+                &JoinerStyle::Space,
+            ),
+            "bilateral inferior low back"
+        );
     }
 
     #[test]

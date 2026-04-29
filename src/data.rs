@@ -846,6 +846,17 @@ mod tests {
     }
 
     #[test]
+    fn list_joiner_style_space_is_allowed() {
+        let (file, index) = parse_with_index(concat!(
+            "template:\n  contains:\n    - group: g\n",
+            "groups:\n  - id: g\n    contains:\n      - section: s\n",
+            "sections:\n  - id: s\n    contains:\n      - list: demo\n",
+            "lists:\n  - id: demo\n    joiner_style: space\n    items:\n      - Alpha\n",
+        ));
+        validate_with_index(&file, &index).expect("joiner_style: space should load");
+    }
+
+    #[test]
     fn loader_rejects_duplicate_ids_across_kinds() {
         let (file, index) = parse_with_index(concat!(
             "template:\n  contains:\n    - group: shared\n",

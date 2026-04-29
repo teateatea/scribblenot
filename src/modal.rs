@@ -2970,6 +2970,7 @@ fn join_repeat_values(values: &[String], style: &JoinerStyle) -> String {
         }
         JoinerStyle::CommaOr => join_with_final(&values, ", ", " or ", ", or "),
         JoinerStyle::Comma => values.join(", "),
+        JoinerStyle::Space => values.join(" "),
         JoinerStyle::Semicolon => values.join("; "),
         JoinerStyle::Slash => values.join("/"),
         JoinerStyle::Newline => values.join("\n"),
@@ -4494,12 +4495,26 @@ mod modal_filter_tests {
             "request root should still be on requested_regions while adding repeats"
         );
 
-        let _ = modal.advance_field(String::new(), &HashMap::new(), &mut sticky_values, 5);
+        let advance = modal.advance_field(String::new(), &HashMap::new(), &mut sticky_values, 5);
+        assert!(
+            matches!(advance, FieldAdvance::NextList),
+            "blank place repeat terminator should reopen requested_regions for the next region"
+        );
+        assert_eq!(
+            modal.current_part_label(&HashMap::new(), &sticky_values).as_deref(),
+            Some("[REGION]"),
+            "real authored data should reopen the region picker after finishing place repeats"
+        );
+        let advance = modal.advance_field(String::new(), &HashMap::new(), &mut sticky_values, 5);
+        assert!(
+            matches!(advance, FieldAdvance::NextList),
+            "blank region should advance into the repeating place list's empty path"
+        );
         let advance = modal.advance_field(String::new(), &HashMap::new(), &mut sticky_values, 5);
 
         assert!(
             matches!(advance, FieldAdvance::Complete(_)),
-            "blank nested repeat entry should finish the repeating field immediately, got {advance:?}"
+            "blank region plus blank place should finish the repeating field for current real data, got {advance:?}"
         );
     }
 
@@ -4600,6 +4615,22 @@ mod repeat_join_tests {
                 &JoinerStyle::Semicolon,
             ),
             "A; B; C"
+        );
+    }
+
+    #[test]
+    fn space_joins_values_with_single_spaces() {
+        assert_eq!(
+            join_repeat_values(
+                &[
+                    "bilateral".to_string(),
+                    "inferior".to_string(),
+                    "low back".to_string(),
+                    "inferior".to_string()
+                ],
+                &JoinerStyle::Space,
+            ),
+            "bilateral inferior low back"
         );
     }
 }

@@ -495,6 +495,7 @@ Joiner styles:
 | `comma_and` | `Neck, Shoulders, and Back` |
 | `comma_and_the` | `Neck, Shoulders, and the Back` |
 | `comma_or` | `Neck, Shoulders, or Back` |
+| `space` | `bilateral inferior low back` |
 | `semicolon` | `Neck; Shoulders; Back` |
 | `slash` | `Neck/Shoulders/Back` |
 | `newline` | one value per line |

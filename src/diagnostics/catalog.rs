@@ -502,7 +502,7 @@ fn builtin_entries() -> Vec<MessageEntry> {
         MessageEntry {
             id: "joiner_style_unknown_variant",
             title: "Unknown joiner_style Value",
-            description: "`{provided}` is not a valid `joiner_style`. Valid values:\n- `comma_and` - joined with commas; last item preceded by \"and\"\n- `comma_and_the` - like comma_and but \"and the\" before last item\n- `comma_or` - joined with commas; last item preceded by \"or\"\n- `comma` - joined with commas only\n- `semicolon` - joined with semicolons\n- `slash` - joined with slashes\n- `newline` - each item on its own line",
+            description: "`{provided}` is not a valid `joiner_style`. Valid values:\n- `comma_and` - joined with commas; last item preceded by \"and\"\n- `comma_and_the` - like comma_and but \"and the\" before last item\n- `comma_or` - joined with commas; last item preceded by \"or\"\n- `comma` - joined with commas only\n- `space` - joined with single spaces\n- `semicolon` - joined with semicolons\n- `slash` - joined with slashes\n- `newline` - each item on its own line",
             fix: "Replace `{provided}` with one of the valid values above.",
         },
         MessageEntry {

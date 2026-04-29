@@ -254,6 +254,7 @@ pub enum JoinerStyle {
     CommaAndThe,
     CommaOr,
     Comma,
+    Space,
     Semicolon,
     Slash,
     Newline,

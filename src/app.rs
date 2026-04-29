@@ -5441,8 +5441,13 @@ mod composition_span_tests {
 
         let rendered = app
             .messages
-            .render(&ErrorReport::generic("missing_child", "raw"));
-        assert_eq!(rendered.title, "ID Not Found");
+            .render(
+                &ErrorReport::generic("missing_child", "raw")
+                    .with_param("owner_label", "section 'demo'")
+                    .with_param("referenced_kind", "field")
+                    .with_param("referenced_id", "missing"),
+            );
+        assert_eq!(rendered.title, "ID Not Found: missing");
     }
 
     #[test]
@@ -5462,8 +5467,13 @@ mod composition_span_tests {
 
         let rendered = app
             .messages
-            .render(&ErrorReport::generic("missing_child", "raw"));
-        assert_eq!(rendered.title, "ID Not Found");
+            .render(
+                &ErrorReport::generic("missing_child", "raw")
+                    .with_param("owner_label", "section 'demo'")
+                    .with_param("referenced_kind", "field")
+                    .with_param("referenced_id", "missing"),
+            );
+        assert_eq!(rendered.title, "ID Not Found: missing");
     }
 
     #[test]
@@ -5825,23 +5835,23 @@ mod composition_span_tests {
     }
 
     #[test]
-    fn select_keybind_opens_header_modal_in_wizard() {
+    fn select_and_confirm_keybinds_open_header_modal_in_wizard() {
         let mut app = app_with_single_field(list_field(ModalStart::List));
         app.data.keybindings.select = vec!["enter".to_string()];
         app.data.keybindings.confirm = vec!["space".to_string()];
 
         app.handle_key(AppKey::Space);
-        assert!(
-            app.modal.is_none(),
-            "confirm should not open the field modal"
-        );
+        assert!(app.modal.is_some(), "confirm should open the field modal");
+
+        app.dismiss_modal();
+        assert!(app.modal.is_none(), "dismiss should close the field modal");
 
         app.handle_key(AppKey::Enter);
         assert!(app.modal.is_some(), "select should open the field modal");
     }
 
     #[test]
-    fn select_keybind_enters_wizard_from_map() {
+    fn select_and_confirm_keybinds_enter_wizard_from_map() {
         let mut app = app_with_free_text_sections(vec![
             free_text_section("first", "First", "group_a"),
             free_text_section("second", "Second", "group_a"),
@@ -5853,11 +5863,13 @@ mod composition_span_tests {
         app.map_cursor = 1;
 
         app.handle_key(AppKey::Space);
-        assert_eq!(app.focus, Focus::Map, "confirm should not leave the map");
-        assert_eq!(
-            app.current_idx, 0,
-            "confirm should not enter the selected section"
-        );
+        assert_eq!(app.focus, Focus::Wizard, "confirm should enter the map selection");
+        assert_eq!(app.current_idx, 1, "confirm should enter the selected section");
+        assert_eq!(app.map_return_idx, None);
+
+        app.focus = Focus::Map;
+        app.current_idx = 0;
+        app.map_cursor = 1;
 
         app.handle_key(AppKey::Enter);
         assert_eq!(
