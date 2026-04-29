@@ -143,7 +143,10 @@ fn hint_is_active(app: &App, target: HintTarget) -> bool {
     match app.focus {
         Focus::Map => match target {
             HintTarget::Section => true,
-            HintTarget::HeaderField => false,
+            HintTarget::HeaderField => matches!(
+                app.section_states.get(app.current_idx),
+                Some(SectionState::Header(_))
+            ),
         },
         Focus::Wizard => match target {
             HintTarget::Section => wizard_map_hints_active(app),
@@ -387,14 +390,11 @@ fn modal_row_color(
 }
 
 fn modal_row_container_style(border_color: Option<Color>) -> iced::widget::container::Style {
-    match border_color {
-        Some(border_color) => iced::widget::container::Style::default().border(Border {
-            color: border_color,
-            width: 1.0,
-            radius: 2.0.into(),
-        }),
-        None => iced::widget::container::Style::default(),
-    }
+    iced::widget::container::Style::default().border(Border {
+        color: border_color.unwrap_or(Color::TRANSPARENT),
+        width: 1.0,
+        radius: 2.0.into(),
+    })
 }
 
 fn plain_modal_row_button_style() -> iced::widget::button::Style {
@@ -1511,6 +1511,7 @@ const COLLECTION_MODAL_CHROME_HEIGHT: f32 = 112.0;
 const COLLECTION_MODAL_ROW_HEIGHT: f32 = 28.0;
 const COLLECTION_PREVIEW_TITLE_HEIGHT: f32 = 24.0;
 const COLLECTION_PREVIEW_CARD_PADDING: f32 = 6.0;
+const COLLECTION_PREVIEW_INACTIVE_TEASER_ROWS: usize = 4;
 
 #[derive(Debug, Clone, PartialEq)]
 struct CollectionPreviewStripLayout {
@@ -1702,15 +1703,17 @@ fn preview_simple_modal_content<'a>(
     let query = snapshot.query.clone();
     let mut items: Vec<Element<'a, Message>> = Vec::new();
     items.push(
-        text(title)
-            .font(app.ui_theme.font_modal)
-            .color(apply_alpha(app.ui_theme.modal_hint_text, alpha))
-            .into(),
+        no_wrap_modal_text(
+            title,
+            apply_alpha(app.ui_theme.modal_hint_text, alpha),
+            app.ui_theme.font_modal,
+        )
+        .into(),
     );
     items.push(preview_modal_search_strip(app, query, alpha).into());
 
     let end = (snapshot.list_scroll + app.modal_window_size().max(1)).min(snapshot.filtered.len());
-    let modal_hints = app.visible_modal_hint_labels();
+    let modal_hints = preview_modal_hint_labels(app, &snapshot);
     for window_pos in snapshot.list_scroll..end {
         let Some(&entry_idx) = snapshot.filtered.get(window_pos) else {
             continue;
@@ -1748,21 +1751,27 @@ fn preview_simple_modal_content<'a>(
         );
         let row_content = row![
             container(
-                text(if is_current { ">" } else { " " })
-                    .font(app.ui_theme.font_modal)
-                    .color(apply_alpha(marker_color, alpha)),
+                no_wrap_modal_text(
+                    if is_current { ">" } else { " " },
+                    apply_alpha(marker_color, alpha),
+                    app.ui_theme.font_modal,
+                ),
             )
             .align_left(Length::Fixed(14.0)),
             container(
-                text(format!("{hint:<4}"))
-                    .font(app.ui_theme.font_modal)
-                    .color(apply_alpha(hint_color, alpha)),
+                no_wrap_modal_text(
+                    format!("{hint:<4}"),
+                    apply_alpha(hint_color, alpha),
+                    app.ui_theme.font_modal,
+                ),
             )
             .align_left(Length::Fixed(24.0)),
             container(
-                text(label)
-                    .font(app.ui_theme.font_modal)
-                    .color(apply_alpha(label_color, alpha)),
+                no_wrap_modal_text(
+                    label,
+                    apply_alpha(label_color, alpha),
+                    app.ui_theme.font_modal,
+                ),
             )
             .width(Length::Fill),
         ]
@@ -1891,15 +1900,13 @@ fn active_simple_modal_content<'a>(
             let marker_color =
                 modal_row_color(cursor_accent, confirmed_color, ui_theme.modal_muted_text);
             let row_content = row![
-                container(text(marker).font(ui_theme.font_modal).color(marker_color))
+                container(no_wrap_modal_text(marker, marker_color, ui_theme.font_modal))
                     .align_left(Length::Fixed(14.0)),
                 container(
-                    text(format!("{hint:<4}"))
-                        .font(ui_theme.font_modal)
-                        .color(hint_color),
+                    no_wrap_modal_text(format!("{hint:<4}"), hint_color, ui_theme.font_modal),
                 )
                 .align_left(Length::Fixed(24.0)),
-                container(text(label).font(ui_theme.font_modal).color(color)).width(Length::Fill),
+                container(no_wrap_modal_text(label, color, ui_theme.font_modal)).width(Length::Fill),
             ]
             .spacing(0)
             .width(Length::Fill);
@@ -2589,20 +2596,17 @@ fn render_modal_rows<'a>(
         };
         let button_label = row![
             container(
-                text(marker)
-                    .font(app.ui_theme.font_modal)
-                    .color(marker_color)
+                no_wrap_modal_text(marker, marker_color, app.ui_theme.font_modal)
             )
             .align_left(Length::Fixed(14.0)),
             container(
-                text(format!("{hint:<4}"))
-                    .font(app.ui_theme.font_modal)
-                    .color(hint_color),
+                no_wrap_modal_text(format!("{hint:<4}"), hint_color, app.ui_theme.font_modal),
             )
             .align_left(Length::Fixed(24.0)),
-            text(label).font(app.ui_theme.font_modal).color(color),
+            container(no_wrap_modal_text(label, color, app.ui_theme.font_modal)).width(Length::Fill),
         ]
-        .spacing(0);
+        .spacing(0)
+        .width(Length::Fill);
         let app_theme = app.ui_theme.clone();
         list_items.push(
             mouse_area(
@@ -2651,13 +2655,37 @@ fn inactive_preview_border_color(app: &App) -> Color {
     )
 }
 
-fn collection_preview_hint_offset(
-    collection_count: usize,
-    collection_idx: usize,
-    hint_pool: usize,
-) -> usize {
-    let range = modal_row_window(collection_idx, collection_count, hint_pool);
-    range.end.saturating_sub(range.start)
+fn no_wrap_modal_text<'a>(value: impl Into<String>, color: Color, font: iced::Font) -> iced::widget::Text<'a> {
+    text(value.into())
+        .font(font)
+        .color(color)
+        .wrapping(iced::widget::text::Wrapping::None)
+}
+
+fn collection_preview_hint_labels(
+    app: &App,
+    visible_count: usize,
+    interactive: bool,
+) -> Vec<String> {
+    if interactive {
+        let left_visible = app.collection_modal_left_hint_count();
+        return app
+            .collection_modal_hint_labels()
+            .into_iter()
+            .skip(left_visible)
+            .take(visible_count)
+            .collect();
+    }
+
+    let explicit_prefixes = vec![None; visible_count];
+    crate::data::assign_hint_labels(
+        &app.data.keybindings.hints,
+        &explicit_prefixes,
+        app.config.hint_labels_case_sensitive,
+    )
+    .into_iter()
+    .map(|assignment| assignment.label)
+    .collect()
 }
 
 fn collection_preview_row_elements<'a>(
@@ -2668,15 +2696,10 @@ fn collection_preview_row_elements<'a>(
     pane_focused: bool,
     hints_active: bool,
     interactive: bool,
-    hint_offset: usize,
 ) -> Vec<Element<'a, Message>> {
     let range_start = range.start;
-    let modal_hints: Vec<String> = app
-        .collection_modal_hint_labels()
-        .into_iter()
-        .skip(hint_offset)
-        .take(range.end.saturating_sub(range.start))
-        .collect();
+    let visible_count = range.end.saturating_sub(range.start);
+    let modal_hints = collection_preview_hint_labels(app, visible_count, interactive);
     let mut items = Vec::new();
 
     for row_idx in range {
@@ -2714,20 +2737,18 @@ fn collection_preview_row_elements<'a>(
         };
         let row = row![
             container(
-                text(marker)
-                    .font(app.ui_theme.font_modal)
-                    .color(marker_color)
+                no_wrap_modal_text(marker, marker_color, app.ui_theme.font_modal)
             )
             .align_left(Length::Fixed(14.0)),
             container(
-                text(format!("{hint:<4}"))
-                    .font(app.ui_theme.font_modal)
-                    .color(hint_color)
+                no_wrap_modal_text(format!("{hint:<4}"), hint_color, app.ui_theme.font_modal)
             )
             .align_left(Length::Fixed(24.0)),
-            text(label).font(app.ui_theme.font_modal).color(label_color),
+            container(no_wrap_modal_text(label, label_color, app.ui_theme.font_modal))
+                .width(Length::Fill),
         ]
-        .spacing(0);
+        .spacing(0)
+        .width(Length::Fill);
 
         if interactive {
             let app_theme = app.ui_theme.clone();
@@ -2766,18 +2787,15 @@ fn collection_preview_card_content<'a>(
     pane_focused: bool,
     hints_active: bool,
     available_height: f32,
-    hint_offset: usize,
 ) -> Element<'a, Message> {
     let mut items: Vec<Element<'a, Message>> = Vec::with_capacity(snapshot.rows.len() + 1);
+    let title_color = if interactive {
+        app.ui_theme.modal_hint_text
+    } else {
+        app.ui_theme.modal_muted_text
+    };
     items.push(
-        text(snapshot.title.clone())
-            .font(app.ui_theme.font_modal)
-            .color(if interactive {
-                app.ui_theme.modal_hint_text
-            } else {
-                app.ui_theme.modal_muted_text
-            })
-            .into(),
+        no_wrap_modal_text(snapshot.title.clone(), title_color, app.ui_theme.font_modal).into(),
     );
 
     let window_size = collection_preview_visible_row_capacity(available_height);
@@ -2795,7 +2813,6 @@ fn collection_preview_card_content<'a>(
         pane_focused,
         hints_active,
         interactive,
-        hint_offset,
     ));
 
     container(column(items).spacing(2))
@@ -2811,7 +2828,6 @@ fn collection_preview_card<'a>(
     focused: bool,
     pane_focused: bool,
     hints_active: bool,
-    hint_offset: usize,
 ) -> Element<'a, Message> {
     let interactive = focused && pane_focused;
     let content = collection_preview_card_content(
@@ -2821,7 +2837,6 @@ fn collection_preview_card<'a>(
         pane_focused,
         hints_active,
         height,
-        hint_offset,
     );
     let panel: Element<'a, Message> = if focused {
         modal_subpanel(
@@ -2875,15 +2890,12 @@ fn collection_modal_preview<'a>(
         .unwrap_or("No collection selected".chars().count()) as f32
         * 7.6
         + 72.0;
-    let hint_pool = app.data.keybindings.hints.len();
-    let collection_count = state.collections.len();
 
     let mut cards: Vec<Element<'a, Message>> = Vec::new();
     for (idx, snapshot) in strip.previews.iter().enumerate() {
         let focused = idx == strip.focused_index;
         let pane_has_focus = focused && pane_focused;
         let hints_active = focused;
-        let hint_offset = collection_preview_hint_offset(collection_count, idx, hint_pool);
         let height = layout
             .card_heights
             .get(idx)
@@ -2897,7 +2909,6 @@ fn collection_modal_preview<'a>(
             focused,
             pane_has_focus,
             hints_active,
-            hint_offset,
         ));
     }
 
@@ -2969,15 +2980,20 @@ fn collection_modal_supports_preview(app: &App) -> bool {
         .unwrap_or(true)
 }
 
-fn collection_preview_card_height(snapshot: &crate::modal::CollectionPreviewSnapshot) -> f32 {
+fn collection_preview_card_height_for_rows(row_count: usize) -> f32 {
     COLLECTION_PREVIEW_CARD_PADDING * 2.0
         + COLLECTION_PREVIEW_TITLE_HEIGHT
-        + snapshot.rows.len().max(1) as f32 * COLLECTION_MODAL_ROW_HEIGHT
+        + row_count as f32 * 2.0
+        + row_count.max(1) as f32 * COLLECTION_MODAL_ROW_HEIGHT
+}
+
+fn collection_preview_card_height(snapshot: &crate::modal::CollectionPreviewSnapshot) -> f32 {
+    collection_preview_card_height_for_rows(snapshot.rows.len())
 }
 
 fn collection_preview_visible_row_capacity(height: f32) -> usize {
     ((height - COLLECTION_PREVIEW_CARD_PADDING * 2.0 - COLLECTION_PREVIEW_TITLE_HEIGHT)
-        / COLLECTION_MODAL_ROW_HEIGHT)
+        / (COLLECTION_MODAL_ROW_HEIGHT + 2.0))
         .floor()
         .max(1.0) as usize
 }
@@ -3051,7 +3067,12 @@ fn collection_preview_strip_layout(
         let effective_height = if idx == strip.focused_index {
             natural_height.min(viewport_height)
         } else {
-            natural_height
+            natural_height.min(collection_preview_card_height_for_rows(
+                snapshot
+                    .rows
+                    .len()
+                    .min(COLLECTION_PREVIEW_INACTIVE_TEASER_ROWS),
+            ))
         };
         card_tops.push(current_top);
         card_heights.push(effective_height);
@@ -3590,6 +3611,24 @@ fn error_modal_fix_block<'a>(
     column(items).spacing(8).into()
 }
 
+fn preview_modal_hint_labels(
+    app: &App,
+    snapshot: &crate::modal_layout::ModalListViewSnapshot,
+) -> Vec<String> {
+    let visible_count = (snapshot.list_scroll + app.modal_window_size().max(1))
+        .min(snapshot.filtered.len())
+        .saturating_sub(snapshot.list_scroll);
+    let explicit_prefixes = vec![None; visible_count];
+    crate::data::assign_hint_labels(
+        &app.data.keybindings.hints,
+        &explicit_prefixes,
+        app.config.hint_labels_case_sensitive,
+    )
+    .into_iter()
+    .map(|assignment| assignment.label)
+    .collect()
+}
+
 fn error_modal_fenced_code_block<'a>(
     app: &'a App,
     fence: &ErrorModalCodeFence,
@@ -3966,15 +4005,18 @@ mod tests {
     use super::{
         build_connected_transition_rendered_unit, build_modal_close_rendered_unit,
         build_modal_open_rendered_unit, build_rendered_modal_unit, collection_preview_card_height,
-        collection_preview_metrics, collection_preview_strip_layout, default_stub_mode,
+        collection_preview_card_height_for_rows, collection_preview_hint_labels,
+        collection_preview_metrics, collection_preview_strip_layout,
+        collection_preview_visible_row_capacity, default_stub_mode,
         entry_composition_panel_width, error_modal_styled_spans, modal_close_shift,
-        modal_open_shift, modal_unit_runway_layout, parse_error_modal_code_fence,
-        parse_error_modal_fix_snippet, retained_close_root_width, retained_modal_close_transition,
+        modal_open_shift, modal_row_container_style, modal_unit_runway_layout,
+        parse_error_modal_code_fence, parse_error_modal_fix_snippet, preview_modal_hint_labels,
+        retained_close_root_width, retained_modal_close_transition,
         should_render_modal_overlay, simple_modal_unit_root_width, split_rendered_text_lines,
         split_yaml_property_segments, transition_unit_display_width, yaml_property_tone,
         yaml_required_keys_for_code_block, ErrorModalCodeFence, ErrorModalFixSnippet,
-        ErrorModalFixSnippetAccent, ErrorModalYamlPropertyTone, ModalUnitCardKind, ModalUnitSide,
-        COLLECTION_STREAM_SPACING,
+        ErrorModalFixSnippetAccent, ErrorModalYamlPropertyTone, ModalUnitCardKind,
+        ModalUnitSide, COLLECTION_PREVIEW_INACTIVE_TEASER_ROWS, COLLECTION_STREAM_SPACING,
     };
     use crate::app::{
         App, FocusDirection, ModalArrivalLayer, ModalDepartureLayer, ModalTransitionEasing,
@@ -4194,6 +4236,112 @@ mod tests {
             list_scroll: 0,
             focus: ModalFocus::List,
         }
+    }
+
+    #[test]
+    fn preview_modal_hint_labels_use_snapshot_window_not_active_modal_filter() {
+        let mut app = overlay_test_app();
+        let field = HeaderFieldConfig {
+            id: "demo".to_string(),
+            name: "Demo".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "demo".to_string(),
+                label: Some("Demo".to_string()),
+                preview: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![item("one", "One"), item("two", "Two")],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let mut modal =
+            crate::modal::SearchModal::new_field(0, field, None, &HashMap::new(), &HashMap::new(), 5);
+        modal.query = "One".to_string();
+        modal.update_filter();
+        app.modal = Some(modal);
+
+        let snapshot = ModalListViewSnapshot {
+            title: "Preview".to_string(),
+            query: String::new(),
+            rows: vec![
+                "Alpha".to_string(),
+                "Beta".to_string(),
+                "Gamma".to_string(),
+                "Delta".to_string(),
+            ],
+            filtered: vec![0, 1, 2, 3],
+            revisiting_completed_field: false,
+            confirmed_row: None,
+            list_cursor: 0,
+            list_scroll: 0,
+            focus: ModalFocus::List,
+        };
+
+        assert_eq!(app.visible_modal_hint_labels().len(), 1);
+        assert_eq!(preview_modal_hint_labels(&app, &snapshot).len(), 4);
+    }
+
+    #[test]
+    fn modal_row_container_style_keeps_border_width_when_unaccented() {
+        let style = modal_row_container_style(None);
+
+        assert_eq!(style.border.width, 1.0);
+        assert_eq!(style.border.color, Color::TRANSPARENT);
+    }
+
+    #[test]
+    fn inactive_collection_preview_uses_its_own_hint_window() {
+        let mut app = overlay_test_app();
+        let field = HeaderFieldConfig {
+            id: "regions".to_string(),
+            name: "Regions".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: Vec::new(),
+            collections: vec![ResolvedCollectionConfig {
+                id: "neck".to_string(),
+                label: "Neck".to_string(),
+                note_label: None,
+                default_enabled: false,
+                joiner_style: None,
+                lists: vec![HierarchyList {
+                    id: "neck_list".to_string(),
+                    label: Some("Neck".to_string()),
+                    preview: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![item("one", "One"), item("two", "Two")],
+                }],
+            }],
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let mut modal =
+            crate::modal::SearchModal::new_field(0, field, None, &HashMap::new(), &HashMap::new(), 5);
+        let state = modal.collection_state.as_mut().expect("collection modal");
+        state.collection_cursor = 0;
+        state.enter_collection();
+        state.item_cursor = 1;
+        app.modal = Some(modal);
+
+        assert_eq!(app.collection_modal_hint_labels().len(), 3);
+        assert_eq!(collection_preview_hint_labels(&app, 2, false).len(), 2);
     }
 
     fn branch_modal_for_semantic_boundary() -> crate::modal::SearchModal {
@@ -4573,6 +4721,58 @@ mod tests {
         assert_eq!(
             layout.card_tops[1] + layout.card_heights[1] + layout.y_offset,
             anchor_bottom
+        );
+    }
+
+    #[test]
+    fn collection_preview_height_and_capacity_round_trip_for_four_rows() {
+        let snapshot = crate::modal::CollectionPreviewSnapshot {
+            title: "LOWER BACK (Prone)".to_string(),
+            rows: vec![
+                "A".to_string(),
+                "B".to_string(),
+                "C".to_string(),
+                "D".to_string(),
+            ],
+            item_cursor: None,
+        };
+
+        let height = collection_preview_card_height(&snapshot);
+
+        assert_eq!(collection_preview_visible_row_capacity(height), 4);
+    }
+
+    #[test]
+    fn collection_preview_strip_layout_caps_inactive_teaser_height() {
+        let snapshot = crate::modal::CollectionPreviewSnapshot {
+            title: "Upper".to_string(),
+            rows: vec![
+                "A".to_string(),
+                "B".to_string(),
+                "C".to_string(),
+                "D".to_string(),
+                "E".to_string(),
+                "F".to_string(),
+            ],
+            item_cursor: None,
+        };
+        let strip = crate::modal::CollectionPreviewStrip {
+            previews: vec![
+                snapshot.clone(),
+                crate::modal::CollectionPreviewSnapshot {
+                    title: "Current".to_string(),
+                    rows: vec!["1".to_string()],
+                    item_cursor: Some(0),
+                },
+            ],
+            focused_index: 1,
+        };
+
+        let layout = collection_preview_strip_layout(&strip, 600.0, 0.0, 600.0);
+
+        assert_eq!(
+            layout.card_heights[0],
+            collection_preview_card_height_for_rows(COLLECTION_PREVIEW_INACTIVE_TEASER_ROWS)
         );
     }
 

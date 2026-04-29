@@ -5067,6 +5067,19 @@ mod collection_field_tests {
         }
     }
 
+    fn real_prone_back_field() -> HeaderFieldConfig {
+        let data =
+            crate::data::AppData::load(crate::data::find_data_dir()).expect("real data loads");
+        for section in crate::data::flat_sections_from_template(&data.template) {
+            if let Some(fields) = &section.fields {
+                if let Some(field) = fields.iter().find(|field| field.id == "prone_back_field") {
+                    return field.clone();
+                }
+            }
+        }
+        panic!("prone_back_field should exist in real authored data");
+    }
+
     #[test]
     fn collection_field_modal_starts_in_collection_mode() {
         let field = HeaderFieldConfig {
@@ -5264,5 +5277,22 @@ mod collection_field_tests {
         assert_eq!(title, "Neck");
         assert_eq!(lines[0], "[ ] One");
         assert_eq!(lines[1], "[x] Two");
+    }
+
+    #[test]
+    fn real_prone_back_lower_collection_preview_has_rows() {
+        let field = real_prone_back_field();
+        let mut modal =
+            SearchModal::new_field(0, field, None, &HashMap::new(), &HashMap::new(), 5);
+        let state = modal.collection_state.as_mut().expect("collection modal");
+        state.collection_cursor = 3;
+
+        let strip = modal
+            .collection_preview_strip()
+            .expect("collection preview strip should exist");
+
+        assert_eq!(strip.focused_index, 3);
+        assert_eq!(strip.previews[3].title, "LOWER BACK (Prone)");
+        assert_eq!(strip.previews[3].rows.len(), 4);
     }
 }

@@ -1277,11 +1277,11 @@ impl App {
     fn handle_map_key(&mut self, key: AppKey) {
         if let AppKey::Char(c) = key {
             let ch_str = self.normalize_hint_char(c);
-            let assignments = self.section_hint_assignments_only();
-            if self.should_prioritize_authored_hints(&assignments, &ch_str) {
+            let section_assignments = self.section_hint_assignments_only();
+            if self.should_prioritize_authored_hints(&section_assignments, &ch_str) {
                 self.hint_buffer.push_str(&ch_str);
                 let typed = self.hint_buffer.clone();
-                match self.resolve_hint_assignments(&assignments, &typed) {
+                match self.resolve_hint_assignments(&section_assignments, &typed) {
                     crate::data::HintResolveResult::Exact(flat_idx) => {
                         self.current_idx = flat_idx;
                         self.map_cursor = flat_idx;
@@ -1344,8 +1344,8 @@ impl App {
             let ch_str = self.normalize_hint_char(c);
             self.hint_buffer.push_str(&ch_str);
             let typed = self.hint_buffer.clone();
-            let assignments = self.section_hint_assignments_only();
-            match self.resolve_hint_assignments(&assignments, &typed) {
+            let section_assignments = self.section_hint_assignments_only();
+            match self.resolve_hint_assignments(&section_assignments, &typed) {
                 crate::data::HintResolveResult::Exact(flat_idx) => {
                     self.current_idx = flat_idx;
                     self.map_cursor = flat_idx;
@@ -1356,7 +1356,38 @@ impl App {
                 }
                 crate::data::HintResolveResult::Partial(_) => {}
                 crate::data::HintResolveResult::NoMatch => {
-                    self.hint_buffer.clear();
+                    let idx = self.current_idx;
+                    let field_assignments = self
+                        .current_wizard_hint_assignments()
+                        .map(|(_sections, fields)| fields)
+                        .unwrap_or_default();
+                    match self.resolve_hint_assignments(&field_assignments, &typed) {
+                        crate::data::HintResolveResult::Exact(row_idx) => {
+                            if let Some(SectionState::Header(state)) =
+                                self.section_states.get_mut(idx)
+                            {
+                                if let Some((field_idx, repeat_idx)) =
+                                    state.field_index_for_visible_row(row_idx)
+                                {
+                                    state.field_index = field_idx;
+                                    if state
+                                        .field_configs
+                                        .get(field_idx)
+                                        .is_some_and(|field| field.max_entries.is_some())
+                                    {
+                                        state.repeat_counts[field_idx] = repeat_idx;
+                                    }
+                                }
+                                state.completed = false;
+                            }
+                            self.hint_buffer.clear();
+                            self.open_header_modal();
+                        }
+                        crate::data::HintResolveResult::Partial(_) => {}
+                        crate::data::HintResolveResult::NoMatch => {
+                            self.hint_buffer.clear();
+                        }
+                    }
                 }
             }
         }
@@ -1687,6 +1718,50 @@ impl App {
                 crate::modal::confirmed_value_assignments(value, cfg, &self.config.sticky_values)
             })
             .unwrap_or_default()
+    }
+
+    fn list_is_sticky(&self, target_id: &str) -> bool {
+        fn field_contains_sticky_list(field: &HeaderFieldConfig, target_id: &str) -> bool {
+            field
+                .lists
+                .iter()
+                .chain(field.format_lists.iter())
+                .any(|list| list.id == target_id && list.sticky)
+                || field
+                    .collections
+                    .iter()
+                    .flat_map(|collection| collection.lists.iter())
+                    .any(|list| list.id == target_id && list.sticky)
+                || field
+                    .fields
+                    .iter()
+                    .any(|child| field_contains_sticky_list(child, target_id))
+        }
+
+        flat_sections_from_template(&self.data.template).iter().any(|section| {
+            section.lists.iter().any(|list| list.id == target_id && list.sticky)
+                || section
+                    .fields
+                    .as_deref()
+                    .is_some_and(|fields| fields.iter().any(|field| field_contains_sticky_list(field, target_id)))
+        })
+    }
+
+    fn persist_sticky_assignments(&mut self, assignments: &HashMap<String, String>) {
+        for (list_id, value) in assignments {
+            if self.list_is_sticky(list_id) {
+                self.config.sticky_values.insert(list_id.clone(), value.clone());
+            }
+        }
+    }
+
+    fn persist_modal_dependent_sticky_values(&mut self) {
+        let assignments = self
+            .modal
+            .as_ref()
+            .map(|modal| modal.assigned_values(&self.config.sticky_values))
+            .unwrap_or_default();
+        self.persist_sticky_assignments(&assignments);
     }
 
     fn finalize_modal_completion_value(
@@ -2856,6 +2931,7 @@ impl App {
             match advance {
                 FieldAdvance::NextList => {
                     self.sync_modal_preview_state(idx);
+                    self.persist_modal_dependent_sticky_values();
                     let _ = self.config.save(&self.data_dir);
                     self.rebuild_modal_unit_layout(false);
                     self.fire_modal_transition_if_needed(
@@ -2866,6 +2942,7 @@ impl App {
                 }
                 FieldAdvance::StayOnList => {
                     self.sync_modal_preview_state(idx);
+                    self.persist_modal_dependent_sticky_values();
                 }
                 FieldAdvance::Complete(final_value) => {
                     let mut committed_value = self
@@ -2887,6 +2964,7 @@ impl App {
                     }
                     let modal_assignments =
                         self.confirmed_assignments_for_current_header_field(idx, &committed_value);
+                    self.persist_sticky_assignments(&modal_assignments);
                     if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                         s.composite_spans = None;
                         s.set_current_value(committed_value);
@@ -2933,6 +3011,7 @@ impl App {
         match advance {
             FieldAdvance::NextList | FieldAdvance::StayOnList => {
                 self.sync_modal_preview_state(idx);
+                self.persist_modal_dependent_sticky_values();
                 let _ = self.config.save(&self.data_dir);
                 self.rebuild_modal_unit_layout(false);
                 self.fire_modal_transition_if_needed(
@@ -2959,6 +3038,7 @@ impl App {
                 }
                 let modal_assignments =
                     self.confirmed_assignments_for_current_header_field(idx, &committed_value);
+                self.persist_sticky_assignments(&modal_assignments);
                 if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
                     s.composite_spans = None;
                     s.set_current_value(committed_value);
@@ -5023,6 +5103,62 @@ mod composition_span_tests {
         }
     }
 
+    fn pronoun_assignment_field() -> HeaderFieldConfig {
+        HeaderFieldConfig {
+            id: "pt_pronouns".to_string(),
+            name: "Patient Pronouns".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "pt_pronouns".to_string(),
+                label: Some("Patient Pronouns".to_string()),
+                preview: Some("Pronouns".to_string()),
+                sticky: true,
+                default: Some("they_them".to_string()),
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![
+                    item_with_assignment(
+                        "they_them",
+                        "they/them",
+                        "they/them",
+                        "pos_pronoun",
+                        "pos_their",
+                        "their",
+                    ),
+                    item_with_assignment(
+                        "she_her",
+                        "she/her",
+                        "she/her",
+                        "pos_pronoun",
+                        "pos_her",
+                        "her",
+                    ),
+                ],
+            }],
+            collections: Vec::new(),
+            format_lists: vec![HierarchyList {
+                id: "pos_pronoun".to_string(),
+                label: Some("Possessive Pronoun".to_string()),
+                preview: Some("Poss".to_string()),
+                sticky: true,
+                default: Some("pos_their".to_string()),
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![
+                    item("pos_their", "their", "their"),
+                    item("pos_her", "her", "her"),
+                ],
+            }],
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        }
+    }
+
     fn collection_field() -> HeaderFieldConfig {
         HeaderFieldConfig {
             id: "regions".to_string(),
@@ -5984,6 +6120,22 @@ mod composition_span_tests {
     }
 
     #[test]
+    fn map_focus_field_hint_opens_header_modal() {
+        let mut app = app_with_single_field(list_field(ModalStart::List));
+        let field_label = app.wizard_hint_labels().fields[0].clone();
+        app.focus = Focus::Map;
+        app.current_idx = 0;
+        app.map_cursor = 0;
+
+        for ch in field_label.chars() {
+            app.handle_key(AppKey::Char(ch));
+        }
+
+        assert!(app.modal.is_some(), "map field hint should open header modal");
+        assert!(app.hint_buffer.is_empty());
+    }
+
+    #[test]
     fn modal_list_authored_hotkey_overrides_nav_alias() {
         let mut app = app_with_single_field(list_field(ModalStart::List));
         app.data.hotkeys.items.insert(
@@ -6006,6 +6158,24 @@ mod composition_span_tests {
             Some(HeaderFieldValue::ListState(value))
                 if value.values == vec!["Hip".to_string()] && value.item_ids == vec!["hip".to_string()]
         ));
+    }
+
+    #[test]
+    fn modal_assignments_persist_dependent_sticky_values() {
+        let mut app = app_with_single_field(pronoun_assignment_field());
+
+        app.open_header_modal();
+        app.handle_key(AppKey::Down);
+        app.handle_key(AppKey::Enter);
+
+        assert_eq!(
+            app.config.sticky_values.get("pt_pronouns").map(String::as_str),
+            Some("she/her")
+        );
+        assert_eq!(
+            app.config.sticky_values.get("pos_pronoun").map(String::as_str),
+            Some("her")
+        );
     }
 
     #[test]
