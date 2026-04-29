@@ -6,12 +6,13 @@ sections:
   #  hotkey: z
     contains:
       - field: sumuscle_field
+      - field: sucondition_field
     note:
       note_label: "#### SUBJECTIVE"
 
 fields:
   - id: sumuscle_field
-    label: "Signs / Symptoms"
+    label: "Muscles"
     format: "{year}-{month}-{day}: {place}{region}: {patientdescribes} {subjective_tag}{starting_since}{starting_frequency}{duration_unit}." # {pluralizer}{starting_ago}."
     max_entries: 12
     contains:
@@ -22,6 +23,18 @@ fields:
       - { list: starting_since }
       - { list: starting_frequency }
       - { list: duration_unit }
+  - id: sucondition_field
+    label: "Conditions"
+    format: "{year}-{month}-{day}: {condition}: {patientdescribes} {subjective_tag}{starting_since}{starting_frequency}{duration_unit}." # {pluralizer}{starting_ago}."{place}
+    max_entries: 12
+    contains:
+      - list: condition
+     # - list: place
+      - list: patientdescribes
+      - list: subjective_tag
+      - list: starting_since
+      - list: starting_frequency
+      - list: duration_unit
 
 lists:
   - id: region
@@ -40,10 +53,10 @@ lists:
         output: "Head, Neck, Shoulders"
       - label: "Head, Neck, and Shoulders HNS"
         output: "Head, Neck, and Shoulders"
-      - label: "Shoulder{summ_pluralizer} Unilateral GH"
+      - label: "Shoulder{summ_pluralizer} GH"
         output: "Shoulder{summ_pluralizer}"
-      - label: "2 ShoulderS Bilateral GHS"
-        output: "Shoulders"
+   #   - label: "2 ShoulderS Bilateral GHS"
+   #     output: "Shoulders"
       - label: "Head Only HNS"
         output: "Head"
       - label: "Neck Only HNS"
@@ -69,10 +82,10 @@ lists:
       - label: "1 Bodyy"
         output: "Body"
 
-      - label: "1 Scapula"
-        output: "Scapula"
-      - label: "2 ScapulaS"
-        output: "Scapulas"
+      - label: "Scapula{summ_pluralizer}"
+        output: "Scapula{summ_pluralizer}"
+   #   - label: "2 ScapulaS"
+   #     output: "Scapulas"
 
 
 
@@ -86,21 +99,22 @@ lists:
         output: "Paraspinal Muscles"
       ## ARMS REGION
       - "Lateral Thoracic"
-      - label: "Wrist"
-        output: "Wrist"
-      - "Elbow"
-      - label: "1 Arm"
-        output: "Arm"
-      - label: "2 Arms"
-        output: "Arms"
-      - label: "1 Posterior Forearm ONE UUL (wrist extensors)"
-        output: "Posterior Forearm (over Extensors)"
-      - label: "2 Posterior ForearmS BOTH BBL (wrist extensors)"
-        output: "Posterior Forearms (over Extensors)"
-      - label: "1 Anterior Forearm ONE UUL (wrist flexors)"
-        output: "Anterior Forearm (over Flexors)"
-      - label: "2 Anterior ForearmS BOTH BBL (wrist flexors)"
-        output: "Anterior Forearms (over Flexors)"
+      - label: "Wrist{summ_pluralizer}"
+        output: "Wrist{summ_pluralizer}"
+      - label: "Elbow{summ_pluralizer}"
+        output: "Elbow{summ_pluralizer}"
+      - label: "Arm{summ_pluralizer}"
+        output: "Arm{summ_pluralizer}"
+   #   - label: "2 Arms"
+   #     output: "Arms"
+      - label: "Posterior Forearm{summ_pluralizer} (wrist extensors)"
+        output: "Posterior Forearm{summ_pluralizer} (over Extensors)"
+   #   - label: "2 Posterior ForearmS BOTH BBL (wrist extensors)"
+   #     output: "Posterior Forearms (over Extensors)"
+      - label: "Anterior Forearm{summ_pluralizer} (wrist flexors)"
+        output: "Anterior Forearm{summ_pluralizer} (over Flexors)"
+    #  - label: "2 Anterior ForearmS BOTH BBL (wrist flexors)"
+    #    output: "Anterior Forearms (over Flexors)"
         ## WRIST & HAND
       - label: "12 FingerS (MCP jt metacarpophalangeal knuckles)"
         output: "Fingers (MCP)"
@@ -127,15 +141,16 @@ lists:
       - "Anterior Hip"
 
       ## LEGS REGION
-      - label: "1 Knee (one UU Unilateral)"
-        output: "Knee"
-      - label: "2 Knees (both BB Bilateral)"
-        output: "Knees"
-      - "Hip"
-      - label: "1 Ankle (one UU Unilateral)"
-        output: "Ankle"
-      - label: "2 AnkleS (both BB Bilateral)"
-        output: "Ankles"
+      - label: "Knee{summ_pluralizer}"
+        output: "Knee{summ_pluralizer}"
+   #   - label: "2 Knees (both BB Bilateral)"
+   #     output: "Knees"
+      - label: "Hip{summ_pluralizer}"
+        output: "Hip{summ_pluralizer}"
+      - label: "Ankle{summ_pluralizer}"
+        output: "Ankle{summ_pluralizer}"
+     # - label: "2 AnkleS (both BB Bilateral)"
+     #   output: "Ankles"
       - label: "Iliotibial Band - IT Band - ITB"
         output: "Iliotibial (IT) Band"
       - label: "Lower Body"
@@ -154,10 +169,10 @@ lists:
         output: "Hamstrings"
       - label: "Hamstrings Posterior Thigh"
         output: "Posterior Thigh (over Hamstrings)"
-      - label: "1 Legg Unilateral"
-        output: "Leg"
-      - label: "2 Leggs Bilateral"
-        output: "Legs"
+      - label: "Leg{summ_pluralizer}"
+        output: "Leg{summ_pluralizer}"
+    #  - label: "2 Leggs Bilateral"
+    #    output: "Legs"
       - label: "Feet foots"
         output: "Feet"
       - label: "Foot"
@@ -214,7 +229,12 @@ lists:
       - "reduced pain"
       - "significantly reduced pain"
       - "increased pain"
-      - "irritation"
+      - id: irritation_mild
+        output: "mild irritation"
+      - id: irritation_reg
+        output: "irritation"
+      - id: irritation_sig
+        output: "significant irritation"
       - "pain with activity"
       - "general tightness"
       - "tightness"
@@ -406,6 +426,24 @@ lists:
         assigns:
           - list: starting_ago
             item: ago
+      - id: ending
+        label: "ending"
+        output: ", ending"
+        assigns:
+          - list: starting_ago
+            item: empty_space
+      - id: ending_ago
+        label: "ending ... ago"
+        output: ", ending"
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: ending_over_ago
+        label: "ending over ... ago"
+        output: ", ending over"
+        assigns:
+          - list: starting_ago
+            item: ago
       # - ago -
   #    - id: since_last_appointment_his_ago
   #      label: "since his last appointment ... ago"
@@ -476,6 +514,7 @@ lists:
       - id: freq_1
         label: "1"
         output: " 1"
+        hotkey: 1
         assigns:
           - list: pluralizer
             item: singular

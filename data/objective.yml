@@ -233,12 +233,15 @@ lists:
   - id: place
     label: "(direction)" # {region}"
     preview: "(direction) "
-    modal_start: list
+    modal_start: search
     default: empty_space
     items:
       - id: empty_space
         label: "(empty)"
         output: ""
+        assigns:
+          - list: summ_pluralizer
+            item: singular
       - id: bilateral
         label: "Bilateral BB"
         output: "BL "
@@ -247,12 +250,24 @@ lists:
             item: plural
       - label: "Bilateral (Left > R) BL"
         output: "BL (L > R) "
+        assigns:
+          - list: summ_pluralizer
+            item: plural
       - label: "Bilateral (Right > L) BR"
         output: "BL (R > L) "
+        assigns:
+          - list: summ_pluralizer
+            item: plural
       - label: "Left LL"
         output: "Left "
+        assigns:
+          - list: summ_pluralizer
+            item: singular
       - label: "RRight RR"
         output: "Right "
+        assigns:
+          - list: summ_pluralizer
+            item: singular
       - label: "Upper, Mid & Low "
         output: "Upper, Mid & Low "
       - label: "Upper & Mid "
@@ -279,9 +294,12 @@ lists:
         output: "Lateral "
       - label: "Medial"
         output: "Medial "
+      - label: "Central"
+        output: "Central "
       - label: "Lumbar Spine L1-L5"
         output: "L1-L5"
-        
+      - label: "Cervical Spine C7-T1"
+        output: "C7-T1"        
         
   - id: tag
     label: "Objective Tag Desciptions"

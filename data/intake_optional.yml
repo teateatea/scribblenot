@@ -221,6 +221,9 @@ lists:
       - id: pract_ac
         label: "9 ACAC Acupunture treatment"
         output: "acupuncture treatment"
+      - id: pract_os
+        label: "OSOS Osteopathic treatment"
+        output: "osteopathic treatment"
         
       
       # VAUGHAN PHYSIOTHERAPY CLINIC

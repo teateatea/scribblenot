@@ -1,0 +1,171 @@
+lists:
+  - id: condition
+    label: "[CONDITION]"
+    modal_start: search
+    default: empty_space
+   # joiner_style: comma
+   # max_entries: 12
+    items:
+      - id: condition0
+        label: "1 (Empty Space)"
+        output: ""
+        # OTHER
+      - id: condition1
+        label: "Fatigue"
+        output: "Fatigue"
+      
+        # MENTAL HEALTH CONDITIONS (or other brain / symptomatic conditions)
+      - id: condition2
+        label: "Migraines (BL Occiput occipital, progressing anteriorly forward)"
+        output: "Migraines (BL Occiput, progressing anteriorly)"
+      - id: condition3
+        label: "Migraines"
+        output: "Migraines"
+      - id: condition4
+        label: "Migraines (frontal bone; forehead)"
+        output: "Migraines (frontal bone; forehead)"
+      - id: condition5
+        label: "Bipolar 1 (1+ manic ep lasting 7+ days; optional depressive episode)"
+        output: "Bipolar I Disorder"
+      - id: condition6
+        label: "Bipolar 2 (major depressive ep lasting 2+ weeks & 1+ hypomanic episode)"
+        output: "Bipolar II Disorder"
+      - id: condition7
+        label: "Tension Headaches"
+        output: "Tension Headaches"
+      
+        # PHYSICAL HEALTH CONDITIONS
+        ## CHRONIC Physical Health Conditions (long term, managed only by medication, or otherwise irreversible)
+      - id: condition8
+        label: "1 HypERtension (no comment on medication) HBP High Blood Pressure Elevated"
+        output: "Hypertension"
+      - id: condition9
+        label: "2 HypERtension (Medicated) HBP High Blood Pressure Elevated "
+        output: "Hypertension (managed with medication)"
+      - id: condition10
+        label: "3 HypERtension (Unmedicated) HBP Unmanaged High Blood Pressure Elevated"
+        output: "unmanaged Hypertension"
+      - id: condition11
+        label: "1 HypOtension (no comment on medication) LBP Low Blood Pressure Reduced"
+        output: "Hypotension"
+      - id: condition12
+        label: "2 HypOtension (Medicated) LBP Low Blood Pressure Reduced"
+        output: "Hypotension (managed with medication)"
+      - id: condition13
+        label: "3 HypOtension (Unmedicated) LBP Unmanaged Low Blood Pressure Reduced"
+        output: "unmanaged Hypotension"
+      - id: condition14
+        label: "Degenerative Disc Disease DDD L5-S1 - Chronic Low Back Pain"
+        output: "Degenerative Disc Disease (DDD: L5-S1) - Chronic Low Back Pain"
+      - id: condition15
+        label: "Degenerative Disc Disease DDD L4-L5"
+        output: "Degenerative Disc Disease (DDD: L4-L5)"
+      - id: condition16
+        label: "Lipoma [OVER ARSTRR] (Benign Fat Deposit, Painless 6cm)"
+        output: "Lipoma (over ): Painless, ~6cm; Notify if growing."
+      - id: condition17
+        label: "Spider Veins (as Varicose; 0-1.5mm; not protrude; pink, red, purple,)"
+        output: "Spider Veins (pink, red, purple)"
+      - id: condition18
+        label: "Reticular Veins (as Varicose; ~2mm; not protrude; green-blue, purple; burning, itching)"
+        output: "Reticular Veins (green-blue, purple)"
+      - id: condition19
+        label: "Varicose Veins (protrude; >2.5mm; dark blue/purle; pain, burning, spasms)"
+        output: "Varicose Veins (dark blue, purple)"
+      - id: condition20
+        label: "AAllergy - Shrimp"
+        output: "Allergy to Shrimp"
+      - id: condition21
+        label: "AAllergy - (INSERT)"
+        output: "Allergy to "
+      - id: condition22
+        label: "Raynaud's Syndrome"
+        output: "Raynaud's Syndrome"
+        
+        
+      
+        ## TRANSIENT Physical Health Conditions (or otherwise temporary or reversible)
+      - id: condition23
+        label: "Sciatica (no referral)"
+        output: "Sciatica"
+      - id: condition24
+        label: "2 Frozen Shoulder (Freezing: Worsening pain, lasts 6-9mo)"
+        output: "Frozen Shoulder (Freezing stage)"
+      - id: condition25
+        label: "3 Frozen Shoulder (Frozen: less pain, more stiff, lasts 4-12mo)"
+        output: "Frozen Shoulder (Frozen stage)"
+      - id: condition26
+        label: "4 Frozen Shoulder (Thawing: improved ROM, lasts 5-24mo)"
+        output: "Frozen Shoulder (Thawing stage)"
+      - id: condition27
+        label: "5 Frozen Shoulder (Resolved: Pain Free, after 12-24mo)"
+        output: "Frozen Shoulder (Resolved)"
+      - id: condition28
+        label: "1 Frozen Shoulder (General)"
+        output: "Frozen Shoulder "
+      - id: condition29
+        label: "Sciatica (referral to knee)"
+        output: "Sciatica (referral pain shooting above the knee)"
+      - id: condition30
+        label: "ACL Repair Surgery"
+        output: "ACL Repair Surgery"
+      - id: condition31
+        label: "Cramps Cramping (Calf UL Calves)"
+        output: "Cramps (Calf)"
+      - id: condition32
+        label: "Cramps Cramping (Calves BL)"
+        output: "Cramps (Calves)"
+      - id: condition33
+        label: "Cramps Cramping (Calves & Hamstrings BL)"
+        output: "Cramps (Calves, Hamstrings)"
+      - id: condition35
+        label: "Right Plantar Fasciitis PF RR"
+        output: "Plantar Fasciitis (Right)"
+      - id: condition36
+        label: "Left Plantar Fasciitis PF LL"
+        output: "Plantar Fasciitis (Left)"
+      - id: condition37
+        label: "Bilateral Plantar Fasciitis PF BB"
+        output: "Plantar Fasciitis (Bilateral)"
+      - id: condition34
+        label: "Plantar Fasciitis PF"
+        output: "Plantar Fasciitis"
+      - id: condition38
+        label: "TMJ - S Curve: starts Left, swings Right, returns to centre"
+        output: "TMJ - S-Curve: slight Left, strong Right deviation, returns to centre."
+      - id: condition39
+        label: "TMJ - S Curve: starts Right, swings Left, returns to centre"
+        output: "TMJ - S-Curve: starts Right, swings Left, returns to centre."
+      - id: condition40
+        label: "TMJ - C Curve: Right deviation before returning to centre"
+        output: "TMJ - C-Curve: Right deviation before returning to centre."
+      - id: condition41
+        label: "TMJ - C Curve: Left deviation before returning to centre"
+        output: "TMJ - C-Curve: Left deviation before returning to centre."
+      - id: condition42
+        label: "SPrain (injury to LIGAMENTS that connect bones to a joint; strain)"
+        output: "Sprain"
+      - id: condition43
+        label: "STrain (injury to MUSCLES or TENDONS; sprain)"
+        output: "Strain"
+      - id: condition44
+        label: "Bursitis (BL Shoulders)"
+        output: "Bursitis (BL GH jt)"
+      - id: condition45
+        label: "Bursitis (LL Shoulder)"
+        output: "Bursitis (Left GH jt)"
+      - id: condition46
+        label: "Bursitis (RR Shoulder)"
+        output: "Bursitis (Right GH jt)"
+      - id: condition47
+        label: "Tendonitis - Supraspinatus (RR Shoulder)"
+        output: "Tendonitis (Right Supraspinatus)"
+      - id: condition48
+        label: "Tendonitis - Supraspinatus (LL Shoulder)"
+        output: "Tendonitis (Left Supraspinatus)"
+      - id: condition49
+        label: "Baker's Cyst (RR Knee) Popliteal Popliteus Bursa"
+        output: "Baker's Cyst (R Knee)"
+      - id: condition50
+        label: "Baker's Cyst (LL Knee) Popliteal Popliteus Bursa"
+        output: "Baker's Cyst (Left Knee)"
