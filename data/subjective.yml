@@ -306,7 +306,7 @@ lists:
             item: ago
       - id: in_the_past
         label: "in the past"
-        output: ", in the past"
+        output: " in the past"
         assigns:
           - list: starting_ago
             item: empty_space
@@ -338,7 +338,7 @@ lists:
             item: empty_space
       - id: for
         label: "for"
-        output: ", for"
+        output: " for"
         assigns:
           - list: starting_ago
             item: empty_space
@@ -531,8 +531,8 @@ lists:
           - list: pluralizer
             item: plural
       - id: freq_4
-        label: "4"
-        output: " 4"
+        label: "4+"
+        output: " 4+"
         assigns:
           - list: pluralizer
             item: plural
@@ -693,3 +693,5 @@ lists:
       - id: ago
         label: "ago"
         output: " ago"
+
+

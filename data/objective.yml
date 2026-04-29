@@ -235,6 +235,8 @@ lists:
     preview: "(direction) "
     modal_start: search
     default: empty_space
+    max_entries: 2
+    joiner_style: space
     items:
       - id: empty_space
         label: "(empty)"

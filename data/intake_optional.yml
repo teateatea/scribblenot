@@ -6,6 +6,7 @@ sections:
     show_field_labels: false
     contains:
       - field: int_exha_field
+      - field: int_exha_field_brief
       - field: int_adl_field
       - field: int_specialist_field
      # - field: test_error_field
@@ -37,6 +38,19 @@ fields:
       - list: starting_frequency
       - list: duration_unit
       
+  - id: int_exha_field_brief
+    label: "Exercise Habits Brief"
+    format: "- {patientdescribes} {int_exha_list}{frequency}{starting_since}{starting_frequency}{duration_unit}." # {pluralizer}{starting_ago}." {year}-{month}-{day}: 
+    max_entries: 12
+   # joiner_style: newline
+    contains:
+      - list: patientdescribes
+      - list: int_exha_list
+      - list: frequency
+      - list: starting_since
+      - list: starting_frequency
+      - list: duration_unit
+      
   - id: int_specialist_field
     label: "Specialists & Treatment"
     format: "{year}-{month}-{day}: {practioner_start} {int_practioner_list}{starting_since}{starting_frequency}{duration_unit}." # {pluralizer}{starting_ago}."
@@ -63,6 +77,8 @@ lists:
         output: "walking"
       - id: exha_3
         output: "exercising"
+      - id: exha_3_re
+        output: "regular exercise"
       - id: exha_4
         output: "exercising regularly each week"
       - id: exha__adherence_close
@@ -321,3 +337,27 @@ lists:
         label: "continues"
         output: "Pt continues"
 
+  - id: frequency
+    label: "frequencylabel"
+    default: empty
+    modal_start: list
+    preview: " (frequency)"
+   # joiner_style: comma
+   # max_entries: 3
+    items:
+      - id: empty
+        label: "(empty)"
+        output: ""
+   #     assigns:
+   #       - list: starting_ago
+   #         item: ago
+      - id: regularly
+        label: "regularly"
+        output: " regularly"
+
+      - id: every
+        label: "every"
+        output: " every"
+    #    assigns:
+    #      - list: starting_ago
+    #        item: empty_space

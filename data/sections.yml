@@ -59,7 +59,7 @@
 #    sticky?                # remember chosen output across notes
 #    default?               # item id selected by default
 #    modal_start?           # list | search
-#    joiner_style?          # comma_and | comma_and_the | comma_or | comma | semicolon | slash | newline
+#    joiner_style?          # comma_and | comma_and_the | comma_or | comma | space | semicolon | slash | newline
 #    max_entries?           # repeat cap for multi-select lists
 #    items[]
 #
@@ -90,6 +90,7 @@
 template:
   id: patient_standard_template
   contains:
+    - group: brief_group
     - group: intake_group
     - group: subjective_group
     - group: treatment_group
@@ -99,11 +100,17 @@ template:
 
 
 groups:
+  - id: brief_group
+    nav_label: BRIEF
+    contains:
+      - section: brief_section
+      
   - id: intake_group
     nav_label: INTAKE
     contains:
       - section: appointment_section
       - section: intake_optional
+     # - section: appointment_section_brief
       
   - id: subjective_group
     nav_label: SUBJECTIVE
@@ -147,6 +154,19 @@ groups:
 
 
 sections:
+  - id: brief_section
+    label: Brief
+    nav_label: "Brief"
+    show_field_labels: false
+   # hotkey: Z
+    contains:
+    #  - field: date_field
+   #   - field: 
+   #   - field: 
+      - field: pt_info
+      - field: appointment_requested_field_brief
+      - field: int_exha_field_brief
+      
   - id: appointment_section
     label: Appointment
     nav_label: "Appointment"
@@ -156,9 +176,11 @@ sections:
     #  - field: date_field
       - field: appointment_date_field
       - field: appointment_requested_field
+      - field: appointment_requested_field_brief
     #  - field: consent_pecs_field
       - field: pt_info
-     
+      
+
  
 
 #  - collection:
@@ -202,12 +224,28 @@ fields:
       - field: requested_regions #
      # - list: break
 
+  - id: appointment_requested_field_brief
+    label: Brief
+    format: "- {appointment_type_list_brief} ({requested_regions_brief})." # {the_region}."
+    contains:
+      - list: appointment_type_list_brief
+      - field: requested_regions_brief #
+     # - list: break
 
   - id: requested_regions
     label: Requested Regions
     format: "{single_region}"
     preview: "region"
     joiner_style: comma_and_the
+    max_entries: 6
+    contains:
+      - field: single_region
+      
+  - id: requested_regions_brief
+    label: Requested Regions
+    format: "{single_region}"
+    preview: "region"
+    joiner_style: semicolon
     max_entries: 6
     contains:
       - field: single_region
@@ -573,7 +611,7 @@ lists:
 # Appointment Request
 
   - id: appointment_type_list
-    label: "Pt requested a "
+    label: "Appointment type"
     default: appointment_type_treatment
     items:
       - id: appointment_type_treatment
@@ -586,6 +624,49 @@ lists:
       - label: "General relaxation massage (x)"
         output: "general relaxation massage"
 
+  - id: appointment_type_list_brief
+    label: "Appointment Type"
+    default: appointment_brief_upper
+    sticky: true
+    items:
+      - id: appointment_brief_upper
+        label: "Upper Tx:"
+        output: "Upper Body Tx"
+      - id: appointment_brief_lower
+        label: "Lower Tx:"
+        output: "Lower Body Tx"
+      - id: appointment_brief_full
+        label: "Full Tx:"
+        output: "Full Body Tx"
+    #  - id: appointment_type_treatment1
+    #    label: "Upper Treatment, focus"
+    #    output: "Upper Body Treatment, focusing on "
+    #  - id: appointment_type_treatment2
+    #    label: "Upper Relaxation, focus"
+    #    output: "Upper Body Relaxation, focusing on "
+    #  - id: appointment_type_treatment3
+    #    label: "Upper Relaxation, emphasis"
+    #    output: "Upper Body Relaxation, emphasis on "
+    #  - id: appointment_type_treatment4
+    #    label: "Lower Treatment focus"
+    #    output: "Lower Body Treatment focusing on "
+    #  - id: appointment_type_treatment5
+    #    label: "Lower Relaxation, focus"
+    #    output: "Lower Body Relaxation, focusing on "
+    #  - id: appointment_type_treatment6
+    #    label: "Lower Relaxation, emphasis"
+    #    output: "Lower Body Relaxation, emphasis on "
+    #  - id: appointment_type_treatment7
+    #    label: "Full Treatment focus"
+    #    output: "Full Body Treatment focusing on "
+    #  - id: appointment_type_treatment8
+    #    label: "Full Relaxation, focus"
+    #    output: "Full Body Relaxation, focusing on "
+    #  - id: appointment_type_treatment9
+    #    label: "Full Relaxation, emphasis"
+    #    output: "Full Body Relaxation, emphasis on "
+     # - label: "General relaxation massage (x)"
+     #   output: "general relaxation massage"
   #- id: focused_list
   #  label: "focusing on"
   #  default: focused_on
