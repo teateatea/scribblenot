@@ -221,6 +221,12 @@ lists:
       - "tightness and pain"
       - "tightness, swelling & inflammation"
       - "pain"
+      - id: discomfort_general
+        output: "general discomfort"
+      - id: discomfort_mild
+        output: "mild discomfort"
+      - id: discomfort_significant
+        output: "significant discomfort"
       - id: pain_1
         label: "pain 1/10"
         output: "1/10 Pain"
@@ -456,13 +462,13 @@ lists:
           - list: pluralizer
             item: singular
       - id: freq_this
-        label: "1"
+        label: "this"
         output: " this"
         assigns:
           - list: pluralizer
             item: singular
       - id: freq_last
-        label: "1"
+        label: "last"
         output: " last"
         assigns:
           - list: pluralizer

@@ -94,7 +94,9 @@ template:
     - group: subjective_group
     - group: treatment_group
     - group: objective_group
+    - group: post_group
     - group: infection_group
+
 
 groups:
   - id: intake_group
@@ -128,6 +130,13 @@ groups:
     note_label: "## OBJECTIVE / OBSERVATIONS"
     contains:
       - section: objective_section
+
+  - id: post_group
+    nav_label: POST
+    note_label: "## POST-TREATMENT"
+    contains:
+      - section: post_response_section
+      - section: post_remex_section
       
   - id: infection_group
     nav_label: INF

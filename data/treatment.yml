@@ -630,7 +630,7 @@ collections:                                     # POST_LEG
       - list: post_legs_prone
       - list: lower_legs_prone
     note:
-      note_label: "\n#### POSTERIOR LEGS & FEET (Prone)"
+      note_label: "\n#### POSTERIOR LEGS HAMSTRINGS (Prone)"
   - id: prone_legs_collection_upper
     label: "UPPER POSTERIOR LEGS & FEET (Prone)"
     nav_label: "POST_LEGUPC"
@@ -765,9 +765,11 @@ lists:
       - id: friction_rf
         label: "Friction (Rectus Femoris)"
         output: "- Friction (Rectus Femoris)"
+        default_enabled: false
       - id: jt_mob_hip
         label: "Joint Mobilization (Hip: Traction, Grade 2)"
         output: "- Joint Mobilization (Coxafemoral Jt: Traction, Grade 2)"
+        default_enabled: false
 
   - id: lower_legs_supine
     label: "LOWER LEGS & FEET (Supine)"

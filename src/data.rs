@@ -15,7 +15,6 @@ pub use crate::data_hints::*;
 pub use crate::data_load::*;
 pub use crate::data_model::*;
 pub use crate::data_source::*;
-use crate::data_model::{slug_source_for_item, slugify_id};
 
 #[derive(Debug)]
 pub struct AppData {
@@ -143,6 +142,23 @@ fn format_placeholder_report(
         .with_param("owner_label", format!("field '{field_id}'"))
         .with_param("owner_id", field_id)
         .with_param("placeholder_id", placeholder_id)
+}
+
+fn double_brace_format_placeholder_report(
+    field_id: &str,
+    placeholder_id: &str,
+    message: impl Into<String>,
+    source: Option<ErrorSource>,
+) -> ErrorReport {
+    let actual_placeholder_token = format!("{{{{{placeholder_id}}}}}");
+    format_placeholder_report(
+        "field_double_brace_format_placeholder",
+        field_id,
+        placeholder_id,
+        message,
+        source,
+    )
+    .with_param("actual_placeholder_token", actual_placeholder_token)
 }
 
 fn assign_rule_report(
@@ -994,6 +1010,13 @@ fn referenced_placeholder_ids(format: Option<&str>) -> Vec<String> {
     ids
 }
 
+fn looks_like_double_brace_placeholder(format: &str, placeholder_id: &str) -> bool {
+    let Some(normalized_id) = placeholder_id.strip_prefix('{') else {
+        return false;
+    };
+    format.contains(&format!("{{{{{normalized_id}}}}}"))
+}
+
 fn maybe_record_section_lists(
     section: &SectionConfig,
     list_data: &mut HashMap<String, Vec<ListEntry>>,
@@ -1739,68 +1762,6 @@ fn validate_keybindings_file(path: &Path) -> Result<bool, String> {
     Ok(true)
 }
 
-pub(crate) fn normalize_items(file: &mut HierarchyFile) {
-    for list in &mut file.lists {
-        for item in &mut list.items {
-            if item.id.is_empty() {
-                item.id = slugify_id(slug_source_for_item(item));
-            }
-        }
-    }
-}
-
-pub(crate) fn extract_item_hotkeys_from_value(
-    value: &serde_yaml::Value,
-    file: &HierarchyFile,
-) -> HashMap<String, HashMap<String, String>> {
-    let mut item_hotkeys = HashMap::new();
-    let Some(root) = value.as_mapping() else {
-        return item_hotkeys;
-    };
-    let Some(raw_lists) = root
-        .get(serde_yaml::Value::String("lists".to_string()))
-        .and_then(serde_yaml::Value::as_sequence)
-    else {
-        return item_hotkeys;
-    };
-
-    for (list_idx, raw_list) in raw_lists.iter().enumerate() {
-        let Some(list) = file.lists.get(list_idx) else {
-            continue;
-        };
-        let Some(raw_items) = raw_list
-            .as_mapping()
-            .and_then(|mapping| mapping.get(serde_yaml::Value::String("items".to_string())))
-            .and_then(serde_yaml::Value::as_sequence)
-        else {
-            continue;
-        };
-
-        let mut hotkeys_for_list = HashMap::new();
-        for (item_idx, raw_item) in raw_items.iter().enumerate() {
-            let Some(item) = list.items.get(item_idx) else {
-                continue;
-            };
-            let Some(mapping) = raw_item.as_mapping() else {
-                continue;
-            };
-            let Some(hotkey) = mapping
-                .get(serde_yaml::Value::String("hotkey".to_string()))
-                .and_then(serde_yaml::Value::as_str)
-            else {
-                continue;
-            };
-            hotkeys_for_list.insert(item.id.clone(), hotkey.to_string());
-        }
-
-        if !hotkeys_for_list.is_empty() {
-            item_hotkeys.insert(list.id.clone(), hotkeys_for_list);
-        }
-    }
-
-    item_hotkeys
-}
-
 fn collect_authored_hotkeys(file: &HierarchyFile) -> AuthoredHotkeys {
     let mut hotkeys = AuthoredHotkeys::default();
 
@@ -2031,6 +1992,7 @@ pub(crate) fn validate_merged_hierarchy(
                 index,
             )?;
         }
+        let format = field.format.as_deref().unwrap_or_default();
         for list_id in referenced_placeholder_ids(field.format.as_deref()) {
             let field_has_list = field
                 .contains
@@ -2071,6 +2033,18 @@ pub(crate) fn validate_merged_hierarchy(
                     )
                 }
                 None => {
+                    if looks_like_double_brace_placeholder(format, &list_id) {
+                        let normalized_id = list_id.trim_start_matches('{');
+                        return Err(double_brace_format_placeholder_report(
+                            &field.id,
+                            normalized_id,
+                            format!(
+                                "field '{}' uses invalid double-brace placeholder '{{{{{}}}}}' in `format:`. Scribblenot placeholders use single braces like '{{{}}}'.",
+                                field.id, normalized_id, normalized_id
+                            ),
+                            index.source_for(&field.id),
+                        ));
+                    }
                     return Err(format_placeholder_report(
                         "field_unknown_format_list",
                         &field.id,
@@ -3346,6 +3320,30 @@ mod tests {
         ));
         assert!(err.contains("Fix: update field 'f'"));
         assert!(err.contains("list"));
+    }
+
+    #[test]
+    fn field_double_brace_format_placeholder_gets_bespoke_diagnostic() {
+        let (file, index) = parse_with_index(concat!(
+            "template:\n  contains:\n    - group: g\n",
+            "groups:\n  - id: g\n    contains:\n      - section: s\n",
+            "sections:\n  - id: s\n    contains:\n      - field: f\n",
+            "fields:\n",
+            "  - id: f\n",
+            "    label: Demo\n",
+            "    format: \"{{pt_tolerance}}\"\n",
+            "    contains:\n",
+            "      - list: pt_tolerance\n",
+            "lists:\n",
+            "  - id: pt_tolerance\n",
+            "    items:\n",
+            "      - output: ok\n",
+        ));
+        let err = validate_with_index(&file, &index).expect_err("double-brace placeholder must fail");
+
+        assert_eq!(err.kind_id(), "field_double_brace_format_placeholder");
+        assert!(err.contains("double-brace placeholder '{{pt_tolerance}}'"));
+        assert!(err.contains("single braces like '{pt_tolerance}'"));
     }
 
     #[test]

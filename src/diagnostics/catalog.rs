@@ -368,6 +368,12 @@ fn builtin_entries() -> Vec<MessageEntry> {
             fix: "In Scribblenot, `format:` placeholders resolve through lists attached to the same field.\n\nThis field needs a matching pair:\n```yaml\nformat: \"{placeholder_token}\"\ncontains:\n  - list: {placeholder_id}\n```\nIf the real list id is different, rename the placeholder to match it.",
         },
         MessageEntry {
+            id: "field_double_brace_format_placeholder",
+            title: "Format Placeholder Uses Double Braces",
+            description: "{owner_label} uses `{actual_placeholder_token}` in `format:`, but Scribblenot placeholders use single braces such as `{placeholder_token}`.",
+            fix: "Use single braces in `format:` and keep the matching list attached to the same field.\n\nThis field should look like:\n```yaml\nformat: \"{placeholder_token}\"\ncontains:\n  - list: {placeholder_id}\n```\n`{{...}}` is treated as a typo, not as a valid placeholder form.",
+        },
+        MessageEntry {
             id: "runtime_unknown_format_list",
             title: "Unknown Runtime Format List",
             description: "{owner_label} still needs placeholder `{placeholder_token}` at runtime, but no list with id `{placeholder_id}` is available on that field.",
@@ -572,10 +578,9 @@ fn report_params(report: &ErrorReport) -> HashMap<String, String> {
 
 fn add_derived_params(params: &mut HashMap<String, String>) {
     if let Some(placeholder_id) = params.get("placeholder_id").cloned() {
-        params.insert(
-            "placeholder_token".to_string(),
-            format!("{{{placeholder_id}}}"),
-        );
+        params
+            .entry("placeholder_token".to_string())
+            .or_insert_with(|| format!("{{{placeholder_id}}}"));
     }
     if let Some(inline_map_token) = params
         .get("inline_map_token")
@@ -1273,6 +1278,24 @@ mod tests {
         assert!(rendered.description.contains("placeholder `{year}`"));
         assert!(rendered.fix.contains("format: \"{year}\""));
         assert!(rendered.fix.contains("- list: year"));
+    }
+
+    #[test]
+    fn render_field_double_brace_placeholder_teaches_single_brace_contract() {
+        let messages = Messages::load();
+        let report = ErrorReport::generic("field_double_brace_format_placeholder", "raw")
+            .with_param("owner_label", "field 'pt_response_field'")
+            .with_param("owner_id", "pt_response_field")
+            .with_param("placeholder_id", "pt_tolerance")
+            .with_param("actual_placeholder_token", "{{pt_tolerance}}");
+
+        let rendered = messages.render(&report);
+
+        assert_eq!(rendered.title, "Format Placeholder Uses Double Braces");
+        assert!(rendered.description.contains("`{{pt_tolerance}}`"));
+        assert!(rendered.description.contains("`{pt_tolerance}`"));
+        assert!(rendered.fix.contains("format: \"{pt_tolerance}\""));
+        assert!(rendered.fix.contains("`{{...}}` is treated as a typo"));
     }
 
     #[test]

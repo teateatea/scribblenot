@@ -1,0 +1,79 @@
+sections:
+  - id: post_remex_section
+    label: "RemexL"
+    nav_label: "REMEX"
+    contains:
+      - field: post_remex_field
+    note:
+      note_label: "" #"#### TREAMENT / PLAN"
+
+---
+# BACK PRONE
+fields:                
+  - id: post_remex_field
+    label: "Remedial Exercises"
+   # nav_label: "prexf"
+   # max_actives: 12
+    # format: "- {year}-{month}-{day}:" is this supposed to work?
+   # note:
+   #   note_label: "Rem note"
+    contains:
+  #    - list: pt_tolerance
+  #  #  - list: patientdescribes
+  #    - list: pt_review
+  #    - list: pt_questions                         # BACK PRONE
+     # - list: year
+      - collection: wall_angels_collection
+      - collection: bo_dbrow_collection
+collections:                                     # BACK PRONE
+  - id: wall_angels_collection
+   # label: "UPPER, MIDDLE & LOWER BACK"
+   # nav_label: "BACKAPC"
+   # default_enabled: true
+    label: "WALL ANGELS"
+   # nav_label: "Wallnl"
+    default_enabled: false
+    contains:
+      - list: wall_angels_list
+  - id: bo_dbrow_collection
+    label: ""
+    default_enabled: false
+    contains:
+      - list: bo_dbrow_list
+   # note:
+   #   note_label: "\n#### UPPER MIDDLE & LOW BACK (Prone)"
+
+lists:                                           # BACK PRONE
+  - id: wall_angels_list
+    label: "WALL ANGELS"
+    items:
+      - id: wal1
+        label: "Increase Rhomboid Strength & Postural Awareness:"
+        output: "- WALL ANGELS - Increase Rhomboid Strength & Postural Awareness:"
+      - id: wal2
+        label: "5->10 Reps, daily at work, for 2 weeks or until next appointment."
+        output: "   - 5->10 Reps, daily at work, for 2 weeks or until next appointment."
+    #  - id: wal3
+    #    label: "Perfect reps, no rushing!"
+    #    output: "   - Perfect reps, no rushing!"
+    #    default_enabled: false
+      - id: wal4
+        label: "Take your time, find the contraction!"
+        output: "   - Take your time, find the contraction!"
+  - id: bo_dbrow_list
+    label: "Bent-Over Db Row"
+    items:
+      - id: bdr1
+        label: "Increase Rhomboid Strength:"
+        output: "- BENT-OVER DUMBBELL ROW - Increase Rhomboid Strength:"
+      - id: bdr2
+        label: "8-10 Reps x 3 Sets (Rest 60s), using 80% strength."
+        output: "   - 8-10 Reps x 3 Sets (Rest 60s), using 80% strength."
+      - id: bdr3
+        label: "4 / week, for 3 weeks or until next appointment."
+        output: "   - 4 / week, for 3 weeks or until next appointment."
+         #   - label: "Bent Over Dumbbell Row (BODbRow)"
+         #     id: |
+         #        BENT-OVER DUMBBELL ROW - Increase Rhomboid Strength:
+         #        - - 8-10 Reps x 3 Sets (Rest 60s), using 80% strength.
+         #        - - 4 / week, for 3 weeks or until next appointment.

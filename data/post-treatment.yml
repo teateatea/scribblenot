@@ -1,0 +1,147 @@
+sections:
+  - id: post_response_section
+    label: "Patient Response"
+    nav_label: "Response"
+    show_field_labels: false
+    contains:
+      - field: pt_response_field
+      - field: post_remex_field
+      - field: post_plan_field
+     # - collection: next_recommend_collection
+    note:
+      note_label: ""
+
+fields:
+  - id: pt_response_field
+    label: "Pt Response field"
+    nav_label: "prf"
+    format: "- {year}-{month}-{day}: {pt_tolerance}{pt_review}{pt_questions}"
+    contains:
+      - list: pt_tolerance
+    #  - list: patientdescribes
+      - list: pt_review
+      - list: pt_questions
+
+
+  - id: post_plan_field
+    label: ""
+    nav_label: "planf"
+    format: "- {year}-{month}-{day}: NEXT: Tx {next_recommend_collection}" # {recommend next} {treatment suggestions} ALSO the label is awkward around collections
+    contains:
+      - collection: next_recommend_collection
+
+collections:
+  - id: next_recommend_collection
+    label: "clabel"
+    joiner_style: comma
+    contains:
+      - list: next_recommend_list
+    note:
+      note_label: "- {year}-{month}-{day}: NEXT:t Tx"
+
+      
+
+
+
+lists:
+  - id: pt_tolerance
+    label: "Patient Tolerance"
+    preview: "tolerance preview"
+    default: tolerance_well
+    items:
+      - id: tolerance_empty
+        label: "(empty)"
+        output: ""
+      - id: tolerance_well
+        output: "Treatment well tolerated. "
+      - id: tolerance_challenging_tolerated
+        output: "Treatment appeared challenging but tolerable. "
+      - id: tolerance_challenging_tolerated2
+        output: "Treatment observed to be challenging. "
+      - id: tolerance_challenging_tolerated3
+        output: "Challenge observed during treatment. "
+      - id: tolerance_challenging
+        output: "Treatment appeared challenging. "
+      - id: tolerance_overly_challenging
+        output: "Treatment appeared overly challenging. "
+
+  - id: post_pt_verbs
+    label: "Patient [DESCRIBES]"
+    default: pt_describes
+    items:
+      - id: pt_describes
+        label: "describes"
+        output: "Pt describes"
+      - label: "reports"
+        output: "Pt reports"
+
+  - id: pt_review
+    label: "Patient Review"
+    preview: "review preview"
+    default: review9
+    items:
+      - id: review_empty
+        label: "(empty)"
+        output: ""
+      - id: review15
+        output: "Pt left quickly, without post-treatment review. "
+      - id: review1
+        output: "Pt describes feeling somewhat better. "
+      - id: review2
+        output: "Pt describes feeling well. "
+      - id: review3
+        output: "Pt describes feeling good. "
+      - id: review4
+        output: "Pt describes feeling very relaxed. "
+      - id: review5
+        output: "Pt reports feeling 'great!'"
+      - id: review6
+        output: "Pt reports feeling 'very relaxed', and presents in good spirits. "
+      - id: review7
+        output: "Pt reports feeling 'relaxed', and presents in good spirits. "
+      - id: review8
+        output: "Pt reports feeling 'good', and presents in good spirits. "
+      - id: review9
+        output: "Pt reports feeling 'great', and presents in good spirits. "
+      - id: review10
+        output: "Pt reports feeling 'refreshed!', and presents in good spirits. "
+      - id: review11
+        output: "Pt reports feeling 'much better', and presents in good spirits. "
+      - id: review12
+        output: "Pt presents in good spirits. "
+      - id: review13
+        output: "Pt reports feeling less tight, and improved joint sensation with movement. "
+      - id: review14
+        output: "Pt reports feeling less tight and improved Range of Motion, and presents in good spirits. "
+
+
+  - id: pt_questions
+    label: "Patient Questions"
+    preview: "questions preview"
+    default: questions_none
+    items:
+      - id: questions_empty
+        label: "(empty)"
+        output: ""
+      - id: questions_none
+        output: "Pt had no further questions post-treatment. "
+      - id: questions_none
+        output: "Post-treatment, Pt asked about "
+      - id: questions_none
+        output: "Pt left quickly, without further post-treatment review."
+      - id: questions_none
+        output: "During treatment, Pt asked about "
+
+  - id: next_recommend_list
+    label: "Recommended"
+    items:
+      - id: rec1
+        output: "back"
+        default_enabled: true
+      - id: rec2
+        output: "HNS"
+        default_enabled: true
+      - id: rec3
+        output: "Pecs"
+        default_enabled: false
+        

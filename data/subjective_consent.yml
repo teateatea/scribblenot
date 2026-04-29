@@ -16,6 +16,7 @@ collections:
 fields:
   - id: consent_pecs_field
     label: "Consent Pecs"
+    max_entries: 3
     format: "- {year}-{month}-{day}: {patientconsents}"
     contains:
       - list: patientconsents

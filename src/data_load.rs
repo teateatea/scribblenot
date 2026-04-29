@@ -3,15 +3,16 @@
 // entrypoint (`load_hierarchy_dir`), per-document parsing
 // (`parse_hierarchy_file_documents`, `split_yaml_documents`,
 // `is_doc_boundary`), authored-error decoration (`yaml_doc_error`,
-// `authored_yaml_doc_error`), the `YamlDocument` view, and the source-index
-// builder (`build_source_index`) that ties parsed YAML back to source anchors.
+// `authored_yaml_doc_error`), item normalization / hotkey extraction for parsed
+// lists, the `YamlDocument` view, and the source-index builder
+// (`build_source_index`) that ties parsed YAML back to source anchors.
 //
 // Items are kept `pub(crate)` so data.rs can re-export them via
 // `pub use crate::data_load::*` and validation/runtime code in data.rs can
 // continue to call them by their bare names.
 
 use crate::data::*;
-use crate::data_model::HierarchyFile;
+use crate::data_model::{HierarchyFile, slug_source_for_item, slugify_id};
 use crate::data_source::{
     EntryAnchor, SourceAnchor, SourceIndex, SourceNode, collect_child_ref_anchors,
     collect_top_level_entry_anchors, child_ref_from_value, find_mapping_anchor, quoted_line,
@@ -540,4 +541,66 @@ fn find_legacy_field_child_key(value: &serde_yaml::Value) -> Option<(String, &'s
         }
     }
     None
+}
+
+pub(crate) fn normalize_items(file: &mut HierarchyFile) {
+    for list in &mut file.lists {
+        for item in &mut list.items {
+            if item.id.is_empty() {
+                item.id = slugify_id(slug_source_for_item(item));
+            }
+        }
+    }
+}
+
+pub(crate) fn extract_item_hotkeys_from_value(
+    value: &serde_yaml::Value,
+    file: &HierarchyFile,
+) -> std::collections::HashMap<String, std::collections::HashMap<String, String>> {
+    let mut item_hotkeys = std::collections::HashMap::new();
+    let Some(root) = value.as_mapping() else {
+        return item_hotkeys;
+    };
+    let Some(raw_lists) = root
+        .get(serde_yaml::Value::String("lists".to_string()))
+        .and_then(serde_yaml::Value::as_sequence)
+    else {
+        return item_hotkeys;
+    };
+
+    for (list_idx, raw_list) in raw_lists.iter().enumerate() {
+        let Some(list) = file.lists.get(list_idx) else {
+            continue;
+        };
+        let Some(raw_items) = raw_list
+            .as_mapping()
+            .and_then(|mapping| mapping.get(serde_yaml::Value::String("items".to_string())))
+            .and_then(serde_yaml::Value::as_sequence)
+        else {
+            continue;
+        };
+
+        let mut hotkeys_for_list = std::collections::HashMap::new();
+        for (item_idx, raw_item) in raw_items.iter().enumerate() {
+            let Some(item) = list.items.get(item_idx) else {
+                continue;
+            };
+            let Some(mapping) = raw_item.as_mapping() else {
+                continue;
+            };
+            let Some(hotkey) = mapping
+                .get(serde_yaml::Value::String("hotkey".to_string()))
+                .and_then(serde_yaml::Value::as_str)
+            else {
+                continue;
+            };
+            hotkeys_for_list.insert(item.id.clone(), hotkey.to_string());
+        }
+
+        if !hotkeys_for_list.is_empty() {
+            item_hotkeys.insert(list.id.clone(), hotkeys_for_list);
+        }
+    }
+
+    item_hotkeys
 }

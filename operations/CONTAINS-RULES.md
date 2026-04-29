@@ -109,7 +109,8 @@ sections:
 - unknown keys on authored blocks now hard-error during parse (for example `body: checklist`
   on a section). Common authoring mistakes now route through bespoke diagnostics, including
   unsupported authored keys, missing required keys, template-root mistakes, format placeholder
-  mismatches, field cycles, and `assigns:` teaching messages.
+  mismatches, accidental `{{double_brace}}` placeholder typos, field cycles, and `assigns:`
+  teaching messages.
 - (next/#47): in `fields + lists` sections, lists are stored in `SectionConfig.lists` but the
   `multi_field` renderer ignores them - they are silently dropped from the output. Intended
   behaviour needs to be defined and implemented.
