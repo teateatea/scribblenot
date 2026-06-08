@@ -866,7 +866,25 @@ mod tests {
         let err = validate_with_index(&file, &index).expect_err("duplicate id must fail");
         assert!(err.contains("duplicate id 'shared'"));
         assert!(err.contains("globally unique"));
-        assert!(err.contains("Fix: rename one of the conflicting ids"));
+        assert!(!err.contains("Locations:"));
+        assert!(!err.contains("Fix:"));
+        let params = err.params().into_iter().collect::<HashMap<_, _>>();
+        assert_eq!(
+            params.get("duplicate_file_1").map(String::as_str),
+            Some("inline-test.yml")
+        );
+        assert_eq!(
+            params.get("duplicate_line_1").map(String::as_str),
+            Some("5")
+        );
+        assert_eq!(
+            params.get("duplicate_file_2").map(String::as_str),
+            Some("inline-test.yml")
+        );
+        assert_eq!(
+            params.get("duplicate_line_2").map(String::as_str),
+            Some("8")
+        );
     }
 
     #[test]

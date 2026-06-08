@@ -17,17 +17,25 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Default)]
 pub struct SourceIndex {
     pub nodes: HashMap<String, SourceNode>,
+    occurrences: HashMap<String, Vec<SourceNode>>,
     child_refs: HashMap<ChildRefSourceKey, ErrorSource>,
 }
 
 impl SourceIndex {
     pub(crate) fn insert(&mut self, id: String, node: SourceNode) {
+        self.occurrences
+            .entry(id.clone())
+            .or_default()
+            .push(node.clone());
         self.nodes.entry(id).or_insert(node);
     }
 
     pub(crate) fn merge(&mut self, other: SourceIndex) {
         for (id, node) in other.nodes {
-            self.insert(id, node);
+            self.nodes.entry(id).or_insert(node);
+        }
+        for (id, mut nodes) in other.occurrences {
+            self.occurrences.entry(id).or_default().append(&mut nodes);
         }
         for (key, source) in other.child_refs {
             self.child_refs.entry(key).or_insert(source);
@@ -40,6 +48,22 @@ impl SourceIndex {
             line: node.line,
             quoted_line: node.quoted_line.clone(),
         })
+    }
+
+    pub(crate) fn sources_for(&self, id: &str) -> Vec<ErrorSource> {
+        self.occurrences
+            .get(id)
+            .map(|nodes| {
+                nodes
+                    .iter()
+                    .map(|node| ErrorSource {
+                        file: node.file.clone(),
+                        line: node.line,
+                        quoted_line: node.quoted_line.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub(crate) fn insert_child_ref(

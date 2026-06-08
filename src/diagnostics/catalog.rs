@@ -795,6 +795,14 @@ fn render_source_blocks(report: &ErrorReport) -> Vec<RenderedErrorSourceBlock> {
         "found_quoted_line",
         RenderedErrorSourceRole::Found,
     );
+    push_numbered_source_block_lines_from_params(
+        &mut blocks,
+        &params,
+        "duplicate_file_",
+        "duplicate_line_",
+        "duplicate_quoted_line_",
+        RenderedErrorSourceRole::Owner,
+    );
 
     for block in &mut blocks {
         block.lines.sort_by_key(|line| line.line);
@@ -806,6 +814,30 @@ fn render_source_blocks(report: &ErrorReport) -> Vec<RenderedErrorSourceBlock> {
     }
 
     blocks
+}
+
+fn push_numbered_source_block_lines_from_params(
+    blocks: &mut Vec<RenderedErrorSourceBlock>,
+    params: &HashMap<String, String>,
+    file_prefix: &str,
+    line_prefix: &str,
+    quote_prefix: &str,
+    role: RenderedErrorSourceRole,
+) {
+    for number in 1.. {
+        let file_key = format!("{file_prefix}{number}");
+        if !params.contains_key(&file_key) {
+            break;
+        }
+        push_source_block_line_from_params(
+            blocks,
+            params,
+            &file_key,
+            &format!("{line_prefix}{number}"),
+            &format!("{quote_prefix}{number}"),
+            role,
+        );
+    }
 }
 
 fn push_source_block_line_from_params(
@@ -1363,6 +1395,40 @@ mod tests {
         assert_eq!(rendered.source_blocks[0].lines.len(), 2);
         assert_eq!(rendered.source_blocks[1].file_name, "treatment.yml");
         assert_eq!(rendered.source_blocks[1].lines[0].line, 73);
+    }
+
+    #[test]
+    fn render_duplicate_id_uses_source_blocks_for_all_duplicate_files() {
+        let messages = Messages::load();
+        let report = ErrorReport::generic(
+            "duplicate_id",
+            "duplicate id 'shared' across field and field; ids must be globally unique across hierarchy kinds.",
+        )
+        .with_source(Some(ErrorSource {
+            file: PathBuf::from("data/brief.yml"),
+            line: 16,
+            quoted_line: Some("- id: shared".to_string()),
+        }))
+        .with_param("duplicate_file_1", "data/brief.yml")
+        .with_param("duplicate_line_1", "16")
+        .with_param("duplicate_quoted_line_1", "- id: shared")
+        .with_param("duplicate_file_2", "data/intake_optional.yml")
+        .with_param("duplicate_line_2", "41")
+        .with_param("duplicate_quoted_line_2", "- id: shared");
+
+        let rendered = messages.render(&report);
+
+        assert_eq!(
+            rendered.description,
+            "duplicate id 'shared' across field and field; ids must be globally unique across hierarchy kinds."
+        );
+        assert!(!rendered.description.contains("Locations:"));
+        assert!(!rendered.description.contains("Fix:"));
+        assert_eq!(rendered.source_blocks.len(), 2);
+        assert_eq!(rendered.source_blocks[0].file_name, "brief.yml");
+        assert_eq!(rendered.source_blocks[0].lines[0].line, 16);
+        assert_eq!(rendered.source_blocks[1].file_name, "intake_optional.yml");
+        assert_eq!(rendered.source_blocks[1].lines[0].line, 41);
     }
 
     #[test]

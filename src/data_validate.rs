@@ -1081,10 +1081,6 @@ fn invalid_child_fix_hint(
     )
 }
 
-fn duplicate_id_fix_hint() -> &'static str {
-    "Fix: rename one of the conflicting ids so every group, section, collection, field, and list id is globally unique."
-}
-
 fn expected_reference_kind_fix_hint(
     field_id: &str,
     reference_kind: TypeTag,
@@ -1114,6 +1110,27 @@ fn missing_reference_kind_fix_hint(
     )
 }
 
+fn with_duplicate_id_source_params(
+    mut report: ErrorReport,
+    index: &SourceIndex,
+    id: &str,
+) -> ErrorReport {
+    for (idx, source) in index.sources_for(id).into_iter().enumerate() {
+        let number = idx + 1;
+        report = report
+            .with_param(
+                format!("duplicate_file_{number}"),
+                source.file.display().to_string(),
+            )
+            .with_param(format!("duplicate_line_{number}"), source.line.to_string())
+            .with_param(
+                format!("duplicate_quoted_line_{number}"),
+                source.quoted_line.unwrap_or_default(),
+            );
+    }
+    report
+}
+
 fn register_global_ids<T, F>(
     registry: &mut HashMap<String, TypeTag>,
     items: &[T],
@@ -1127,17 +1144,17 @@ where
     for item in items {
         let id = get_id(item);
         if let Some(existing) = registry.insert(id.to_string(), tag) {
-            return Err(report(
+            let report = report(
                 "duplicate_id",
                 format!(
-                    "duplicate id '{}' across {} and {}; ids must be globally unique across hierarchy kinds. {}",
+                    "duplicate id '{}' across {} and {}; ids must be globally unique across hierarchy kinds.",
                     id,
                     kind_label(existing),
-                    kind_label(tag),
-                    duplicate_id_fix_hint()
+                    kind_label(tag)
                 ),
                 index.source_for(id),
-            ));
+            );
+            return Err(with_duplicate_id_source_params(report, index, id));
         }
     }
     Ok(())
