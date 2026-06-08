@@ -870,6 +870,10 @@ mod tests {
         assert!(!err.contains("Fix:"));
         let params = err.params().into_iter().collect::<HashMap<_, _>>();
         assert_eq!(
+            params.get("duplicate_id").map(String::as_str),
+            Some("shared")
+        );
+        assert_eq!(
             params.get("duplicate_file_1").map(String::as_str),
             Some("inline-test.yml")
         );

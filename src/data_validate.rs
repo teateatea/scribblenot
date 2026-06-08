@@ -1153,7 +1153,8 @@ where
                     kind_label(tag)
                 ),
                 index.source_for(id),
-            );
+            )
+            .with_param("duplicate_id", id);
             return Err(with_duplicate_id_source_params(report, index, id));
         }
     }

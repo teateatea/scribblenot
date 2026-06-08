@@ -303,9 +303,9 @@ fn builtin_entries() -> Vec<MessageEntry> {
         },
         MessageEntry {
             id: "duplicate_id",
-            title: "Duplicate ID",
-            description: "{message}",
-            fix: "Rename one of the conflicting hierarchy ids so every group, section, collection, field, and list id is globally unique.",
+            title: "Duplicate ID: '{duplicate_id}'",
+            description: "IDs must be globally unique across hierarchy kinds, but '{duplicate_id}' appears more than once.",
+            fix: "Rename the conflicting IDs so that they are globally unique.",
         },
         MessageEntry {
             id: "duplicate_boilerplate_id",
@@ -1409,6 +1409,7 @@ mod tests {
             line: 16,
             quoted_line: Some("- id: shared".to_string()),
         }))
+        .with_param("duplicate_id", "shared")
         .with_param("duplicate_file_1", "data/brief.yml")
         .with_param("duplicate_line_1", "16")
         .with_param("duplicate_quoted_line_1", "- id: shared")
@@ -1418,9 +1419,14 @@ mod tests {
 
         let rendered = messages.render(&report);
 
+        assert_eq!(rendered.title, "Duplicate ID: 'shared'");
         assert_eq!(
             rendered.description,
-            "duplicate id 'shared' across field and field; ids must be globally unique across hierarchy kinds."
+            "IDs must be globally unique across hierarchy kinds, but 'shared' appears more than once."
+        );
+        assert_eq!(
+            rendered.fix,
+            "Rename the conflicting IDs so that they are globally unique."
         );
         assert!(!rendered.description.contains("Locations:"));
         assert!(!rendered.description.contains("Fix:"));
