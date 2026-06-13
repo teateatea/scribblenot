@@ -153,20 +153,7 @@ groups:
   #    - section: infection_section
 
 
-sections:
-  - id: brief_section
-    label: Brief
-    nav_label: "Brief"
-    show_field_labels: false
-   # hotkey: Z
-    contains:
-    #  - field: date_field
-   #   - field: 
-   #   - field: 
-      - field: pt_info
-      - field: appointment_requested_field_brief
-      - field: int_exha_field_brief
-      
+sections: 
   - id: appointment_section
     label: Appointment
     nav_label: "Appointment"
@@ -226,7 +213,7 @@ fields:
 
   - id: appointment_requested_field_brief
     label: Brief
-    format: "- {appointment_type_list_brief} ({requested_regions_brief})." # {the_region}."
+    format: "- {year}-{month}-{day}: {appointment_type_list_brief} ({requested_regions_brief})." # {the_region}."
     contains:
       - list: appointment_type_list_brief
       - field: requested_regions_brief #
@@ -638,6 +625,9 @@ lists:
       - id: appointment_brief_full
         label: "Full Tx:"
         output: "Full Body Tx"
+      - id: appointment_brief_general
+        label: "General Tx:"
+        output: "General Tx"
     #  - id: appointment_type_treatment1
     #    label: "Upper Treatment, focus"
     #    output: "Upper Body Treatment, focusing on "

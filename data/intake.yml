@@ -9,6 +9,8 @@ sections:
       - field: int_exha_field_brief
       - field: int_adl_field
       - field: int_specialist_field
+      - field: int_diagnosis_mental_brief
+
      # - field: test_error_field
 
 
@@ -38,7 +40,7 @@ fields:
       - list: starting_frequency
       - list: duration_unit
       
-  - id: int_exha_field_brief
+  - id: int_exha_field_brief2
     label: "Exercise Habits Brief"
     format: "- {patientdescribes} {int_exha_list}{frequency}{starting_since}{starting_frequency}{duration_unit}." # {pluralizer}{starting_ago}." {year}-{month}-{day}: 
     max_entries: 12
@@ -67,14 +69,16 @@ lists:
   - id: int_exha_list
     label: "[ACTIVITY]"
     preview: "[ACTIVITY]"
-    max_entries: 1
-    joiner_style: comma_and
+    max_entries: 12
+    joiner_style: semicolon
     modal_start: list
     items:
       - id: exha_1
         output: "training"
       - id: exha_2
         output: "walking"
+      - id: exha_31
+        output: "limited exercise"
       - id: exha_3
         output: "exercising"
       - id: exha_3_re
@@ -109,12 +113,18 @@ lists:
         output: "great interest in exercising more"
       - id: exha_15
         output: "interest in exercising more"
+      - id: exha_15
+        output: "interest in strength training"
       - id: exha_16
         output: "low interest in exercising more"
       - id: exha_17
         output: "yoga"
+      - id: exha_pil
+        output: "pilates"
       - id: exha_18
         output: "working out (cardio)"
+      - id: exha_19
+        output: "powerlifting"
         
         
   - id: int_adl_list

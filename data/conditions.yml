@@ -33,9 +33,26 @@ lists:
       - id: condition7
         label: "Tension Headaches"
         output: "Tension Headaches"
-      
+      - id: mental8
+        label: "Anxiety"
+        output: "Anxiety"
+      - id: mental9
+        label: "Agoraphobia"
+        output: "Agoraphobia"
+      - id: mental10
+        label: "Depression"
+        output: "Depression"
         # PHYSICAL HEALTH CONDITIONS
         ## CHRONIC Physical Health Conditions (long term, managed only by medication, or otherwise irreversible)
+      - id: conditionas
+        label: "Ankylosing Spondylitis"
+        output: "Ankylosing Spondylitis"
+      - id: conditionasl
+        label: "Ankylosing Spondylitis (Left SI jt)"
+        output: "Ankylosing Spondylitis (Left SI jt)"
+      - id: conditionasr
+        label: "Ankylosing Spondylitis (Right SI jt)"
+        output: "Ankylosing Spondylitis (Right SI jt)"
       - id: condition8
         label: "1 HypERtension (no comment on medication) HBP High Blood Pressure Elevated"
         output: "Hypertension"
@@ -169,3 +186,42 @@ lists:
       - id: condition50
         label: "Baker's Cyst (LL Knee) Popliteal Popliteus Bursa"
         output: "Baker's Cyst (Left Knee)"
+
+  - id: mentalcondition
+    label: "[CONDITION]"
+    modal_start: search
+    default: empty_space
+    joiner_style: comma
+    max_entries: 12
+    items:
+      - id: condition0
+        label: "1 (Empty Space)"
+        output: ""   
+        # MENTAL HEALTH CONDITIONS (or other brain / symptomatic conditions)
+      - id: condition2
+        label: "Migraines (BL Occiput occipital, progressing anteriorly forward)"
+        output: "Migraines (BL Occiput, progressing anteriorly)"
+      - id: condition3
+        label: "Migraines"
+        output: "Migraines"
+      - id: condition4
+        label: "Migraines (frontal bone; forehead)"
+        output: "Migraines (frontal bone; forehead)"
+      - id: condition5
+        label: "Bipolar 1 (1+ manic ep lasting 7+ days; optional depressive episode)"
+        output: "Bipolar I Disorder"
+      - id: condition6
+        label: "Bipolar 2 (major depressive ep lasting 2+ weeks & 1+ hypomanic episode)"
+        output: "Bipolar II Disorder"
+      - id: condition7
+        label: "Tension Headaches"
+        output: "Tension Headaches"
+      - id: mental8
+        label: "Anxiety"
+        output: "Anxiety"
+      - id: mental9
+        label: "Agoraphobia"
+        output: "Agoraphobia"
+      - id: mental10
+        label: "Depression"
+        output: "Depression"

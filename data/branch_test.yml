@@ -1,0 +1,38 @@
+fields:
+    - id: exercise_recent
+      label: Exercise
+      format: "Pt describes {exercise_level} in the past 2 weeks{exercise_due_to}."
+      contains:
+        - { list: exercise_level }
+        - { list: exercise_due_to }
+
+    - id: exercise_reason_field
+      label: Due to
+      format: " due to {exercise_reason}"
+      contains:
+        - { list: exercise_reason }
+
+lists:
+  - id: exercise_level
+    items:
+      - "regular exercise"
+      - "limited exercise"
+      - "no exercise"
+
+  - id: exercise_due_to
+    items:
+      - id: no_due_to
+        label: "[no reason]"
+        output: ""
+      - id: due_to
+        label: "DUE TO"
+        output: "{exercise_reason_field}"
+        fields:
+          - exercise_reason_field
+
+  - id: exercise_reason
+    items:
+      - "pain"
+      - "fatigue"
+      - "time constraints"
+      - "recent illness"

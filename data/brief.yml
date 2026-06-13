@@ -1,0 +1,91 @@
+sections:
+  - id: brief_section
+    label: Brief
+    nav_label: "Brief"
+    show_field_labels: false
+   # hotkey: Z
+    contains:
+    #  - field: date_field
+   #   - field: 
+   #   - field: 
+      - field: pt_info
+      - field: appointment_date_field
+      - field: appointment_requested_field_brief
+      - field: int_exha_field_brief
+      - field: int_diagnosis_mental_brief
+      - field: exercise_recent
+      
+fields:
+  - id: int_exha_field_brief
+    label: "Exercise Habits Brief"
+    format: "- {year}-{month}-{day}: {patientdescribes} {int_exha_list}{frequency}{starting_since}{starting_frequency}{duration_unit}{exercise_due_to}." # {pluralizer}{starting_ago}." {year}-{month}-{day}: 
+    max_entries: 12
+   # joiner_style: newline
+    contains:
+      - list: patientdescribes
+      - list: int_exha_list
+      - list: frequency
+      - list: starting_since
+      - list: starting_frequency
+      - list: duration_unit
+      - list: exercise_due_to
+
+
+  - id: int_diagnosis_mental_brief
+    label: "Mental Health Condition"
+    format: "- {year}-{month}-{day}: {patientdiagnosis} {mentalcondition}{diagnosis_list}." # {pluralizer}{starting_ago}." {year}-{month}-{day}: 
+    max_entries: 12
+   # joiner_style: newline
+    contains:
+      - list: patientdiagnosis
+      - list: mentalcondition
+
+lists:
+  - id: patientdiagnosis
+    label: "Patient [DESCRIBES]"
+    default: pt_describes
+    items:
+      - id: pt_empty_text
+        label: "[empty]"
+        output: ""
+        assigns:
+          - list: diagnosis_list
+            item: empty
+      - id: pt_describes
+        label: "describes managing"
+        output: "Pt describes managing"
+        assigns:
+          - list: diagnosis_list
+            item: empty
+      - label: "Pt reports diagnosis"
+        output: "Pt reports"
+        assigns:
+          - list: diagnosis_list
+            item: diagnosis
+   #   - label: "describes intermittent"
+   #     output: "Pt describes intermittent"
+   #   - label: "describes ongoing"
+   #     output: "Pt describes ongoing"
+   #   - label: "reports"
+   #     output: "Pt reports"
+   #   - label: "reports continued"
+   #     output: "Pt reports continued"
+   #   - label: "reports intermittent"
+   #     output: "Pt reports intermittent"
+   #   - label: "reports ongoing"
+   #     output: "Pt reports ongoing"
+   #   - label: "enjoys" # probably should break this out for just exercise?
+   #     output: "Pt enjoys"
+   #   - label: "previously enjoyed"
+   #     output: "Pt previously enjoyed"
+
+  - id: diagnosis_list
+    label: "diagnosis"
+    default: empty
+    items:
+      - id: empty
+        label: "1 (Empty Space)"
+        output: ""   
+      - id: diagnosis
+        label: "diagnosis"
+        output: " diagnosis"

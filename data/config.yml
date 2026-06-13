@@ -1,22 +1,22 @@
 pane_layout: default
 theme: default-theme
 sticky_values:
-  date_month_word_list: Apr
-  date_month_num_list: '04'
-  date_year_list: '2026'
-  pos_pronoun: her
-  date_month: '04'
-  pt_pronouns: she/her
-  day: '28'
-  date_year: '2026'
-  appointment_type_list_brief: Upper Body Tx
-  date_day_list: '08'
-  date_month_wor_list: Feb
   year: '2026'
-  start_hour_list: '5'
-  month: '04'
-  start_minute_list: '30'
-  date_day: '08'
+  date_month_wor_list: Feb
+  date_day_list: '08'
+  date_year: '2026'
+  start_hour_list: '11'
+  date_year_list: '2026'
+  month: '06'
+  date_month: '04'
+  date_month_num_list: '04'
+  day: '13'
   date_month_list: Apr
+  appointment_type_list_brief: General Tx
+  date_day: '08'
+  pos_pronoun: his
+  start_minute_list: '45'
+  date_month_word_list: Jun
+  pt_pronouns: he/him
 hint_labels_capitalized: true
 hint_labels_case_sensitive: false

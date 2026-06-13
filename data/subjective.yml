@@ -444,6 +444,12 @@ lists:
         assigns:
           - list: starting_ago
             item: ago
+      - id: after
+        label: "after"
+        output: ", after"
+        assigns:
+          - list: starting_ago
+            item: ago
       # - ago -
   #    - id: since_last_appointment_his_ago
   #      label: "since his last appointment ... ago"
