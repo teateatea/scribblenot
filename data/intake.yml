@@ -226,6 +226,7 @@ lists:
   - id: int_practioner_list
     label: "[PRACTITIONER]"
     preview: "[PRACTITIONER]"
+    modal_start: search
    # max_entries: 1
    # joiner_style: comma_and
     items:

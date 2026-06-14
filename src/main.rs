@@ -11,6 +11,7 @@ mod data_source;
 mod data_validate;
 mod diagnostics;
 mod document;
+mod help;
 mod import;
 mod modal;
 mod modal_layout;
@@ -70,9 +71,21 @@ fn error_report_from_anyhow(err: anyhow::Error) -> diagnostics::ErrorReport {
 fn update(state: &mut ScribbleApp, message: Message) -> Task<Message> {
     let mut should_scroll_preview = false;
     let mut should_scroll_active_pane = false;
+    let mut help_topic_scroll_delta: Option<f32> = None;
+    let mut should_scroll_help_selected_code_block = false;
     match message {
         Message::KeyPressed(key, mods) => {
             let app_key = app::appkey_from_iced(key, mods);
+            if state.inner.show_help && matches!(state.inner.help_state.mode, app::HelpMode::Topic)
+            {
+                help_topic_scroll_delta = match app_key {
+                    app::AppKey::Down => Some(72.0),
+                    app::AppKey::Up => Some(-72.0),
+                    _ => None,
+                };
+                should_scroll_help_selected_code_block =
+                    state.inner.is_help_code_block_scroll_key(&app_key);
+            }
             state.inner.handle_key(app_key);
             should_scroll_preview = true;
             should_scroll_active_pane = true;
@@ -130,9 +143,12 @@ fn update(state: &mut ScribbleApp, message: Message) -> Task<Message> {
 
     if state.inner.copy_requested {
         state.inner.copy_requested = false;
-        let copied_error_report = state.inner.copy_override_text.is_some();
+        let copied_error_report =
+            state.inner.error_modal.is_some() && state.inner.copy_override_text.is_some();
         let copy_status = if copied_error_report {
             "Copied error report to clipboard."
+        } else if state.inner.copy_override_text.is_some() {
+            "Copied help text to clipboard."
         } else {
             "Copied note to clipboard."
         };
@@ -186,6 +202,24 @@ fn update(state: &mut ScribbleApp, message: Message) -> Task<Message> {
                 y: f32::from(line) * 18.0,
             },
         ));
+    }
+
+    if let Some(delta) = help_topic_scroll_delta {
+        if state.inner.show_help && matches!(state.inner.help_state.mode, app::HelpMode::Topic) {
+            tasks.push(scrollable::scroll_by(
+                ui::help_topic_scroll_id(),
+                scrollable::AbsoluteOffset { x: 0.0, y: delta },
+            ));
+        }
+    }
+
+    if should_scroll_help_selected_code_block {
+        if let Some(y) = state.inner.selected_help_code_block_scroll_offset() {
+            tasks.push(scrollable::scroll_to(
+                ui::help_topic_scroll_id(),
+                scrollable::AbsoluteOffset { x: 0.0, y },
+            ));
+        }
     }
 
     if !tasks.is_empty() {

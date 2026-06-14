@@ -4,7 +4,7 @@
 mod modal_unit;
 use modal_unit::*;
 
-use crate::app::{App, ErrorModalFlashKind, Focus, MapHintLevel, SectionState};
+use crate::app::{App, ErrorModalFlashKind, Focus, HelpMode, MapHintLevel, SectionState};
 use crate::modal_layout::{
     modal_height_for_viewport, modal_list_view_dimensions, ModalFocus, SimpleModalUnitLayout,
 };
@@ -29,6 +29,10 @@ pub fn map_scroll_id() -> scrollable::Id {
 
 pub fn wizard_scroll_id() -> scrollable::Id {
     scrollable::Id::new("wizard-pane")
+}
+
+pub fn help_topic_scroll_id() -> scrollable::Id {
+    scrollable::Id::new("help-topic")
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1750,29 +1754,23 @@ fn preview_simple_modal_content<'a>(
             app.ui_theme.modal_muted_text,
         );
         let row_content = row![
-            container(
-                no_wrap_modal_text(
-                    if is_current { ">" } else { " " },
-                    apply_alpha(marker_color, alpha),
-                    app.ui_theme.font_modal,
-                ),
-            )
+            container(no_wrap_modal_text(
+                if is_current { ">" } else { " " },
+                apply_alpha(marker_color, alpha),
+                app.ui_theme.font_modal,
+            ),)
             .align_left(Length::Fixed(14.0)),
-            container(
-                no_wrap_modal_text(
-                    format!("{hint:<4}"),
-                    apply_alpha(hint_color, alpha),
-                    app.ui_theme.font_modal,
-                ),
-            )
+            container(no_wrap_modal_text(
+                format!("{hint:<4}"),
+                apply_alpha(hint_color, alpha),
+                app.ui_theme.font_modal,
+            ),)
             .align_left(Length::Fixed(24.0)),
-            container(
-                no_wrap_modal_text(
-                    label,
-                    apply_alpha(label_color, alpha),
-                    app.ui_theme.font_modal,
-                ),
-            )
+            container(no_wrap_modal_text(
+                label,
+                apply_alpha(label_color, alpha),
+                app.ui_theme.font_modal,
+            ),)
             .width(Length::Fill),
         ]
         .spacing(0)
@@ -1900,13 +1898,20 @@ fn active_simple_modal_content<'a>(
             let marker_color =
                 modal_row_color(cursor_accent, confirmed_color, ui_theme.modal_muted_text);
             let row_content = row![
-                container(no_wrap_modal_text(marker, marker_color, ui_theme.font_modal))
-                    .align_left(Length::Fixed(14.0)),
-                container(
-                    no_wrap_modal_text(format!("{hint:<4}"), hint_color, ui_theme.font_modal),
-                )
+                container(no_wrap_modal_text(
+                    marker,
+                    marker_color,
+                    ui_theme.font_modal
+                ))
+                .align_left(Length::Fixed(14.0)),
+                container(no_wrap_modal_text(
+                    format!("{hint:<4}"),
+                    hint_color,
+                    ui_theme.font_modal
+                ),)
                 .align_left(Length::Fixed(24.0)),
-                container(no_wrap_modal_text(label, color, ui_theme.font_modal)).width(Length::Fill),
+                container(no_wrap_modal_text(label, color, ui_theme.font_modal))
+                    .width(Length::Fill),
             ]
             .spacing(0)
             .width(Length::Fill);
@@ -2595,15 +2600,20 @@ fn render_modal_rows<'a>(
             app.ui_theme.modal_muted_text
         };
         let button_label = row![
-            container(
-                no_wrap_modal_text(marker, marker_color, app.ui_theme.font_modal)
-            )
+            container(no_wrap_modal_text(
+                marker,
+                marker_color,
+                app.ui_theme.font_modal
+            ))
             .align_left(Length::Fixed(14.0)),
-            container(
-                no_wrap_modal_text(format!("{hint:<4}"), hint_color, app.ui_theme.font_modal),
-            )
+            container(no_wrap_modal_text(
+                format!("{hint:<4}"),
+                hint_color,
+                app.ui_theme.font_modal
+            ),)
             .align_left(Length::Fixed(24.0)),
-            container(no_wrap_modal_text(label, color, app.ui_theme.font_modal)).width(Length::Fill),
+            container(no_wrap_modal_text(label, color, app.ui_theme.font_modal))
+                .width(Length::Fill),
         ]
         .spacing(0)
         .width(Length::Fill);
@@ -2655,7 +2665,11 @@ fn inactive_preview_border_color(app: &App) -> Color {
     )
 }
 
-fn no_wrap_modal_text<'a>(value: impl Into<String>, color: Color, font: iced::Font) -> iced::widget::Text<'a> {
+fn no_wrap_modal_text<'a>(
+    value: impl Into<String>,
+    color: Color,
+    font: iced::Font,
+) -> iced::widget::Text<'a> {
     text(value.into())
         .font(font)
         .color(color)
@@ -2736,16 +2750,24 @@ fn collection_preview_row_elements<'a>(
             app.ui_theme.modal_muted_text
         };
         let row = row![
-            container(
-                no_wrap_modal_text(marker, marker_color, app.ui_theme.font_modal)
-            )
+            container(no_wrap_modal_text(
+                marker,
+                marker_color,
+                app.ui_theme.font_modal
+            ))
             .align_left(Length::Fixed(14.0)),
-            container(
-                no_wrap_modal_text(format!("{hint:<4}"), hint_color, app.ui_theme.font_modal)
-            )
+            container(no_wrap_modal_text(
+                format!("{hint:<4}"),
+                hint_color,
+                app.ui_theme.font_modal
+            ))
             .align_left(Length::Fixed(24.0)),
-            container(no_wrap_modal_text(label, label_color, app.ui_theme.font_modal))
-                .width(Length::Fill),
+            container(no_wrap_modal_text(
+                label,
+                label_color,
+                app.ui_theme.font_modal
+            ))
+            .width(Length::Fill),
         ]
         .spacing(0)
         .width(Length::Fill);
@@ -3208,10 +3230,861 @@ pub fn view(app: &App) -> Element<'_, Message> {
     if app.error_modal.is_some() {
         return error_modal_view(app);
     }
+    if app.show_help {
+        return help_modal_view(app);
+    }
     if should_render_modal_overlay(app) {
         modal_overlay(app, app.modal.as_ref())
     } else {
         main_layout(app)
+    }
+}
+
+fn help_modal_view(app: &App) -> Element<'_, Message> {
+    let content = match app.help_state.mode {
+        HelpMode::Search => help_search_view(app),
+        HelpMode::Topic => help_topic_view(app),
+    };
+
+    container(content)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding(18)
+        .style(move |_| background_style(app.ui_theme.background, app.ui_theme.text))
+        .into()
+}
+
+fn help_panel<'a>(app: &'a App, content: Element<'a, Message>) -> Element<'a, Message> {
+    container(content)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding(24)
+        .style(move |_| {
+            background_style(app.ui_theme.modal_panel_background, app.ui_theme.text).border(
+                Border {
+                    color: app.ui_theme.modal_input_border,
+                    width: 2.0,
+                    radius: 8.0.into(),
+                },
+            )
+        })
+        .into()
+}
+
+fn help_search_view(app: &App) -> Element<'_, Message> {
+    let help_key = first_key_label(&app.data.keybindings.help, "?");
+    let back_key = first_key_label(&app.data.keybindings.back, "Esc");
+    let filtered = app.filtered_help_topic_indices();
+    let topics = crate::help::topics();
+    let selected = app.help_state.selected_filtered_index;
+
+    let search = help_search_box(app)
+        .width(Length::Fill)
+        .height(Length::Fixed(42.0));
+
+    let mut rows: Vec<Element<'_, Message>> = Vec::new();
+    for (filtered_idx, topic_idx) in filtered.iter().copied().enumerate() {
+        let Some(topic) = topics.get(topic_idx) else {
+            continue;
+        };
+        let is_selected = filtered_idx == selected;
+        let marker = if is_selected { ">" } else { " " };
+        let title_color = if is_selected {
+            app.ui_theme.active
+        } else {
+            app.ui_theme.text
+        };
+        let alias_text = if topic.aliases.is_empty() {
+            String::new()
+        } else {
+            format!("  {}", topic.aliases.join(", "))
+        };
+        let row_background = if is_selected {
+            app.ui_theme.modal_input_background
+        } else {
+            app.ui_theme.modal_panel_background
+        };
+        rows.push(
+            container(row![
+                text(marker)
+                    .font(app.ui_theme.font_modal)
+                    .color(title_color)
+                    .width(Length::Fixed(18.0)),
+                column![
+                    text(topic.title)
+                        .font(app.ui_theme.font_modal)
+                        .size(17)
+                        .color(title_color),
+                    text(alias_text)
+                        .font(app.ui_theme.font_status)
+                        .size(13)
+                        .color(app.ui_theme.muted),
+                ]
+                .spacing(2)
+            ])
+            .padding([8.0, 10.0])
+            .width(Length::Fill)
+            .style(move |_| background_style(row_background, title_color))
+            .into(),
+        );
+    }
+
+    if rows.is_empty() {
+        rows.push(
+            text("No help topics match that search.")
+                .font(app.ui_theme.font_modal)
+                .color(app.ui_theme.muted)
+                .into(),
+        );
+    }
+
+    let footer =
+        format!("Type to search. Up/Down selects. Enter opens. {back_key} or {help_key} closes.");
+    help_panel(
+        app,
+        column![
+            text("Help")
+                .font(app.ui_theme.font_heading)
+                .size(24)
+                .color(app.ui_theme.selected),
+            search,
+            muted_rule(app),
+            scrollable(column(rows).spacing(4)).height(Length::Fill),
+            muted_rule(app),
+            text(footer)
+                .font(app.ui_theme.font_status)
+                .color(app.ui_theme.muted),
+        ]
+        .spacing(14)
+        .into(),
+    )
+}
+
+fn help_search_box(app: &App) -> iced::widget::Container<'_, Message> {
+    let is_empty = app.help_state.query.is_empty();
+    let text_color = if is_empty {
+        app.ui_theme.modal_input_placeholder
+    } else {
+        app.ui_theme.modal_input_text
+    };
+    let value = if is_empty {
+        "Search help topics"
+    } else {
+        app.help_state.query.as_str()
+    };
+
+    let cursor = container(Space::with_width(Length::Fixed(2.0)))
+        .height(Length::Fixed(22.0))
+        .style(move |_| background_style(app.ui_theme.active, app.ui_theme.active));
+
+    let content: Element<'_, Message> = if is_empty {
+        row![
+            cursor,
+            text(value)
+                .font(app.ui_theme.font_modal)
+                .size(16)
+                .color(text_color)
+                .width(Length::Fill),
+        ]
+        .spacing(8)
+        .align_y(iced::Alignment::Center)
+        .into()
+    } else {
+        row![
+            text(value)
+                .font(app.ui_theme.font_modal)
+                .size(16)
+                .color(text_color),
+            cursor,
+        ]
+        .spacing(2)
+        .align_y(iced::Alignment::Center)
+        .into()
+    };
+
+    container(content).padding([8.0, 10.0]).style(move |_| {
+        background_style(
+            app.ui_theme.modal_input_background,
+            app.ui_theme.modal_input_text,
+        )
+        .border(Border {
+            color: app.ui_theme.modal_input_border,
+            width: 1.0,
+            radius: 2.0.into(),
+        })
+    })
+}
+
+fn help_topic_view(app: &App) -> Element<'_, Message> {
+    let Some(topic) = app.selected_help_topic() else {
+        return help_panel(
+            app,
+            text("No help topic selected.")
+                .font(app.ui_theme.font_modal)
+                .color(app.ui_theme.muted)
+                .into(),
+        );
+    };
+    let back_key = first_key_label(&app.data.keybindings.back, "Esc");
+    let copy_key = first_key_label(&app.data.keybindings.copy_note, "c");
+    let code_blocks = app.selected_help_topic_code_blocks();
+    let hints = app.help_code_block_hint_labels();
+    let alias_line = if topic.aliases.is_empty() {
+        String::new()
+    } else {
+        format!("Aliases: {}", topic.aliases.join(", "))
+    };
+    let footer = if code_blocks.is_empty() {
+        format!("{back_key} returns to search. {copy_key} copies this topic.")
+    } else {
+        format!(
+            "{back_key} returns to search. Left/Right or code hint selects a block. {copy_key} copies selected code."
+        )
+    };
+
+    help_panel(
+        app,
+        column![
+            text(topic.title)
+                .font(app.ui_theme.font_heading)
+                .size(24)
+                .color(app.ui_theme.selected),
+            text(alias_line)
+                .font(app.ui_theme.font_status)
+                .size(13)
+                .color(app.ui_theme.muted),
+            muted_rule(app),
+            themed_scrollable(
+                app,
+                column(help_topic_body_elements(app, topic, hints)).spacing(12)
+            )
+            .id(help_topic_scroll_id())
+            .height(Length::Fill),
+            muted_rule(app),
+            text(footer)
+                .font(app.ui_theme.font_status)
+                .color(app.ui_theme.muted),
+        ]
+        .spacing(14)
+        .into(),
+    )
+}
+
+fn help_topic_body_elements<'a>(
+    app: &'a App,
+    topic: &'a crate::help::HelpTopic,
+    hint_labels: Vec<String>,
+) -> Vec<Element<'a, Message>> {
+    let mut items = Vec::new();
+    let mut lines = topic.body.lines().peekable();
+    let mut paragraph = Vec::new();
+    let mut block_idx = 0usize;
+
+    while let Some(line) = lines.next() {
+        let trimmed = line.trim();
+        if let Some(language) = trimmed.strip_prefix("```") {
+            push_help_paragraph(app, &mut items, &mut paragraph);
+            let language = if language.trim().is_empty() {
+                None
+            } else {
+                Some(language.trim().to_string())
+            };
+            let mut code_lines = Vec::new();
+            for code_line in lines.by_ref() {
+                if code_line.trim() == "```" {
+                    break;
+                }
+                code_lines.push(code_line.to_string());
+            }
+            let code = code_lines.join("\n");
+            let hint = hint_labels.get(block_idx).cloned();
+            items.push(help_code_block(app, language, &code, block_idx, hint));
+            block_idx += 1;
+            continue;
+        }
+
+        if trimmed.is_empty() {
+            push_help_paragraph(app, &mut items, &mut paragraph);
+        } else if let Some(heading) = trimmed.strip_prefix("## ") {
+            push_help_paragraph(app, &mut items, &mut paragraph);
+            push_help_heading(app, &mut items, heading, 20);
+        } else if let Some(heading) = trimmed.strip_prefix("### ") {
+            push_help_paragraph(app, &mut items, &mut paragraph);
+            push_help_heading(app, &mut items, heading, 17);
+        } else {
+            paragraph.push(line.to_string());
+        }
+    }
+    push_help_paragraph(app, &mut items, &mut paragraph);
+
+    items
+}
+
+fn push_help_heading<'a>(
+    app: &'a App,
+    items: &mut Vec<Element<'a, Message>>,
+    heading: &str,
+    size: u16,
+) {
+    items.push(
+        text(heading.to_string())
+            .font(app.ui_theme.font_heading)
+            .size(size)
+            .color(app.ui_theme.selected)
+            .width(Length::Fill)
+            .into(),
+    );
+}
+
+fn push_help_paragraph<'a>(
+    app: &'a App,
+    items: &mut Vec<Element<'a, Message>>,
+    paragraph: &mut Vec<String>,
+) {
+    if paragraph.is_empty() {
+        return;
+    }
+    items.push(
+        text(paragraph.join("\n"))
+            .font(app.ui_theme.font_modal)
+            .size(16)
+            .color(app.ui_theme.text)
+            .width(Length::Fill)
+            .into(),
+    );
+    paragraph.clear();
+}
+
+fn help_code_block<'a>(
+    app: &'a App,
+    language: Option<String>,
+    code: &str,
+    block_idx: usize,
+    hint: Option<String>,
+) -> Element<'a, Message> {
+    let selected = app.help_state.selected_code_block == block_idx;
+    let border_color = if selected {
+        app.ui_theme.active
+    } else {
+        app.ui_theme.modal_input_border
+    };
+    let header = row![
+        rich_text(help_code_block_title_spans(
+            app,
+            hint.as_deref().unwrap_or_else(|| ""),
+            selected,
+        )),
+        Space::with_width(Length::Fill),
+        text(language.clone().unwrap_or_default())
+            .font(app.ui_theme.font_status)
+            .color(app.ui_theme.muted),
+    ]
+    .align_y(iced::Alignment::Center);
+    let required_keys = yaml_required_keys_for_code_block(code);
+    let mut yaml_context = HelpYamlLineContext::for_code(code);
+    let code_lines = code
+        .lines()
+        .map(|line| {
+            help_fenced_code_line(
+                app,
+                line,
+                language.as_deref(),
+                required_keys,
+                &mut yaml_context,
+            )
+        })
+        .collect::<Vec<_>>();
+    let block_background = help_code_block_background(app, selected);
+
+    column![
+        header,
+        container(column(code_lines).spacing(4))
+            .padding([8.0, 8.0])
+            .width(Length::Fill)
+            .style(move |_| {
+                background_style(block_background, app.ui_theme.modal_input_border).border(Border {
+                    color: border_color,
+                    width: if selected { 2.0 } else { 1.0 },
+                    radius: 4.0.into(),
+                })
+            })
+    ]
+    .spacing(4)
+    .into()
+}
+
+fn help_code_block_background(app: &App, selected: bool) -> Color {
+    let base = app.ui_theme.modal_input_background;
+    if !selected {
+        return base;
+    }
+    let Some(until) = app.copy_flash_until else {
+        return base;
+    };
+    let duration_ms = app.ui_theme.preview_copy_flash_duration_ms.max(1);
+    let remaining_ms = until
+        .saturating_duration_since(std::time::Instant::now())
+        .as_millis()
+        .min(u128::from(duration_ms)) as f32;
+    if remaining_ms <= 0.0 {
+        return base;
+    }
+    let t = remaining_ms / duration_ms as f32;
+    blend_color(
+        base,
+        app.ui_theme.preview_copy_flash_background,
+        (t * t * (3.0 - 2.0 * t)) * 0.65,
+    )
+}
+
+fn help_fenced_code_line<'a>(
+    app: &'a App,
+    line: &str,
+    language: Option<&str>,
+    _required_keys: &[&str],
+    yaml_context: &mut HelpYamlLineContext,
+) -> Element<'a, Message> {
+    if line.is_empty() {
+        return Space::with_height(Length::Fixed(8.0)).into();
+    }
+
+    match language {
+        Some("yaml") | Some("yml") => rich_text(help_colored_yaml_spans(app, line, yaml_context))
+            .size(16)
+            .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
+            .width(Length::Fill)
+            .into(),
+        Some("text") => rich_text(help_example_output_spans(app, line))
+            .size(16)
+            .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
+            .width(Length::Fill)
+            .into(),
+        _ => text(line.to_string())
+            .font(app.ui_theme.font_modal)
+            .size(16)
+            .color(app.ui_theme.text)
+            .wrapping(iced::widget::text::Wrapping::WordOrGlyph)
+            .width(Length::Fill)
+            .into(),
+    }
+}
+
+#[derive(Default)]
+struct HelpYamlLineContext {
+    kind_stack: Vec<HelpYamlKindContext>,
+}
+
+struct HelpYamlKindContext {
+    indent: usize,
+    kind: String,
+    sticky: bool,
+}
+
+impl HelpYamlLineContext {
+    fn for_code(code: &str) -> Self {
+        let first_content = code.lines().find(|line| !line.trim().is_empty());
+        if first_content.is_some_and(|line| line.trim_start().starts_with("- id:")) {
+            Self {
+                kind_stack: vec![HelpYamlKindContext {
+                    indent: 0,
+                    kind: "items".to_string(),
+                    sticky: true,
+                }],
+            }
+        } else {
+            Self::default()
+        }
+    }
+}
+
+fn help_code_block_title_spans(
+    app: &App,
+    hint: &str,
+    selected: bool,
+) -> Vec<iced::widget::text::Span<'static, Message>> {
+    let base_color = if selected {
+        app.ui_theme.active
+    } else {
+        app.ui_theme.muted
+    };
+    vec![
+        span("Code ")
+            .font(app.ui_theme.font_status)
+            .color(base_color),
+        span(hint.to_string())
+            .font(app.ui_theme.font_status)
+            .color(app.ui_theme.hint),
+    ]
+}
+
+fn help_colored_yaml_spans(
+    app: &App,
+    line: &str,
+    context: &mut HelpYamlLineContext,
+) -> Vec<iced::widget::text::Span<'static, Message>> {
+    let indent = line.chars().take_while(|ch| ch.is_whitespace()).count();
+    while context
+        .kind_stack
+        .last()
+        .is_some_and(|kind_context| kind_context.indent >= indent && !kind_context.sticky)
+    {
+        context.kind_stack.pop();
+    }
+
+    let parent_kind = context.kind_stack.last().map(|context| context.kind.as_str());
+    if let Some(kind) = help_yaml_kind_line(line) {
+        if !(parent_kind == Some("items") && kind == "fields") {
+            context.kind_stack.push(HelpYamlKindContext {
+                indent,
+                kind: kind.to_string(),
+                sticky: false,
+            });
+            return help_colored_kind_line_spans(app, line, kind);
+        }
+    }
+
+    if let Some(id_start) = line.find("- id:") {
+        return help_colored_id_line_spans(app, line, id_start, parent_kind);
+    }
+
+    if let Some(list_start) = line.find("- list:") {
+        return help_colored_property_line_spans(app, line, list_start, "- list:", Some("lists"));
+    }
+
+    if let Some((key_start, key_len)) = help_yaml_property_marker(line) {
+        return help_colored_property_line_spans(
+            app,
+            line,
+            key_start,
+            &line[key_start..key_start + key_len],
+            parent_kind,
+        );
+    }
+
+    help_colored_identifier_value_spans(app, line)
+}
+
+fn help_colored_kind_line_spans(
+    app: &App,
+    line: &str,
+    kind: &str,
+) -> Vec<iced::widget::text::Span<'static, Message>> {
+    let leading = line.len() - line.trim_start().len();
+    let mut spans = Vec::new();
+    if leading > 0 {
+        spans.push(
+            span(line[..leading].to_string())
+                .font(app.ui_theme.font_modal)
+                .color(app.ui_theme.text),
+        );
+    }
+    let kind_text = format!("{kind}:");
+    spans.push(
+        span(kind_text.clone())
+            .font(app.ui_theme.font_modal)
+            .color(help_standardized_colour(app, kind).unwrap_or(app.ui_theme.text)),
+    );
+    if line.len() > leading + kind_text.len() {
+        spans.push(
+            span(line[leading + kind_text.len()..].to_string())
+                .font(app.ui_theme.font_modal)
+                .color(app.ui_theme.text),
+        );
+    }
+    spans
+}
+
+fn help_colored_id_line_spans(
+    app: &App,
+    line: &str,
+    id_start: usize,
+    parent_kind: Option<&str>,
+) -> Vec<iced::widget::text::Span<'static, Message>> {
+    let mut spans = Vec::new();
+    if id_start > 0 {
+        spans.push(
+            span(line[..id_start].to_string())
+                .font(app.ui_theme.font_modal)
+                .color(app.ui_theme.text),
+        );
+    }
+
+    let marker = "- id:";
+    spans.push(
+        span(marker.to_string())
+            .font(app.ui_theme.font_modal)
+            .color(
+                parent_kind
+                    .and_then(|kind| help_standardized_colour(app, kind))
+                    .unwrap_or(app.ui_theme.text),
+            ),
+    );
+
+    let rest_start = id_start + marker.len();
+    if rest_start >= line.len() {
+        return spans;
+    }
+
+    let rest = &line[rest_start..];
+    let value_offset = rest
+        .char_indices()
+        .find_map(|(idx, ch)| (!ch.is_whitespace()).then_some(idx))
+        .unwrap_or(rest.len());
+    if value_offset > 0 {
+        spans.push(
+            span(rest[..value_offset].to_string())
+                .font(app.ui_theme.font_modal)
+                .color(app.ui_theme.text),
+        );
+    }
+    if value_offset >= rest.len() {
+        return spans;
+    }
+
+    let value = &rest[value_offset..];
+    let value_len = value
+        .char_indices()
+        .find_map(|(idx, ch)| {
+            matches!(ch, ' ' | '\t' | ',' | ']' | '}').then_some(idx)
+        })
+        .unwrap_or(value.len());
+    let id_value = &value[..value_len];
+    spans.push(
+        span(id_value.to_string())
+            .font(app.ui_theme.font_modal)
+            .color(help_standardized_colour(app, id_value).unwrap_or(app.ui_theme.text)),
+    );
+    if value_len < value.len() {
+        spans.extend(help_colored_identifier_value_spans(app, &value[value_len..]));
+    }
+
+    spans
+}
+
+fn help_colored_property_line_spans(
+    app: &App,
+    line: &str,
+    marker_start: usize,
+    marker: &str,
+    colour_key: Option<&str>,
+) -> Vec<iced::widget::text::Span<'static, Message>> {
+    let mut spans = Vec::new();
+    if marker_start > 0 {
+        spans.push(
+            span(line[..marker_start].to_string())
+                .font(app.ui_theme.font_modal)
+                .color(app.ui_theme.text),
+        );
+    }
+
+    spans.push(
+        span(marker.to_string())
+            .font(app.ui_theme.font_modal)
+            .color(
+                colour_key
+                    .and_then(|key| help_standardized_colour(app, key))
+                    .unwrap_or(app.ui_theme.text),
+            ),
+    );
+
+    let rest_start = marker_start + marker.len();
+    if rest_start < line.len() {
+        spans.extend(help_colored_identifier_value_spans(app, &line[rest_start..]));
+    }
+
+    spans
+}
+
+fn help_colored_identifier_value_spans(
+    app: &App,
+    line: &str,
+) -> Vec<iced::widget::text::Span<'static, Message>> {
+    let mut tokens = app
+        .config
+        .standardized_colours
+        .keys()
+        .filter(|key| !help_yaml_kind_keys().contains(&key.as_str()))
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    tokens.sort_by_key(|token| std::cmp::Reverse(token.len()));
+
+    let mut spans = Vec::new();
+    let mut cursor = 0usize;
+    while cursor < line.len() {
+        let rest = &line[cursor..];
+        let matched = tokens.iter().find_map(|token| {
+            if rest.starts_with(token)
+                && help_identifier_boundary_before(line, cursor)
+                && help_identifier_boundary_after(line, cursor + token.len())
+            {
+                Some(*token)
+            } else {
+                None
+            }
+        });
+
+        if let Some(token) = matched {
+            spans.push(
+                span(token.to_string())
+                    .font(app.ui_theme.font_modal)
+                    .color(help_standardized_colour(app, token).unwrap_or(app.ui_theme.text)),
+            );
+            cursor += token.len();
+        } else if let Some(ch) = rest.chars().next() {
+            spans.push(
+                span(ch.to_string())
+                    .font(app.ui_theme.font_modal)
+                    .color(app.ui_theme.text),
+            );
+            cursor += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    spans
+}
+
+fn help_yaml_kind_line(line: &str) -> Option<&'static str> {
+    let trimmed = line.trim();
+    help_yaml_kind_keys()
+        .iter()
+        .copied()
+        .find(|kind| trimmed == format!("{kind}:"))
+}
+
+fn help_yaml_property_marker(line: &str) -> Option<(usize, usize)> {
+    let start = line
+        .char_indices()
+        .find_map(|(idx, ch)| (!ch.is_whitespace()).then_some(idx))?;
+    let rest = &line[start..];
+    let key_start = if rest.starts_with("- ") {
+        start + 2
+    } else {
+        start
+    };
+    let key_rest = &line[key_start..];
+    let colon = key_rest.find(':')?;
+    if colon == 0 {
+        return None;
+    }
+    let key = &key_rest[..colon];
+    if !key
+        .chars()
+        .all(|ch| matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-'))
+    {
+        return None;
+    }
+
+    let marker_start = if rest.starts_with("- ") { start } else { key_start };
+    let marker_len = key_start + colon + 1 - marker_start;
+    Some((marker_start, marker_len))
+}
+
+fn help_yaml_kind_keys() -> &'static [&'static str] {
+    &[
+        "sections",
+        "fields",
+        "lists",
+        "items",
+        "template",
+        "groups",
+        "boilerplates",
+        "collections",
+    ]
+}
+
+fn help_example_output_spans(
+    app: &App,
+    line: &str,
+) -> Vec<iced::widget::text::Span<'static, Message>> {
+    let phrases = [
+        ("regular exercise", "exercise_level"),
+        ("limited exercise", "exercise_level"),
+        ("no exercise", "exercise_level"),
+        (" due to ", "exercise_reason_field"),
+        ("pain", "exercise_reason"),
+        ("fatigue", "exercise_reason"),
+        ("time constraints", "exercise_reason"),
+        ("recent illness", "exercise_reason"),
+    ];
+    let mut spans = Vec::new();
+    let mut cursor = 0usize;
+
+    while cursor < line.len() {
+        let rest = &line[cursor..];
+        if let Some((phrase, key)) = phrases
+            .iter()
+            .find(|(phrase, _)| rest.starts_with(*phrase))
+        {
+            spans.push(
+                span((*phrase).to_string())
+                    .font(app.ui_theme.font_modal)
+                    .color(help_standardized_colour(app, key).unwrap_or(app.ui_theme.text)),
+            );
+            cursor += phrase.len();
+            continue;
+        }
+
+        if let Some(ch) = rest.chars().next() {
+            spans.push(
+                span(ch.to_string())
+                    .font(app.ui_theme.font_modal)
+                    .color(app.ui_theme.text),
+            );
+            cursor += ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    spans
+}
+
+fn help_identifier_boundary_before(line: &str, idx: usize) -> bool {
+    if idx == 0 {
+        return true;
+    }
+    let Some(ch) = line[..idx].chars().next_back() else {
+        return true;
+    };
+    !matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-')
+}
+
+fn help_identifier_boundary_after(line: &str, idx: usize) -> bool {
+    let Some(ch) = line.get(idx..).and_then(|rest| rest.chars().next()) else {
+        return true;
+    };
+    !matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-')
+}
+
+fn help_standardized_colour(app: &App, key: &str) -> Option<Color> {
+    app.config
+        .standardized_colours
+        .get(key)
+        .and_then(|value| help_parse_colour(value))
+}
+
+fn help_parse_colour(value: &str) -> Option<Color> {
+    let normalized = value.trim();
+    let hex = normalized.strip_prefix('#').unwrap_or(normalized);
+    if hex.len() == 6 && hex.chars().all(|ch| ch.is_ascii_hexdigit()) {
+        let red = u8::from_str_radix(&hex[0..2], 16).ok()?;
+        let green = u8::from_str_radix(&hex[2..4], 16).ok()?;
+        let blue = u8::from_str_radix(&hex[4..6], 16).ok()?;
+        return Some(Color::from_rgb8(red, green, blue));
+    }
+
+    match normalized.to_ascii_lowercase().as_str() {
+        "red" => Some(Color::from_rgb(1.0, 0.0, 0.0)),
+        "green" => Some(Color::from_rgb(0.0, 1.0, 0.0)),
+        "blue" => Some(Color::from_rgb(0.0, 0.0, 1.0)),
+        "yellow" => Some(Color::from_rgb(1.0, 1.0, 0.0)),
+        "cyan" => Some(Color::from_rgb(0.0, 1.0, 1.0)),
+        "magenta" => Some(Color::from_rgb(1.0, 0.0, 1.0)),
+        "orange" => Some(Color::from_rgb(1.0, 0.55, 0.0)),
+        "white" => Some(Color::WHITE),
+        _ => None,
     }
 }
 
@@ -4007,16 +4880,15 @@ mod tests {
         build_modal_open_rendered_unit, build_rendered_modal_unit, collection_preview_card_height,
         collection_preview_card_height_for_rows, collection_preview_hint_labels,
         collection_preview_metrics, collection_preview_strip_layout,
-        collection_preview_visible_row_capacity, default_stub_mode,
-        entry_composition_panel_width, error_modal_styled_spans, modal_close_shift,
-        modal_open_shift, modal_row_container_style, modal_unit_runway_layout,
-        parse_error_modal_code_fence, parse_error_modal_fix_snippet, preview_modal_hint_labels,
-        retained_close_root_width, retained_modal_close_transition,
+        collection_preview_visible_row_capacity, default_stub_mode, entry_composition_panel_width,
+        error_modal_styled_spans, modal_close_shift, modal_open_shift, modal_row_container_style,
+        modal_unit_runway_layout, parse_error_modal_code_fence, parse_error_modal_fix_snippet,
+        preview_modal_hint_labels, retained_close_root_width, retained_modal_close_transition,
         should_render_modal_overlay, simple_modal_unit_root_width, split_rendered_text_lines,
         split_yaml_property_segments, transition_unit_display_width, yaml_property_tone,
         yaml_required_keys_for_code_block, ErrorModalCodeFence, ErrorModalFixSnippet,
-        ErrorModalFixSnippetAccent, ErrorModalYamlPropertyTone, ModalUnitCardKind,
-        ModalUnitSide, COLLECTION_PREVIEW_INACTIVE_TEASER_ROWS, COLLECTION_STREAM_SPACING,
+        ErrorModalFixSnippetAccent, ErrorModalYamlPropertyTone, ModalUnitCardKind, ModalUnitSide,
+        COLLECTION_PREVIEW_INACTIVE_TEASER_ROWS, COLLECTION_STREAM_SPACING,
     };
     use crate::app::{
         App, FocusDirection, ModalArrivalLayer, ModalDepartureLayer, ModalTransitionEasing,
@@ -4264,8 +5136,14 @@ mod tests {
             max_entries: None,
             max_actives: None,
         };
-        let mut modal =
-            crate::modal::SearchModal::new_field(0, field, None, &HashMap::new(), &HashMap::new(), 5);
+        let mut modal = crate::modal::SearchModal::new_field(
+            0,
+            field,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            5,
+        );
         modal.query = "One".to_string();
         modal.update_filter();
         app.modal = Some(modal);
@@ -4332,8 +5210,14 @@ mod tests {
             max_entries: None,
             max_actives: None,
         };
-        let mut modal =
-            crate::modal::SearchModal::new_field(0, field, None, &HashMap::new(), &HashMap::new(), 5);
+        let mut modal = crate::modal::SearchModal::new_field(
+            0,
+            field,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            5,
+        );
         let state = modal.collection_state.as_mut().expect("collection modal");
         state.collection_cursor = 0;
         state.enter_collection();

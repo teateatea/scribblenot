@@ -1038,7 +1038,8 @@ mod tests {
             "    items:\n",
             "      - output: ok\n",
         ));
-        let err = validate_with_index(&file, &index).expect_err("double-brace placeholder must fail");
+        let err =
+            validate_with_index(&file, &index).expect_err("double-brace placeholder must fail");
 
         assert_eq!(err.kind_id(), "field_double_brace_format_placeholder");
         assert!(err.contains("double-brace placeholder '{{pt_tolerance}}'"));

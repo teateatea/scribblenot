@@ -236,7 +236,12 @@ pub(crate) fn detect_invalid_child_ref_line(
     let start = location.line().saturating_sub(1);
     let indent = location.column().saturating_sub(1);
     let valid = [
-        "group", "section", "collection", "field", "list", "boilerplate",
+        "group",
+        "section",
+        "collection",
+        "field",
+        "list",
+        "boilerplate",
     ];
     doc.text
         .lines()
@@ -451,7 +456,10 @@ pub(crate) fn unsupported_authored_key_report(
     .with_param("owner_label", context.owner_label)
     .with_param("owner_id", context.owner_id.unwrap_or_default())
     .with_param("key_name", key_name)
-    .with_param("expected_keys", format_key_list(allowed_keys_for_owner_kind(context.owner_kind)))
+    .with_param(
+        "expected_keys",
+        format_key_list(allowed_keys_for_owner_kind(context.owner_kind)),
+    )
 }
 
 pub(crate) fn missing_required_authored_key_report(
@@ -612,7 +620,9 @@ pub(crate) fn find_unknown_top_level_key_report(
             .text
             .lines()
             .enumerate()
-            .find(|(_, line)| leading_spaces(line) == 0 && line.trim().starts_with(&format!("{key}:")))
+            .find(|(_, line)| {
+                leading_spaces(line) == 0 && line.trim().starts_with(&format!("{key}:"))
+            })
             .map(|(idx, _)| ErrorSource {
                 file: path.to_path_buf(),
                 line: doc.start_line + idx,
@@ -751,7 +761,13 @@ pub(crate) fn validate_merged_hierarchy(
     })?;
 
     let mut global_ids: HashMap<String, TypeTag> = HashMap::new();
-    register_global_ids(&mut global_ids, &file.groups, TypeTag::Group, |item| &item.id, index)?;
+    register_global_ids(
+        &mut global_ids,
+        &file.groups,
+        TypeTag::Group,
+        |item| &item.id,
+        index,
+    )?;
     register_global_ids(
         &mut global_ids,
         &file.sections,
@@ -766,8 +782,20 @@ pub(crate) fn validate_merged_hierarchy(
         |item| &item.id,
         index,
     )?;
-    register_global_ids(&mut global_ids, &file.fields, TypeTag::Field, |item| &item.id, index)?;
-    register_global_ids(&mut global_ids, &file.lists, TypeTag::List, |item| &item.id, index)?;
+    register_global_ids(
+        &mut global_ids,
+        &file.fields,
+        TypeTag::Field,
+        |item| &item.id,
+        index,
+    )?;
+    register_global_ids(
+        &mut global_ids,
+        &file.lists,
+        TypeTag::List,
+        |item| &item.id,
+        index,
+    )?;
     register_global_ids(
         &mut global_ids,
         &file.boilerplates,
@@ -861,37 +889,34 @@ pub(crate) fn validate_merged_hierarchy(
             let field_has_collection = field.contains.iter().any(
                 |child| matches!(child, HierarchyChildRef::Collection { collection } if collection == &list_id),
             );
-            let field_has_field = field
-                .contains
-                .iter()
-                .any(|child| matches!(child, HierarchyChildRef::Field { field } if field == &list_id));
+            let field_has_field = field.contains.iter().any(
+                |child| matches!(child, HierarchyChildRef::Field { field } if field == &list_id),
+            );
             if field_has_list || field_has_collection || field_has_field {
                 continue;
             }
             match global_ids.get(list_id.as_str()) {
                 Some(TypeTag::List) => {}
                 Some(other) => {
-                    return Err(
-                        format_placeholder_report(
-                            "field_expected_format_list_wrong_kind",
-                            &field.id,
-                            &list_id,
-                            format!(
-                                "field '{}' expected format list '{}', found {}. {}",
-                                field.id,
-                                list_id,
-                                kind_label(*other),
-                                expected_reference_kind_fix_hint(
-                                    &field.id,
-                                    TypeTag::List,
-                                    *other,
-                                    &list_id
-                                )
-                            ),
-                            index.source_for(&field.id),
-                        )
-                        .with_param("actual_kind", kind_label(*other)),
-                    );
+                    return Err(format_placeholder_report(
+                        "field_expected_format_list_wrong_kind",
+                        &field.id,
+                        &list_id,
+                        format!(
+                            "field '{}' expected format list '{}', found {}. {}",
+                            field.id,
+                            list_id,
+                            kind_label(*other),
+                            expected_reference_kind_fix_hint(
+                                &field.id,
+                                TypeTag::List,
+                                *other,
+                                &list_id
+                            )
+                        ),
+                        index.source_for(&field.id),
+                    )
+                    .with_param("actual_kind", kind_label(*other)));
                 }
                 None => {
                     if looks_like_double_brace_placeholder(format, &list_id) {
@@ -991,7 +1016,11 @@ pub(crate) fn validate_merged_hierarchy(
                         index.source_for(&list.id),
                     ));
                 };
-                if !target_list.items.iter().any(|target| target.id == assign.item_id) {
+                if !target_list
+                    .items
+                    .iter()
+                    .any(|target| target.id == assign.item_id)
+                {
                     return Err(assign_rule_report(
                         "assign_unknown_item",
                         &list.id,
@@ -1214,7 +1243,12 @@ fn validate_children(
                             kind_label(child.kind()),
                             child.id(),
                             expected_kind_labels(expected),
-                            invalid_child_fix_hint(&owner.label, expected, child.kind(), child.id())
+                            invalid_child_fix_hint(
+                                &owner.label,
+                                expected,
+                                child.kind(),
+                                child.id()
+                            )
                         ),
                         owner.source(index),
                         &owner,
@@ -1280,7 +1314,12 @@ fn route_wrong_kind_error(
                             child.id(),
                             kind_label(child.kind()),
                             kind_label(actual_kind),
-                            wrong_kind_fix_hint(&owner.label, child.kind(), actual_kind, child.id())
+                            wrong_kind_fix_hint(
+                                &owner.label,
+                                child.kind(),
+                                actual_kind,
+                                child.id()
+                            )
                         ),
                         source,
                         owner,
@@ -1308,7 +1347,12 @@ fn route_wrong_kind_error(
                             child.id(),
                             kind_label(child.kind()),
                             kind_label(actual_kind),
-                            wrong_kind_fix_hint(&owner.label, child.kind(), actual_kind, child.id())
+                            wrong_kind_fix_hint(
+                                &owner.label,
+                                child.kind(),
+                                actual_kind,
+                                child.id()
+                            )
                         ),
                         source,
                         owner,
@@ -1335,7 +1379,12 @@ fn route_wrong_kind_error(
                             child.id(),
                             kind_label(child.kind()),
                             kind_label(actual_kind),
-                            wrong_kind_fix_hint(&owner.label, child.kind(), actual_kind, child.id())
+                            wrong_kind_fix_hint(
+                                &owner.label,
+                                child.kind(),
+                                actual_kind,
+                                child.id()
+                            )
                         ),
                         source,
                         owner,

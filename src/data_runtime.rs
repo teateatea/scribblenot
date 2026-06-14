@@ -87,15 +87,13 @@ pub fn hierarchy_to_runtime(
 
     for child in &template.contains {
         let HierarchyChildRef::Group { group } = child else {
-            return Err(
-                report(
-                    "template_runtime_child_invalid",
-                    "template runtime build expected only group refs",
-                    template_owner.source(index),
-                )
-                .with_param("template_child_kind", kind_label(child.kind()))
-                .with_param("template_child_id", child.id()),
-            );
+            return Err(report(
+                "template_runtime_child_invalid",
+                "template runtime build expected only group refs",
+                template_owner.source(index),
+            )
+            .with_param("template_child_kind", kind_label(child.kind()))
+            .with_param("template_child_id", child.id()));
         };
         let hierarchy_group = groups_by_id.get(group.as_str()).ok_or_else(|| {
             child_reference_with_reference_source(
@@ -494,14 +492,12 @@ fn resolve_field(
         let mut path = visiting.clone();
         path.push(field.id.clone());
         let cycle_path = path.join(" -> ");
-        return Err(
-            report(
-                "runtime_field_cycle",
-                format!("field cycle detected: {cycle_path}"),
-                index.source_for(&field.id),
-            )
-            .with_param("cycle_path", cycle_path),
-        );
+        return Err(report(
+            "runtime_field_cycle",
+            format!("field cycle detected: {cycle_path}"),
+            index.source_for(&field.id),
+        )
+        .with_param("cycle_path", cycle_path));
     }
     visiting.push(field.id.clone());
 
@@ -643,7 +639,9 @@ fn resolve_field_inner(
     for list_id in referenced_placeholder_ids(field.format.as_deref()) {
         let list_is_primary = lists.iter().any(|list| list.id == list_id);
         let format_list_is_primary = format_lists.iter().any(|list| list.id == list_id);
-        let collection_matches = collections.iter().any(|collection| collection.id == list_id);
+        let collection_matches = collections
+            .iter()
+            .any(|collection| collection.id == list_id);
         let field_matches = fields.iter().any(|child| child.id == list_id);
         if list_is_primary || format_list_is_primary || collection_matches || field_matches {
             continue;

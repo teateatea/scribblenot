@@ -15,6 +15,8 @@ pub struct Config {
     pub hint_labels_capitalized: bool,
     #[serde(default)]
     pub hint_labels_case_sensitive: bool,
+    #[serde(default = "default_standardized_colours")]
+    pub standardized_colours: HashMap<String, String>,
 }
 
 fn default_true() -> bool {
@@ -25,6 +27,29 @@ fn default_theme_name() -> String {
     "default-theme".to_string()
 }
 
+fn default_standardized_colours() -> HashMap<String, String> {
+    [
+        ("sections", "#4285F4"),
+        ("fields", "#4285F4"),
+        ("lists", "#DB4437"),
+        ("items", "#0F9D58"),
+        ("template", "#F4B400"),
+        ("groups", "#00FFFF"),
+        ("boilerplates", "#FF00FF"),
+        ("collections", "#8E44AD"),
+        ("exercise_recent", "#90CAF9"),
+        ("exercise_level", "#D4E157"),
+        ("exercise_due_to", "#EC407A"),
+        ("exercise_reason_field", "#FF9800"),
+        ("exercise_reason", "#80CBC4"),
+        ("example_item", "#CE93D8"),
+        ("followup_field", "#FFB74D"),
+    ]
+    .into_iter()
+    .map(|(key, value)| (key.to_string(), value.to_string()))
+    .collect()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -33,6 +58,7 @@ impl Default for Config {
             sticky_values: HashMap::new(),
             hint_labels_capitalized: true,
             hint_labels_case_sensitive: false,
+            standardized_colours: default_standardized_colours(),
         }
     }
 }

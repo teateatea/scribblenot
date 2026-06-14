@@ -8,6 +8,7 @@ use crate::data::{
 };
 use crate::diagnostics::{ErrorReport, Messages};
 use crate::document::build_initial_document;
+use crate::help;
 use crate::modal::{
     joined_repeating_value, resolved_item_labels_for_list, FieldAdvance, ListValueLookup,
     SearchModal,
@@ -240,6 +241,31 @@ pub enum ErrorModalFlashKind {
     Copy,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HelpMode {
+    Search,
+    Topic,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HelpState {
+    pub query: String,
+    pub selected_filtered_index: usize,
+    pub mode: HelpMode,
+    pub selected_code_block: usize,
+}
+
+impl Default for HelpState {
+    fn default() -> Self {
+        Self {
+            query: String::new(),
+            selected_filtered_index: 0,
+            mode: HelpMode::Search,
+            selected_code_block: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ErrorModalFlash {
     pub kind: ErrorModalFlashKind,
@@ -305,6 +331,7 @@ pub struct App {
     pub ui_theme: crate::theme::AppTheme,
     pub pane_swapped: bool,
     pub show_help: bool,
+    pub help_state: HelpState,
     pub status: Option<StatusMsg>,
     pub error_modal: Option<ErrorReport>,
     pub error_modal_flash: Option<ErrorModalFlash>,
@@ -440,6 +467,7 @@ impl App {
             ui_theme,
             pane_swapped,
             show_help: false,
+            help_state: HelpState::default(),
             status: None,
             error_modal: None,
             error_modal_flash: None,
@@ -492,6 +520,7 @@ impl App {
             ui_theme,
             pane_swapped: false,
             show_help: false,
+            help_state: HelpState::default(),
             status: None,
             error_modal: Some(report),
             error_modal_flash,
@@ -536,6 +565,223 @@ impl App {
         // Geometry-only rebuild: update layout for new viewport, preserve in-flight layers.
         if self.modal.is_some() {
             self.rebuild_modal_unit_layout(false);
+        }
+    }
+
+    pub fn set_help_query(&mut self, new_text: String) {
+        self.help_state.query = new_text;
+        let len = self.filtered_help_topic_indices().len();
+        if len == 0 {
+            self.help_state.selected_filtered_index = 0;
+        } else if self.help_state.selected_filtered_index >= len {
+            self.help_state.selected_filtered_index = len - 1;
+        }
+        self.help_state.selected_code_block = 0;
+    }
+
+    pub fn filtered_help_topic_indices(&self) -> Vec<usize> {
+        help::filtered_topic_indices(&self.help_state.query)
+    }
+
+    pub fn selected_help_topic(&self) -> Option<&'static help::HelpTopic> {
+        let filtered = self.filtered_help_topic_indices();
+        let topic_idx = *filtered.get(self.help_state.selected_filtered_index)?;
+        help::topics().get(topic_idx)
+    }
+
+    pub fn selected_help_topic_code_blocks(&self) -> Vec<help::HelpCodeBlock> {
+        self.selected_help_topic()
+            .map(help::topic_code_blocks)
+            .unwrap_or_default()
+    }
+
+    pub fn help_code_block_hint_labels(&self) -> Vec<String> {
+        let code_blocks = self.selected_help_topic_code_blocks();
+        const TOPIC_CODE_BLOCK_HINTS: [&str; 9] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+        let explicit_prefixes = (0..code_blocks.len())
+            .map(|idx| TOPIC_CODE_BLOCK_HINTS.get(idx).copied())
+            .collect::<Vec<_>>();
+        crate::data::assign_hint_labels(
+            &self.data.keybindings.hints,
+            &explicit_prefixes,
+            self.config.hint_labels_case_sensitive,
+        )
+        .into_iter()
+        .map(|assignment| assignment.label)
+        .collect()
+    }
+
+    pub fn selected_help_copy_text(&self) -> Option<String> {
+        let topic = self.selected_help_topic()?;
+        let code_blocks = help::topic_code_blocks(topic);
+        if let Some(block) = code_blocks.get(self.help_state.selected_code_block) {
+            Some(block.code.clone())
+        } else {
+            Some(help::topic_markdown(topic))
+        }
+    }
+
+    pub fn selected_help_code_block_scroll_offset(&self) -> Option<f32> {
+        let topic = self.selected_help_topic()?;
+        Some(help::topic_code_block_scroll_offset(
+            topic,
+            self.help_state.selected_code_block,
+        ))
+    }
+
+    pub fn is_help_code_block_hint_key(&self, key: &AppKey) -> bool {
+        let AppKey::Char(c) = key else {
+            return false;
+        };
+        let typed = c.to_ascii_lowercase().to_string();
+        self.help_code_block_hint_labels()
+            .iter()
+            .any(|label| label.to_ascii_lowercase() == typed)
+    }
+
+    pub fn is_help_code_block_scroll_key(&self, key: &AppKey) -> bool {
+        self.is_help_code_block_hint_key(key)
+            || self.is_nav_left(key)
+            || self.is_nav_right(key)
+            || matches!(key, AppKey::Left | AppKey::Right)
+    }
+
+    fn open_help(&mut self) {
+        self.modal_mouse_mode = false;
+        self.modal = None;
+        self.settle_modal_transitions();
+        self.show_help = true;
+        self.help_state.mode = HelpMode::Search;
+        self.help_state.selected_code_block = 0;
+        let len = self.filtered_help_topic_indices().len();
+        if len == 0 {
+            self.help_state.selected_filtered_index = 0;
+        } else if self.help_state.selected_filtered_index >= len {
+            self.help_state.selected_filtered_index = len - 1;
+        }
+    }
+
+    fn close_help(&mut self) {
+        self.show_help = false;
+        self.help_state.mode = HelpMode::Search;
+        self.help_state.selected_code_block = 0;
+    }
+
+    fn open_selected_help_topic(&mut self) {
+        if self.selected_help_topic().is_some() {
+            self.help_state.mode = HelpMode::Topic;
+            self.help_state.selected_code_block = 0;
+        }
+    }
+
+    fn move_help_topic_selection(&mut self, delta: isize) {
+        let len = self.filtered_help_topic_indices().len();
+        if len == 0 {
+            self.help_state.selected_filtered_index = 0;
+            return;
+        }
+        let current = self.help_state.selected_filtered_index.min(len - 1);
+        self.help_state.selected_filtered_index = if delta.is_negative() {
+            current.saturating_sub(delta.unsigned_abs())
+        } else {
+            (current + delta as usize).min(len - 1)
+        };
+        self.help_state.selected_code_block = 0;
+    }
+
+    fn move_help_code_block_selection(&mut self, delta: isize) {
+        let len = self.selected_help_topic_code_blocks().len();
+        if len == 0 {
+            self.help_state.selected_code_block = 0;
+            return;
+        }
+        let current = self.help_state.selected_code_block.min(len - 1);
+        self.help_state.selected_code_block = if delta.is_negative() {
+            current.saturating_sub(delta.unsigned_abs())
+        } else {
+            (current + delta as usize).min(len - 1)
+        };
+    }
+
+    fn select_help_code_block_by_hint(&mut self, key: &AppKey) -> bool {
+        let AppKey::Char(c) = key else {
+            return false;
+        };
+        let typed = c.to_ascii_lowercase().to_string();
+        for (idx, label) in self.help_code_block_hint_labels().iter().enumerate() {
+            if label.to_ascii_lowercase() == typed {
+                self.help_state.selected_code_block = idx;
+                return true;
+            }
+        }
+        false
+    }
+
+    fn handle_help_key(&mut self, key: AppKey) {
+        if self.is_help(&key) {
+            self.close_help();
+            return;
+        }
+
+        match self.help_state.mode {
+            HelpMode::Search => {
+                if matches!(key, AppKey::Backspace) {
+                    self.help_state.query.pop();
+                    self.set_help_query(self.help_state.query.clone());
+                    return;
+                }
+                if self.is_back(&key) {
+                    self.close_help();
+                    return;
+                }
+                if matches!(key, AppKey::Down) {
+                    self.move_help_topic_selection(1);
+                    return;
+                }
+                if matches!(key, AppKey::Up) {
+                    self.move_help_topic_selection(-1);
+                    return;
+                }
+                if matches!(key, AppKey::Enter)
+                    || self.is_search_bar_confirm(&key)
+                    || (!Self::is_text_entry_printable_key(&key) && self.is_nav_right(&key))
+                {
+                    self.open_selected_help_topic();
+                    return;
+                }
+                match key {
+                    AppKey::Char(c) => {
+                        self.help_state.query.push(c);
+                        self.set_help_query(self.help_state.query.clone());
+                    }
+                    AppKey::Space => {
+                        self.help_state.query.push(' ');
+                        self.set_help_query(self.help_state.query.clone());
+                    }
+                    _ => {}
+                }
+            }
+            HelpMode::Topic => {
+                if self.is_back(&key) {
+                    self.help_state.mode = HelpMode::Search;
+                    self.help_state.selected_code_block = 0;
+                    return;
+                }
+                if self.is_copy_note(&key) {
+                    self.copy_override_text = self.selected_help_copy_text();
+                    self.copy_requested = self.copy_override_text.is_some();
+                    return;
+                }
+                if self.is_nav_left(&key) || matches!(key, AppKey::Left) {
+                    self.move_help_code_block_selection(-1);
+                    return;
+                }
+                if self.is_nav_right(&key) || matches!(key, AppKey::Right) {
+                    self.move_help_code_block_selection(1);
+                    return;
+                }
+                let _ = self.select_help_code_block_by_hint(&key);
+            }
         }
     }
 
@@ -1738,19 +1984,27 @@ impl App {
                     .any(|child| field_contains_sticky_list(child, target_id))
         }
 
-        flat_sections_from_template(&self.data.template).iter().any(|section| {
-            section.lists.iter().any(|list| list.id == target_id && list.sticky)
-                || section
-                    .fields
-                    .as_deref()
-                    .is_some_and(|fields| fields.iter().any(|field| field_contains_sticky_list(field, target_id)))
-        })
+        flat_sections_from_template(&self.data.template)
+            .iter()
+            .any(|section| {
+                section
+                    .lists
+                    .iter()
+                    .any(|list| list.id == target_id && list.sticky)
+                    || section.fields.as_deref().is_some_and(|fields| {
+                        fields
+                            .iter()
+                            .any(|field| field_contains_sticky_list(field, target_id))
+                    })
+            })
     }
 
     fn persist_sticky_assignments(&mut self, assignments: &HashMap<String, String>) {
         for (list_id, value) in assignments {
             if self.list_is_sticky(list_id) {
-                self.config.sticky_values.insert(list_id.clone(), value.clone());
+                self.config
+                    .sticky_values
+                    .insert(list_id.clone(), value.clone());
             }
         }
     }
@@ -1987,9 +2241,7 @@ impl App {
         }
 
         if self.show_help {
-            if self.is_help(&key) || self.is_back(&key) {
-                self.show_help = false;
-            }
+            self.handle_help_key(key);
             return;
         }
 
@@ -2018,7 +2270,7 @@ impl App {
         }
 
         if self.is_help(&key) {
-            self.show_help = true;
+            self.open_help();
             return;
         }
 
@@ -4800,8 +5052,9 @@ mod tests {
 #[cfg(test)]
 mod composition_span_tests {
     use super::{
-        compute_field_composition_spans, App, AppKey, FieldCompositionSpanKind, Focus,
-        FocusDirection, ModalCompositionTransition, ModalTransitionLayer, SectionState,
+        compute_field_composition_spans, empty_app_data, App, AppKey, FieldCompositionSpanKind,
+        Focus, FocusDirection, HelpMode, ModalCompositionTransition, ModalTransitionLayer,
+        SectionState,
     };
     use crate::config::Config;
     use crate::data::{
@@ -5439,14 +5692,12 @@ mod composition_span_tests {
 
         app.reload_data().expect("reload should succeed");
 
-        let rendered = app
-            .messages
-            .render(
-                &ErrorReport::generic("missing_child", "raw")
-                    .with_param("owner_label", "section 'demo'")
-                    .with_param("referenced_kind", "field")
-                    .with_param("referenced_id", "missing"),
-            );
+        let rendered = app.messages.render(
+            &ErrorReport::generic("missing_child", "raw")
+                .with_param("owner_label", "section 'demo'")
+                .with_param("referenced_kind", "field")
+                .with_param("referenced_id", "missing"),
+        );
         assert_eq!(rendered.title, "ID Not Found: missing");
     }
 
@@ -5465,14 +5716,12 @@ mod composition_span_tests {
 
         let _ = app.reload_data();
 
-        let rendered = app
-            .messages
-            .render(
-                &ErrorReport::generic("missing_child", "raw")
-                    .with_param("owner_label", "section 'demo'")
-                    .with_param("referenced_kind", "field")
-                    .with_param("referenced_id", "missing"),
-            );
+        let rendered = app.messages.render(
+            &ErrorReport::generic("missing_child", "raw")
+                .with_param("owner_label", "section 'demo'")
+                .with_param("referenced_kind", "field")
+                .with_param("referenced_id", "missing"),
+        );
         assert_eq!(rendered.title, "ID Not Found: missing");
     }
 
@@ -5863,8 +6112,15 @@ mod composition_span_tests {
         app.map_cursor = 1;
 
         app.handle_key(AppKey::Space);
-        assert_eq!(app.focus, Focus::Wizard, "confirm should enter the map selection");
-        assert_eq!(app.current_idx, 1, "confirm should enter the selected section");
+        assert_eq!(
+            app.focus,
+            Focus::Wizard,
+            "confirm should enter the map selection"
+        );
+        assert_eq!(
+            app.current_idx, 1,
+            "confirm should enter the selected section"
+        );
         assert_eq!(app.map_return_idx, None);
 
         app.focus = Focus::Map;
@@ -6059,7 +6315,8 @@ mod composition_span_tests {
 
     #[test]
     fn map_confirm_binding_enters_section_like_select() {
-        let mut app = app_with_free_text_sections(vec![free_text_section("first", "First", "group_a")]);
+        let mut app =
+            app_with_free_text_sections(vec![free_text_section("first", "First", "group_a")]);
         app.focus = Focus::Map;
         app.current_idx = 0;
         app.map_cursor = 0;
@@ -6078,7 +6335,10 @@ mod composition_span_tests {
 
         app.handle_key(AppKey::Char('d'));
 
-        assert!(app.modal.is_some(), "confirm binding should open header modal");
+        assert!(
+            app.modal.is_some(),
+            "confirm binding should open header modal"
+        );
     }
 
     #[test]
@@ -6143,7 +6403,10 @@ mod composition_span_tests {
             app.handle_key(AppKey::Char(ch));
         }
 
-        assert!(app.modal.is_some(), "map field hint should open header modal");
+        assert!(
+            app.modal.is_some(),
+            "map field hint should open header modal"
+        );
         assert!(app.hint_buffer.is_empty());
     }
 
@@ -6181,11 +6444,17 @@ mod composition_span_tests {
         app.handle_key(AppKey::Enter);
 
         assert_eq!(
-            app.config.sticky_values.get("pt_pronouns").map(String::as_str),
+            app.config
+                .sticky_values
+                .get("pt_pronouns")
+                .map(String::as_str),
             Some("she/her")
         );
         assert_eq!(
-            app.config.sticky_values.get("pos_pronoun").map(String::as_str),
+            app.config
+                .sticky_values
+                .get("pos_pronoun")
+                .map(String::as_str),
             Some("her")
         );
     }
@@ -7291,5 +7560,94 @@ mod composition_span_tests {
             app.modal.is_none(),
             "modal should close after nested repeat terminates"
         );
+    }
+
+    fn app_for_help_tests() -> App {
+        App::new(empty_app_data(), Config::default(), PathBuf::new())
+    }
+
+    #[test]
+    fn help_key_opens_search_view() {
+        let mut app = app_for_help_tests();
+
+        app.handle_key(AppKey::Char('?'));
+
+        assert!(app.show_help);
+        assert_eq!(app.help_state.mode, HelpMode::Search);
+    }
+
+    #[test]
+    fn help_search_filters_topics_by_alias() {
+        let mut app = app_for_help_tests();
+        app.handle_key(AppKey::Char('?'));
+
+        for ch in "curly braces".chars() {
+            if ch == ' ' {
+                app.handle_key(AppKey::Space);
+            } else {
+                app.handle_key(AppKey::Char(ch));
+            }
+        }
+
+        let topic = app
+            .selected_help_topic()
+            .expect("alias search should select a topic");
+        assert_eq!(topic.id, "format-placeholders");
+    }
+
+    #[test]
+    fn help_enter_opens_topic_and_back_returns_to_search() {
+        let mut app = app_for_help_tests();
+        app.handle_key(AppKey::Char('?'));
+
+        app.handle_key(AppKey::Enter);
+        assert_eq!(app.help_state.mode, HelpMode::Topic);
+
+        app.handle_key(AppKey::Esc);
+        assert_eq!(app.help_state.mode, HelpMode::Search);
+        assert!(app.show_help);
+    }
+
+    #[test]
+    fn help_copy_uses_selected_code_block() {
+        let mut app = app_for_help_tests();
+        app.handle_key(AppKey::Char('?'));
+        app.handle_key(AppKey::Enter);
+
+        app.handle_key(AppKey::Char('c'));
+
+        assert!(app.copy_requested);
+        let copied = app
+            .copy_override_text
+            .as_deref()
+            .expect("help copy should prepare override text");
+        assert!(copied.contains("lists:"));
+        assert!(copied.contains("exercise_reason_field"));
+    }
+
+    #[test]
+    fn help_topic_code_block_hints_start_with_digits() {
+        let mut app = app_for_help_tests();
+        app.handle_key(AppKey::Char('?'));
+        app.handle_key(AppKey::Enter);
+
+        let hints = app.help_code_block_hint_labels();
+
+        assert_eq!(hints[0], "1");
+        assert_eq!(hints[8], "9");
+    }
+
+    #[test]
+    fn help_search_backspace_edits_query_instead_of_closing() {
+        let mut app = app_for_help_tests();
+        app.handle_key(AppKey::Char('?'));
+        app.handle_key(AppKey::Char('p'));
+        app.handle_key(AppKey::Char('a'));
+
+        app.handle_key(AppKey::Backspace);
+
+        assert!(app.show_help);
+        assert_eq!(app.help_state.mode, HelpMode::Search);
+        assert_eq!(app.help_state.query, "p");
     }
 }

@@ -582,15 +582,11 @@ fn add_derived_params(params: &mut HashMap<String, String>) {
             .entry("placeholder_token".to_string())
             .or_insert_with(|| format!("{{{placeholder_id}}}"));
     }
-    if let Some(inline_map_token) = params
-        .get("inline_map_token")
-        .cloned()
-        .or_else(|| {
-            params
-                .get("source_quoted_line")
-                .and_then(|source| extract_inline_map_token(source))
-        })
-    {
+    if let Some(inline_map_token) = params.get("inline_map_token").cloned().or_else(|| {
+        params
+            .get("source_quoted_line")
+            .and_then(|source| extract_inline_map_token(source))
+    }) {
         params
             .entry("inline_map_token".to_string())
             .or_insert_with(|| inline_map_token.clone());
@@ -1108,7 +1104,9 @@ mod tests {
         assert!(rendered
             .description
             .contains("field 'consent_pecs_field' uses unsupported key `format_lists`"));
-        assert!(rendered.fix.contains("Remove `format_lists:` from this field"));
+        assert!(rendered
+            .fix
+            .contains("Remove `format_lists:` from this field"));
         assert!(rendered
             .fix
             .contains("resolves those extra placeholder lists automatically"));
@@ -1150,7 +1148,9 @@ mod tests {
         let rendered = messages.render(&report);
 
         assert_eq!(rendered.title, "Unsupported Item Property: branch_fields");
-        assert!(rendered.fix.contains("Replace `branch_fields:` with `fields:`"));
+        assert!(rendered
+            .fix
+            .contains("Replace `branch_fields:` with `fields:`"));
     }
 
     #[test]
@@ -1193,10 +1193,14 @@ mod tests {
         let rendered = messages.render(&report);
 
         assert_eq!(rendered.title, "Field Label Needs Quotes");
-        assert!(rendered.description.contains("{pt_pronouns} is YAML inline-map syntax"));
+        assert!(rendered
+            .description
+            .contains("{pt_pronouns} is YAML inline-map syntax"));
         assert!(rendered.fix.contains("a) If you meant the literal text"));
         assert!(rendered.fix.contains("label: \"{pt_pronouns}\""));
-        assert!(rendered.fix.contains("b) If you meant to use the resolved list value instead"));
+        assert!(rendered
+            .fix
+            .contains("b) If you meant to use the resolved list value instead"));
         assert!(rendered.fix.contains("format: \"{pt_pronouns}\""));
         assert!(rendered.fix.contains("- list: pt_pronouns"));
         assert!(!rendered.fix.contains("c) No list with id"));
@@ -1224,7 +1228,9 @@ mod tests {
         let rendered = messages.render(&report);
 
         assert_eq!(rendered.title, "Field Label Needs Quotes");
-        assert!(rendered.fix.contains("c) No list with id missing_list was found"));
+        assert!(rendered
+            .fix
+            .contains("c) No list with id missing_list was found"));
         assert!(rendered.fix.contains("- id: missing_list"));
     }
 
@@ -1292,7 +1298,9 @@ mod tests {
 
         assert_eq!(rendered.title, "Invalid Template Child");
         assert!(rendered.description.contains("group references only"));
-        assert!(rendered.fix.contains("Put `subjective_section` inside a group"));
+        assert!(rendered
+            .fix
+            .contains("Put `subjective_section` inside a group"));
         assert!(rendered.fix.contains("- section: subjective_section"));
     }
 
@@ -1333,14 +1341,18 @@ mod tests {
     #[test]
     fn render_runtime_field_cycle_shows_cycle_path() {
         let messages = Messages::load();
-        let report = ErrorReport::generic("runtime_field_cycle", "raw")
-            .with_param("cycle_path", "pain_summary -> pain_region -> pain_detail -> pain_summary");
+        let report = ErrorReport::generic("runtime_field_cycle", "raw").with_param(
+            "cycle_path",
+            "pain_summary -> pain_region -> pain_detail -> pain_summary",
+        );
 
         let rendered = messages.render(&report);
 
         assert_eq!(rendered.title, "Field Cycle");
         assert!(rendered.description.contains("pain_summary -> pain_region"));
-        assert!(rendered.fix.contains("Remove or change one `contains:` field reference"));
+        assert!(rendered
+            .fix
+            .contains("Remove or change one `contains:` field reference"));
         assert!(rendered.fix.contains("format-driven value"));
     }
 
@@ -1356,9 +1368,15 @@ mod tests {
         let rendered = messages.render(&report);
 
         assert_eq!(rendered.title, "Assigns Unknown Item");
-        assert!(rendered.description.contains("When `left` is chosen in `side_list`"));
-        assert!(rendered.description.contains("`lt` in list `laterality_words`"));
-        assert!(rendered.fix.contains("when this item is chosen, also choose that item in another list"));
+        assert!(rendered
+            .description
+            .contains("When `left` is chosen in `side_list`"));
+        assert!(rendered
+            .description
+            .contains("`lt` in list `laterality_words`"));
+        assert!(rendered
+            .fix
+            .contains("when this item is chosen, also choose that item in another list"));
     }
 
     #[test]

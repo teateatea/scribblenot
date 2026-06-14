@@ -6,7 +6,7 @@ This file tracks improvement ideas, technical debt, reliability upgrades, securi
 It is not a commitment list. It is a place to keep useful ideas from getting lost.
 
 ## Tracker
-- Next suggestion number: 70
+- Next suggestion number: 71
 - Rule: never reuse or renumber old suggestion IDs, even if an item is completed or removed later.
 - Status values: `open`, `planned`, `in-progress`, `blocked`, `done`, `dropped`
 
@@ -82,6 +82,7 @@ Lowest-difficulty open items in Next — can be picked up without opening a majo
 
 ## Next
 65. [open] [Reliability] [I: 68, D: 40]: Branch fields inside list items can cause a crash (exit code 0xcfffffff). Reproduced on the `starting_since` list, `in_the_past` item. Why it matters: the crash is triggered during normal use and produces no useful error output. Suggested next step: reproduce the crash with a minimal authored item that has a `fields:` branch, identify the panic site in the branch-field resolution or modal flow, and add a regression test that exercises branch fields without crashing.
+70. [open] [Reliability] [I: 52, D: 36] {GPT-5 Codex}: Add a targeted diagnostic for branch-shaped item output without matching `fields:`. Why it matters: when an item output contains a field-like placeholder such as `{exercise_reason_field}` but the item does not declare `fields:`, the author is probably trying to build a branching field and needs a direct error instead of a later missing-placeholder or confusing output problem. Suggested next step: detect item `output:` placeholders that resolve to field ids or unknown ids with field-like names, suggest adding `fields:` on the item plus the follow-up field, and avoid flagging ordinary list placeholders.
 55. [open] [Architecture] [I: 62, D: 46] {GPT-5 Codex}: Allow groups to contain fields by synthesizing invisible single-field sections. Why it matters: the rules doc calls this useful for one-off prompts, and today every field needs a named section wrapper even when that wrapper adds no real meaning. Suggested next step: define wrapper IDs/labels, implement loader synthesis for `group -> field`, and cover navigation plus note output for bare-field group entries. Context: `operations/CONTAINS-RULES.md` (`group`, `field` parents).
 47. [open] [Architecture] [I: 58, D: 62] {GPT-5 Codex}: Define and implement `fields + lists` section behaviour so list children are not silently dropped in `multi_field` sections. Why it matters: the rules document says mixed sections should wrap lists as pseudo-field slots, but the current renderer ignores `SectionConfig.lists`, which means authored data can disappear from output with no warning. Suggested next step: formalize the mixed-section contract in code/tests, render list-backed slots alongside fields, and add a regression that proves both child kinds survive note output. Context: `operations/CONTAINS-RULES.md` (`section`, inferred body table and gaps).
 4. [open] [Architecture] [I: 55, D: 55] {GPT-5 Codex}: Move note layout metadata out of hard-coded Rust matches and into data. Section headings, note grouping, and header field IDs are duplicated in `note.rs`, which makes data migrations easy to break silently.

@@ -1,22 +1,38 @@
 pane_layout: default
 theme: default-theme
 sticky_values:
-  year: '2026'
-  date_month_wor_list: Feb
-  date_day_list: '08'
-  date_year: '2026'
-  start_hour_list: '11'
-  date_year_list: '2026'
-  month: '06'
-  date_month: '04'
-  date_month_num_list: '04'
-  day: '13'
-  date_month_list: Apr
+  pt_pronouns: she/her
   appointment_type_list_brief: General Tx
+  month: '06'
+  year: '2026'
+  date_month_list: Apr
+  date_day_list: '08'
+  date_month_wor_list: Feb
+  date_year: '2026'
+  date_year_list: '2026'
+  date_month_num_list: '04'
+  start_hour_list: '6'
+  pos_pronoun: her
+  date_month: '04'
+  day: '10'
   date_day: '08'
-  pos_pronoun: his
-  start_minute_list: '45'
   date_month_word_list: Jun
-  pt_pronouns: he/him
+  start_minute_list: '30'
 hint_labels_capitalized: true
 hint_labels_case_sensitive: false
+standardized_colours:
+  sections: '#4285F4'
+  exercise_level: '#D4E157'
+  exercise_recent: '#90CAF9'
+  exercise_reason: '#80CBC4'
+  boilerplates: '#FF00FF'
+  collections: '#8E44AD'
+  groups: '#00FFFF'
+  exercise_reason_field: '#FF9800'
+  template: '#F4B400'
+  fields: '#4285F4'
+  items: '#0F9D58'
+  lists: '#DB4437'
+  exercise_due_to: '#EC407A'
+  example_item: '#CE93D8'
+  followup_field: '#FFB74D'

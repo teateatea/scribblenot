@@ -4501,7 +4501,9 @@ mod modal_filter_tests {
             "blank place repeat terminator should reopen requested_regions for the next region"
         );
         assert_eq!(
-            modal.current_part_label(&HashMap::new(), &sticky_values).as_deref(),
+            modal
+                .current_part_label(&HashMap::new(), &sticky_values)
+                .as_deref(),
             Some("[REGION]"),
             "real authored data should reopen the region picker after finishing place repeats"
         );
@@ -5313,8 +5315,7 @@ mod collection_field_tests {
     #[test]
     fn real_prone_back_lower_collection_preview_has_rows() {
         let field = real_prone_back_field();
-        let mut modal =
-            SearchModal::new_field(0, field, None, &HashMap::new(), &HashMap::new(), 5);
+        let mut modal = SearchModal::new_field(0, field, None, &HashMap::new(), &HashMap::new(), 5);
         let state = modal.collection_state.as_mut().expect("collection modal");
         state.collection_cursor = 3;
 

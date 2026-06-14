@@ -12,11 +12,11 @@
 // continue to call them by their bare names.
 
 use crate::data::*;
-use crate::data_model::{HierarchyFile, slug_source_for_item, slugify_id};
+use crate::data_model::{slug_source_for_item, slugify_id, HierarchyFile};
 use crate::data_source::{
-    EntryAnchor, SourceAnchor, SourceIndex, SourceNode, collect_child_ref_anchors,
-    collect_top_level_entry_anchors, child_ref_from_value, find_mapping_anchor, quoted_line,
-    top_level_block_range,
+    child_ref_from_value, collect_child_ref_anchors, collect_top_level_entry_anchors,
+    find_mapping_anchor, quoted_line, top_level_block_range, EntryAnchor, SourceAnchor,
+    SourceIndex, SourceNode,
 };
 use crate::diagnostics::{ErrorReport, ErrorSource};
 use std::fs;
@@ -70,16 +70,14 @@ pub(crate) fn read_hierarchy_dir(
         if file.template.is_some() {
             template_count += 1;
             if merged.template.is_some() {
-                return Err(
-                    ErrorReport::generic(
-                        "multiple_templates_across_files",
-                        format!(
-                            "multiple templates found while loading '{}'",
-                            path.display()
-                        ),
-                    )
-                    .with_param("conflicting_file", path.display().to_string()),
-                );
+                return Err(ErrorReport::generic(
+                    "multiple_templates_across_files",
+                    format!(
+                        "multiple templates found while loading '{}'",
+                        path.display()
+                    ),
+                )
+                .with_param("conflicting_file", path.display().to_string()));
             }
             merged.template = file.template;
         }
@@ -94,16 +92,14 @@ pub(crate) fn read_hierarchy_dir(
     }
 
     if template_count != 1 {
-        return Err(
-            ErrorReport::generic(
-                "template_count_invalid",
-                format!(
-                    "expected exactly 1 template across data files, found {}",
-                    template_count
-                ),
-            )
-            .with_param("found_count", template_count.to_string()),
-        );
+        return Err(ErrorReport::generic(
+            "template_count_invalid",
+            format!(
+                "expected exactly 1 template across data files, found {}",
+                template_count
+            ),
+        )
+        .with_param("found_count", template_count.to_string()));
     }
 
     Ok((merged, source_index, hierarchy_file_count))
@@ -344,7 +340,12 @@ pub(crate) fn authored_yaml_doc_error(
 
     if let Some(details) = parse_unknown_variant_error(&message) {
         if details.field_name.as_deref() == Some("joiner_style") {
-            return joiner_style_unknown_variant_report(&details.provided, source, path, doc_number);
+            return joiner_style_unknown_variant_report(
+                &details.provided,
+                source,
+                path,
+                doc_number,
+            );
         }
     }
 
