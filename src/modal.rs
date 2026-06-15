@@ -372,7 +372,6 @@ impl SearchModal {
 
     fn supports_simple_list_teasers(&self) -> bool {
         self.collection_state.is_none()
-            && self.branch_stack.is_empty()
             && self.nested_stack.is_empty()
             && self.query.trim().is_empty()
             && self.filtered.len() == self.all_entries.len()
@@ -5337,6 +5336,97 @@ mod branch_field_tests {
         assert_eq!(modal.field_flow.list_idx, 0);
         assert_eq!(modal.field_flow.repeat_values, vec!["T1-T12".to_string()]);
         assert!(modal.branch_stack.is_empty());
+    }
+
+    #[test]
+    fn branch_field_simple_sequence_includes_sibling_child_lists() {
+        let quantity_list = HierarchyList {
+            id: "quantity".to_string(),
+            label: Some("Quantity".to_string()),
+            preview: None,
+            output_prefix: None,
+            output_suffix: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::List,
+            joiner_style: None,
+            max_entries: None,
+            items: vec![item("one", "1", Some("1"))],
+        };
+        let unit_list = HierarchyList {
+            id: "unit".to_string(),
+            label: Some("Unit".to_string()),
+            preview: None,
+            output_prefix: None,
+            output_suffix: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::List,
+            joiner_style: None,
+            max_entries: None,
+            items: vec![item("day", "/day", Some("/day"))],
+        };
+        let branch_field = HeaderFieldConfig {
+            id: "frequency_branch".to_string(),
+            name: "Frequency Branch".to_string(),
+            format: Some("{quantity}{unit}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![quantity_list, unit_list],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let mut branch_item = item(
+            "parenthesis_every",
+            "(parenthesis)",
+            Some("({frequency_branch})"),
+        );
+        branch_item.branch_fields = vec![branch_field];
+        let parent_list = HierarchyList {
+            id: "frequency2".to_string(),
+            label: Some("Frequency".to_string()),
+            preview: None,
+            output_prefix: None,
+            output_suffix: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::List,
+            joiner_style: None,
+            max_entries: None,
+            items: vec![branch_item],
+        };
+        let parent_field = single_list_field("frequency_field", parent_list);
+        let mut sticky_values = HashMap::new();
+        let mut modal =
+            SearchModal::new_field(0, parent_field, None, &HashMap::new(), &sticky_values, 5);
+
+        let advance = modal.advance_field(
+            "({frequency_branch})".to_string(),
+            &HashMap::new(),
+            &mut sticky_values,
+            5,
+        );
+
+        assert!(matches!(advance, FieldAdvance::NextList));
+        assert_eq!(modal.branch_stack.len(), 1);
+        assert_eq!(modal.field_flow.list_idx, 0);
+
+        let sequence = modal
+            .simple_modal_sequence(&HashMap::new(), &sticky_values)
+            .expect("branch child lists should support simple modal previews");
+
+        assert_eq!(sequence.active_sequence_index, 0);
+        assert_eq!(
+            sequence
+                .snapshots
+                .iter()
+                .map(|snapshot| snapshot.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Quantity", "Unit"]
+        );
     }
 
     #[test]

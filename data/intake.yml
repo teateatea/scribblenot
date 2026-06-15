@@ -437,17 +437,29 @@ lists:
    #     assigns:
    #       - list: pluralizer
    #         item: singular
-      - id: freq_1
+      - id: freq_1s
         label: "1"
         output: "1"
-        hotkey: 1
+        hotkey: "1"
+     #   assigns:
+     #     - list: pluralizer
+     #       item: singular
+      - id: freq_1_2
+        label: "1-2"
+        output: "1-2"
         assigns:
           - list: pluralizer
-            item: singular
-      - id: freq_2
+            item: plural
+      - id: freq_2s
         label: "2"
         output: "2"
         hotkey: 2
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_2_3
+        label: "2-3"
+        output: "2-3"
         assigns:
           - list: pluralizer
             item: plural
@@ -458,39 +470,63 @@ lists:
         assigns:
           - list: pluralizer
             item: plural
+      - id: freq_3_4
+        label: "3-4"
+        output: "3-4"
+        assigns:
+          - list: pluralizer
+            item: plural
       - id: freq_4
-        label: "4+"
-        output: "4+"
+        label: "4"
+        output: "4"
+        hotkey: 4
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_4_5
+        label: "4-5"
+        output: "4-5"
         assigns:
           - list: pluralizer
             item: plural
       - id: freq_5
         label: "5"
         output: "5"
+        hotkey: 5
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_5_6
+        label: "5-6"
+        output: "5-6"
         assigns:
           - list: pluralizer
             item: plural
       - id: freq_6
         label: "6"
         output: "6"
+        hotkey: 6
         assigns:
           - list: pluralizer
             item: plural
       - id: freq_7
         label: "7"
         output: "7"
+        hotkey: 7
         assigns:
           - list: pluralizer
             item: plural
       - id: freq_8
         label: "8"
         output: "8"
+        hotkey: 8
         assigns:
           - list: pluralizer
             item: plural
       - id: freq_9
         label: "9"
         output: "9"
+        hotkey: 9
         assigns:
           - list: pluralizer
             item: plural
@@ -512,36 +548,11 @@ lists:
         assigns:
           - list: pluralizer
             item: plural
-      - id: freq_1_2
-        label: "1-2"
-        output: "1-2"
-        assigns:
-          - list: pluralizer
-            item: plural
-      - id: freq_2_3
-        label: "2-3"
-        output: "2-3"
-        assigns:
-          - list: pluralizer
-            item: plural
-      - id: freq_3_4
-        label: "3-4"
-        output: "3-4"
-        assigns:
-          - list: pluralizer
-            item: plural
-      - id: freq_4_5
-        label: "4-5"
-        output: "4-5"
-        assigns:
-          - list: pluralizer
-            item: plural
-      - id: freq_5_6
-        label: "5-6"
-        output: "5-6"
-        assigns:
-          - list: pluralizer
-            item: plural
+
+
+
+
+
   - id: frequency_unit
     label: "/[unit])"
     default: empty_space

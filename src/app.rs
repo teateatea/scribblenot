@@ -6881,7 +6881,7 @@ mod composition_span_tests {
         assert_eq!(list.id, "frequency_simple");
 
         let labels = app.visible_modal_hint_labels();
-        assert_eq!(&labels[..4], &["a", "1", "2", "3"]);
+        assert_eq!(&labels[..4], &["a", "1", "r", "2"]);
     }
 
     #[test]
