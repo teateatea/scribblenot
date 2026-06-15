@@ -1,7 +1,7 @@
 use crate::data::{HeaderFieldConfig, HierarchyList, JoinerStyle, SectionConfig};
 use crate::modal::{
-    active_collection_ids, decode_collection_display_value, format_collection_field_value,
-    ListValueLookup,
+    active_collection_ids, apply_list_output_affixes, decode_collection_display_value,
+    format_collection_field_value, ListValueLookup,
 };
 use crate::sections::collection::CollectionState;
 use crate::sections::header::{HeaderFieldValue, HeaderState};
@@ -410,7 +410,7 @@ fn resolve_list_state(
             if saved.is_empty() {
                 None
             } else {
-                Some(saved.clone())
+                Some(apply_list_output_affixes(list, saved.clone()))
             }
         } else if idx == value.list_idx && !value.repeat_values.is_empty() {
             joined_repeating_value(value, list).filter(|joined| !joined.is_empty())
@@ -481,8 +481,15 @@ fn joined_repeating_value(
             None
         });
     style
-        .map(|style| join_repeat_values(&value.repeat_values, style))
-        .or_else(|| Some(value.repeat_values.join(", ")))
+        .map(|style| {
+            apply_list_output_affixes(list, join_repeat_values(&value.repeat_values, style))
+        })
+        .or_else(|| {
+            Some(apply_list_output_affixes(
+                list,
+                value.repeat_values.join(", "),
+            ))
+        })
 }
 
 fn resolve_nested_state(
@@ -735,7 +742,28 @@ fn join_with_final(values: &[String], separator: &str, two: &str, final_separato
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::ResolvedCollectionConfig;
+    use crate::data::{ModalStart, ResolvedCollectionConfig};
+
+    fn test_list(
+        id: &str,
+        output_prefix: Option<&str>,
+        output_suffix: Option<&str>,
+        joiner_style: Option<JoinerStyle>,
+    ) -> HierarchyList {
+        HierarchyList {
+            id: id.to_string(),
+            label: Some(id.to_string()),
+            preview: None,
+            output_prefix: output_prefix.map(str::to_string),
+            output_suffix: output_suffix.map(str::to_string),
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::Search,
+            joiner_style,
+            max_entries: None,
+            items: Vec::new(),
+        }
+    }
 
     #[test]
     fn explicit_empty_overrides_collection_default_enabled() {
@@ -771,6 +799,75 @@ mod tests {
     }
 
     #[test]
+    fn list_output_affixes_apply_only_to_non_empty_rendered_output() {
+        let cfg = HeaderFieldConfig {
+            id: "exercise".to_string(),
+            name: "Exercise".to_string(),
+            format: Some("{exercise_level}{exercise_details}.".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![
+                test_list("exercise_level", None, None, None),
+                test_list(
+                    "exercise_details",
+                    Some(" ("),
+                    Some(")"),
+                    Some(JoinerStyle::Comma),
+                ),
+            ],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+
+        let empty_detail = crate::sections::header::HeaderFieldValue::ListState(
+            crate::sections::header::ListFieldValue {
+                values: vec!["Walking".to_string(), String::new()],
+                item_ids: vec!["walking".to_string(), "empty".to_string()],
+                list_idx: 2,
+                repeat_values: Vec::new(),
+                repeat_item_ids: Vec::new(),
+            },
+        );
+        let detail = crate::sections::header::HeaderFieldValue::ListState(
+            crate::sections::header::ListFieldValue {
+                values: vec!["Walking".to_string(), "3x/week".to_string()],
+                item_ids: vec!["walking".to_string(), "frequency".to_string()],
+                list_idx: 2,
+                repeat_values: Vec::new(),
+                repeat_item_ids: Vec::new(),
+            },
+        );
+        let repeated_detail = crate::sections::header::HeaderFieldValue::ListState(
+            crate::sections::header::ListFieldValue {
+                values: vec!["Walking".to_string()],
+                item_ids: vec!["walking".to_string()],
+                list_idx: 1,
+                repeat_values: vec!["3x/week".to_string(), "outdoors".to_string()],
+                repeat_item_ids: vec!["frequency".to_string(), "context".to_string()],
+            },
+        );
+
+        assert_eq!(
+            resolve_multifield_value(&empty_detail, &cfg, &HashMap::new(), &HashMap::new())
+                .display_value(),
+            Some("Walking.")
+        );
+        assert_eq!(
+            resolve_multifield_value(&detail, &cfg, &HashMap::new(), &HashMap::new())
+                .display_value(),
+            Some("Walking (3x/week).")
+        );
+        assert_eq!(
+            resolve_multifield_value(&repeated_detail, &cfg, &HashMap::new(), &HashMap::new())
+                .display_value(),
+            Some("Walking (3x/week, outdoors).")
+        );
+    }
+
+    #[test]
     fn nested_field_with_empty_children_does_not_recurse_forever() {
         let child = HeaderFieldConfig {
             id: "place".to_string(),
@@ -782,6 +879,8 @@ mod tests {
                 id: "place".to_string(),
                 label: Some("Place".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: Some("empty_space".to_string()),
                 modal_start: crate::data::ModalStart::Search,
@@ -839,6 +938,8 @@ mod tests {
                 id: "place".to_string(),
                 label: Some("Place".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: Some("empty_space".to_string()),
                 modal_start: crate::data::ModalStart::Search,
@@ -870,6 +971,8 @@ mod tests {
                 id: "region".to_string(),
                 label: Some("Region".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: Some("shoulder".to_string()),
                 modal_start: crate::data::ModalStart::Search,
@@ -1011,6 +1114,8 @@ mod tests {
                 id: "region".to_string(),
                 label: Some("Region".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: crate::data::ModalStart::List,
@@ -1063,6 +1168,8 @@ mod tests {
                     id: "place".to_string(),
                     label: Some("Place".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: Some("empty_space".to_string()),
                     modal_start: crate::data::ModalStart::Search,
@@ -1093,6 +1200,8 @@ mod tests {
                     id: "region".to_string(),
                     label: Some("Region".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: crate::data::ModalStart::Search,
@@ -1148,6 +1257,8 @@ mod tests {
                     id: "starting_frequency".to_string(),
                     label: Some("Frequency".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: Some("freq_2".to_string()),
                     modal_start: crate::data::ModalStart::Search,
@@ -1171,6 +1282,8 @@ mod tests {
                     id: "duration_unit".to_string(),
                     label: Some("Unit".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: Some("week".to_string()),
                     modal_start: crate::data::ModalStart::Search,
@@ -1190,6 +1303,8 @@ mod tests {
                     id: "starting_since".to_string(),
                     label: Some("Since".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: Some("starting".to_string()),
                     modal_start: crate::data::ModalStart::Search,
@@ -1216,6 +1331,8 @@ mod tests {
                     id: "pluralizer".to_string(),
                     label: Some("Pluralizer".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: Some("singular".to_string()),
                     modal_start: crate::data::ModalStart::Search,
@@ -1246,6 +1363,8 @@ mod tests {
                     id: "starting_ago".to_string(),
                     label: Some("Ago".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: Some("empty_space".to_string()),
                     modal_start: crate::data::ModalStart::Search,
@@ -1316,6 +1435,8 @@ mod tests {
                 id: "frequency".to_string(),
                 label: Some("Frequency".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: crate::data::ModalStart::List,
@@ -1348,6 +1469,8 @@ mod tests {
                     id: "pluralizer".to_string(),
                     label: Some("Pluralizer".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: crate::data::ModalStart::List,
@@ -1367,6 +1490,8 @@ mod tests {
                     id: "duration_label".to_string(),
                     label: Some("Duration Label".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: crate::data::ModalStart::List,
@@ -1423,6 +1548,8 @@ mod tests {
                     id: "region".to_string(),
                     label: Some("Region".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: crate::data::ModalStart::Search,
@@ -1442,6 +1569,8 @@ mod tests {
                     id: "starting_since".to_string(),
                     label: Some("Since".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: Some("empty_space".to_string()),
                     modal_start: crate::data::ModalStart::Search,
@@ -1465,6 +1594,8 @@ mod tests {
                     id: "starting_frequency".to_string(),
                     label: Some("Frequency".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: Some("empty_space".to_string()),
                     modal_start: crate::data::ModalStart::Search,
@@ -1491,6 +1622,8 @@ mod tests {
                     id: "pluralizer".to_string(),
                     label: Some("Pluralizer".to_string()),
                     preview: Some(" [plural]".to_string()),
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: Some("singular".to_string()),
                     modal_start: crate::data::ModalStart::Search,
@@ -1521,6 +1654,8 @@ mod tests {
                     id: "starting_ago".to_string(),
                     label: Some("Ago".to_string()),
                     preview: Some(" [ago]".to_string()),
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: Some("empty_space".to_string()),
                     modal_start: crate::data::ModalStart::Search,

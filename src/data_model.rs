@@ -124,6 +124,8 @@ pub struct KeyBindings {
     pub hint_permutations: Vec<String>,
     #[serde(default = "default_copy_note")]
     pub copy_note: Vec<String>,
+    #[serde(default = "default_copy_section")]
+    pub copy_section: Vec<String>,
     #[serde(default = "default_theme_reload")]
     pub theme_reload: Vec<String>,
     #[serde(default = "default_data_reload")]
@@ -131,6 +133,10 @@ pub struct KeyBindings {
 }
 
 fn default_copy_note() -> Vec<String> {
+    vec!["shift+c".to_string()]
+}
+
+fn default_copy_section() -> Vec<String> {
     vec!["c".to_string()]
 }
 
@@ -179,6 +185,7 @@ impl Default for KeyBindings {
             super_confirm: default_super_confirm(),
             hint_permutations: vec![],
             copy_note: default_copy_note(),
+            copy_section: default_copy_section(),
             theme_reload: default_theme_reload(),
             data_reload: default_data_reload(),
         }
@@ -268,6 +275,10 @@ pub struct HierarchyList {
     pub label: Option<String>,
     #[serde(default)]
     pub preview: Option<String>,
+    #[serde(default)]
+    pub output_prefix: Option<String>,
+    #[serde(default)]
+    pub output_suffix: Option<String>,
     #[serde(default)]
     pub sticky: bool,
     #[serde(default)]

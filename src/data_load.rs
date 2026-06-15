@@ -300,12 +300,18 @@ pub(crate) fn authored_yaml_doc_error(
 
     if let Some(details) = parse_unknown_field_error(&message) {
         if let Some(context) = authored_unknown_key_context(value, details.path.as_deref()) {
-            return unsupported_authored_key_report(
+            let report = unsupported_authored_key_report(
                 context,
                 &details.key_name,
                 source,
                 path,
                 doc_number,
+            );
+            return add_item_output_affix_hint(
+                report,
+                value,
+                details.path.as_deref(),
+                &details.key_name,
             );
         }
     }

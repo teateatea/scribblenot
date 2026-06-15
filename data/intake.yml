@@ -42,7 +42,7 @@ fields:
       
   - id: int_exha_field_brief2
     label: "Exercise Habits Brief"
-    format: "- {patientdescribes} {int_exha_list}{frequency}{starting_since}{starting_frequency}{duration_unit}." # {pluralizer}{starting_ago}." {year}-{month}-{day}: 
+    format: "- t{patientdescribes} {int_exha_list}{frequency}{starting_since}{starting_frequency}{duration_unit}." # {pluralizer}{starting_ago}." {year}-{month}-{day}: 
     max_entries: 12
    # joiner_style: newline
     contains:
@@ -374,3 +374,218 @@ lists:
     #    assigns:
     #      - list: starting_ago
     #        item: empty_space
+    
+  - id: frequency2
+    label: "frequencylabel"
+    default: empty
+    modal_start: list
+    preview: " (frequency)"
+   # joiner_style: comma
+   # max_entries: 3
+    items:
+      - id: empty
+        label: "(empty)"
+        output: ""
+   #     assigns:
+   #       - list: starting_ago
+   #         item: ago
+      - id: regularly
+        label: "regularly"
+        output: "regularly"
+
+      - id: every
+        label: "every"
+        output: "{every_branch}"
+        fields:
+          - every_branch
+        assigns:
+          - list: starting_ago
+            item: empty_space
+    #    assigns:
+    #      - list: starting_ago
+    #        item: empty_space
+      - id: parenthesis_every
+        label: "(parenthesis)"
+       # output_prefix: " ("
+        output: "({parenthesis_branch})"
+       # output_suffix: ")"
+        fields:
+          - parenthesis_branch
+  - id: frequency_simple
+    label: "[#]"
+    default: empty_space
+    modal_start: list
+    preview: ""
+   # joiner_style: comma
+   # max_entries: 3
+    items:
+      - id: empty_space
+        label: "(Empty Space)"
+        output: ""
+   #     assigns:
+   #       - list: pluralizer
+   #         item: singular
+   #   - id: freq_this
+   #     label: "this"
+   #     output: " this"
+   #     assigns:
+   #       - list: pluralizer
+   #         item: singular
+   #   - id: freq_last
+   #     label: "last"
+   #     output: " last"
+   #     assigns:
+   #       - list: pluralizer
+   #         item: singular
+      - id: freq_1
+        label: "1"
+        output: "1"
+        hotkey: 1
+        assigns:
+          - list: pluralizer
+            item: singular
+      - id: freq_2
+        label: "2"
+        output: "2"
+        hotkey: 2
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_3
+        label: "3"
+        output: "3"
+        hotkey: 3
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_4
+        label: "4+"
+        output: "4+"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_5
+        label: "5"
+        output: "5"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_6
+        label: "6"
+        output: "6"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_7
+        label: "7"
+        output: "7"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_8
+        label: "8"
+        output: "8"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_9
+        label: "9"
+        output: "9"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_10
+        label: "10"
+        output: "10"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_11
+        label: "11"
+        output: "11"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_12
+        label: "12"
+        output: "12"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_1_2
+        label: "1-2"
+        output: "1-2"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_2_3
+        label: "2-3"
+        output: "2-3"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_3_4
+        label: "3-4"
+        output: "3-4"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_4_5
+        label: "4-5"
+        output: "4-5"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_5_6
+        label: "5-6"
+        output: "5-6"
+        assigns:
+          - list: pluralizer
+            item: plural
+  - id: frequency_unit
+    label: "/[unit])"
+    default: empty_space
+    modal_start: list
+    preview: ""
+   # joiner_style: comma
+   # max_entries: 3
+    items:
+      - id: empty_space
+        label: "(empty)"
+        output: ""
+      - id: day
+        label: "/day"
+        output: "/day" # {pluralizer}{starting_ago}"
+      - id: week
+        label: "/week"
+        output: "/week"
+      - id: month
+        label: "/month"
+        output: "/month"
+      - id: year
+        label: "/year"
+        output: "/year"
+     # - id: today
+     #   label: "today"
+     #   output: " today"
+     # - id: yesterday
+     #   label: "yesterday"
+     #   output: " yesterday"
+     # - id: this_morning
+     #   label: "this morning"
+     #   output: " this morning"
+    
+---
+fields:
+  - id: every_branch
+    label: every branch
+    format: "every{starting_frequency}{duration_unit}"
+    contains:
+      - list: starting_frequency
+      - list: duration_unit
+  - id: parenthesis_branch
+    label: parenthesis branch
+    format: "{frequency_simple}{frequency_unit}"
+    contains:
+      - list: frequency_simple
+      - list: frequency_unit

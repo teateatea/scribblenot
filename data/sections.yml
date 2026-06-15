@@ -64,7 +64,7 @@
 #    items[]
 #
 #  - list item:
-#    string shorthand       # "My Label" -> id auto-slugged, output defaults to label
+#    plain string item      # "My Label" -> id auto-slugged, output defaults to label
 #    or full object with:
 #      id?
 #      label?               # UI/search text; falls back to output

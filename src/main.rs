@@ -72,19 +72,27 @@ fn update(state: &mut ScribbleApp, message: Message) -> Task<Message> {
     let mut should_scroll_preview = false;
     let mut should_scroll_active_pane = false;
     let mut help_topic_scroll_delta: Option<f32> = None;
+    let mut should_scroll_help_search_selection = false;
     let mut should_scroll_help_selected_code_block = false;
     match message {
         Message::KeyPressed(key, mods) => {
             let app_key = app::appkey_from_iced(key, mods);
-            if state.inner.show_help && matches!(state.inner.help_state.mode, app::HelpMode::Topic)
-            {
-                help_topic_scroll_delta = match app_key {
-                    app::AppKey::Down => Some(72.0),
-                    app::AppKey::Up => Some(-72.0),
-                    _ => None,
-                };
-                should_scroll_help_selected_code_block =
-                    state.inner.is_help_code_block_scroll_key(&app_key);
+            if state.inner.show_help {
+                match state.inner.help_state.mode {
+                    app::HelpMode::Search => {
+                        should_scroll_help_search_selection =
+                            matches!(app_key, app::AppKey::Down | app::AppKey::Up);
+                    }
+                    app::HelpMode::Topic => {
+                        help_topic_scroll_delta = match app_key {
+                            app::AppKey::Down => Some(72.0),
+                            app::AppKey::Up => Some(-72.0),
+                            _ => None,
+                        };
+                        should_scroll_help_selected_code_block =
+                            state.inner.is_help_code_block_scroll_key(&app_key);
+                    }
+                }
             }
             state.inner.handle_key(app_key);
             should_scroll_preview = true;
@@ -145,12 +153,15 @@ fn update(state: &mut ScribbleApp, message: Message) -> Task<Message> {
         state.inner.copy_requested = false;
         let copied_error_report =
             state.inner.error_modal.is_some() && state.inner.copy_override_text.is_some();
+        let has_override_text = state.inner.copy_override_text.is_some();
         let copy_status = if copied_error_report {
-            "Copied error report to clipboard."
-        } else if state.inner.copy_override_text.is_some() {
-            "Copied help text to clipboard."
+            "Copied error report to clipboard.".to_string()
+        } else if let Some(status) = state.inner.copy_status_override.take() {
+            status
+        } else if has_override_text {
+            "Copied help text to clipboard.".to_string()
         } else {
-            "Copied note to clipboard."
+            "Copied note to clipboard.".to_string()
         };
         let export_text = state
             .inner
@@ -211,6 +222,21 @@ fn update(state: &mut ScribbleApp, message: Message) -> Task<Message> {
                 scrollable::AbsoluteOffset { x: 0.0, y: delta },
             ));
         }
+    }
+
+    if should_scroll_help_search_selection
+        && state.inner.show_help
+        && matches!(state.inner.help_state.mode, app::HelpMode::Search)
+    {
+        let selected = state.inner.help_state.selected_filtered_index;
+        let visible_anchor = selected.saturating_sub(4);
+        tasks.push(scrollable::scroll_to(
+            ui::help_search_scroll_id(),
+            scrollable::AbsoluteOffset {
+                x: 0.0,
+                y: visible_anchor as f32 * 62.0,
+            },
+        ));
     }
 
     if should_scroll_help_selected_code_block {

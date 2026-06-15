@@ -608,6 +608,31 @@ mod tests {
     }
 
     #[test]
+    fn parser_rejects_item_output_affix_with_output_hint() {
+        let yaml = concat!(
+            "lists:\n",
+            "  - id: demo\n",
+            "    items:\n",
+            "      - id: alpha\n",
+            "        label: Alpha\n",
+            "        output_prefix: \" (\"\n",
+            "        output: \"{child_field}\"\n",
+            "        output_suffix: \")\"\n",
+            "        fields:\n",
+            "          - child_field\n",
+        );
+        let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
+            .expect_err("item-level output_prefix should fail");
+
+        assert_eq!(err.kind_id(), "unsupported_authored_key");
+        assert!(err.contains("item 'alpha' in list 'demo' uses unsupported key `output_prefix`"));
+        assert!(err.extra_params.iter().any(|(key, value)| {
+            key == "item_affix_suggested_output_line" && value == "output: \" ({child_field})\""
+        }));
+        assert_eq!(err.source.as_ref().map(|source| source.line), Some(6));
+    }
+
+    #[test]
     fn parser_accepts_authored_item_hotkey() {
         let (file, _) = parse_hierarchy_file_documents(
             concat!(
@@ -646,6 +671,43 @@ mod tests {
         assert_eq!(err.kind_id(), "unsupported_authored_key");
         assert!(err.contains("item 'alpha' in list 'demo' uses unsupported key `branch_fields`"));
         assert_eq!(err.source.as_ref().map(|source| source.line), Some(6));
+    }
+
+    #[test]
+    fn parser_marks_typed_item_field_ref_wrong_shape_for_targeted_diagnostic() {
+        let yaml = concat!(
+            "lists:\n",
+            "  - id: demo\n",
+            "    items:\n",
+            "      - id: alpha\n",
+            "        label: Alpha\n",
+            "        output: \"{child_field}\"\n",
+            "        fields:\n",
+            "          - field: child_field\n",
+        );
+        let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
+            .expect_err("typed item field ref should fail");
+
+        assert_eq!(err.kind_id(), "invalid_authored_value_type");
+        assert!(err.contains("item 'alpha' in list 'demo' expects a string"));
+        assert!(err.contains("`fields[0]` was written as map"));
+        assert_eq!(err.source.as_ref().map(|source| source.line), Some(8));
+        assert_eq!(
+            err.source
+                .as_ref()
+                .and_then(|source| source.quoted_line.as_deref()),
+            Some("- field: child_field")
+        );
+        let params = err.params();
+        assert!(params
+            .iter()
+            .any(|(key, value)| key == "item_field_map_key" && value == "field"));
+        assert!(params
+            .iter()
+            .any(|(key, value)| key == "item_field_map_value" && value == "child_field"));
+        assert!(params.iter().any(|(key, value)| {
+            key == "item_field_output_placeholder" && value == "{child_field}"
+        }));
     }
 
     #[test]
@@ -1064,6 +1126,47 @@ mod tests {
     }
 
     #[test]
+    fn item_field_wrong_kind_list_reference_includes_branching_params() {
+        let (file, index) = parse_with_index(concat!(
+            "template:\n  contains:\n    - group: g\n",
+            "groups:\n  - id: g\n    contains:\n      - section: s\n",
+            "sections:\n  - id: s\n    contains:\n      - list: demo\n",
+            "lists:\n",
+            "  - id: demo\n",
+            "    items:\n",
+            "      - id: alpha\n",
+            "        label: Alpha\n",
+            "        fields: [starting_since]\n",
+            "  - id: starting_since\n",
+            "    items:\n",
+            "      - Today\n",
+        ));
+        let err = validate_with_index(&file, &index).expect_err("wrong item field kind must fail");
+
+        assert_eq!(err.kind_id(), "item_field_wrong_kind");
+        assert!(err.contains("list 'demo' item 'alpha' references 'starting_since' as field"));
+        let params = err.params();
+        assert!(params
+            .iter()
+            .any(|(key, value)| key == "actual_kind" && value == "list"));
+        assert!(params
+            .iter()
+            .any(|(key, value)| key == "expected_kind" && value == "field"));
+        assert!(params
+            .iter()
+            .any(|(key, value)| key == "referenced_id" && value == "starting_since"));
+        assert!(params.iter().any(|(key, value)| {
+            key == "suggested_field_id" && value == "starting_since_field"
+        }));
+        assert!(params.iter().any(|(key, value)| {
+            key == "suggested_field_placeholder" && value == "{starting_since_field}"
+        }));
+        assert!(params.iter().any(|(key, value)| {
+            key == "referenced_placeholder" && value == "{starting_since}"
+        }));
+    }
+
+    #[test]
     fn item_fields_resolve_into_runtime_branch_fields() {
         let (file, index) = parse_with_index(concat!(
             "template:\n  contains:\n    - group: g\n",
@@ -1374,6 +1477,8 @@ mod tests {
         assert_eq!(kb.nav_up, vec!["up".to_string(), "e".to_string()]);
         assert_eq!(kb.nav_left, vec!["left".to_string(), "h".to_string()]);
         assert_eq!(kb.nav_right, vec!["right".to_string(), "i".to_string()]);
+        assert_eq!(kb.copy_note, vec!["shift+c".to_string()]);
+        assert_eq!(kb.copy_section, vec!["c".to_string()]);
         assert_eq!(kb.theme_reload, vec!["/".to_string()]);
         assert_eq!(kb.data_reload, vec!["\\".to_string()]);
     }
@@ -1394,7 +1499,8 @@ mod tests {
             "nav_right: [right, i]\n",
             "hints: [a]\n",
             "super_confirm: [shift+enter]\n",
-            "copy_note: [c]\n",
+            "copy_note: [shift+c]\n",
+            "copy_section: [c]\n",
             "theme_reload: [/]\n",
             "data_reload: ['\\']\n",
         ))
@@ -1402,6 +1508,8 @@ mod tests {
 
         assert_eq!(kb.nav_down, vec!["down".to_string(), "n".to_string()]);
         assert_eq!(kb.nav_right, vec!["right".to_string(), "i".to_string()]);
+        assert_eq!(kb.copy_note, vec!["shift+c".to_string()]);
+        assert_eq!(kb.copy_section, vec!["c".to_string()]);
         assert_eq!(kb.theme_reload, vec!["/".to_string()]);
         assert_eq!(kb.data_reload, vec!["\\".to_string()]);
     }
@@ -1422,7 +1530,8 @@ mod tests {
             "focus_right: [right, i]\n",
             "hints: [a]\n",
             "super_confirm: [shift+enter]\n",
-            "copy_note: [c]\n",
+            "copy_note: [shift+c]\n",
+            "copy_section: [c]\n",
         ))
         .expect_err("legacy directional field names should fail");
 

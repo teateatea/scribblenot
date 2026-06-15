@@ -320,6 +320,8 @@ mod tests {
                 id: id.to_string(),
                 label: Some(label.to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::List,

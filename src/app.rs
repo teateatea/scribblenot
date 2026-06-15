@@ -10,8 +10,8 @@ use crate::diagnostics::{ErrorReport, Messages};
 use crate::document::build_initial_document;
 use crate::help;
 use crate::modal::{
-    joined_repeating_value, resolved_item_labels_for_list, FieldAdvance, ListValueLookup,
-    SearchModal,
+    apply_list_output_affixes, joined_repeating_value, resolved_item_labels_for_list, FieldAdvance,
+    ListValueLookup, SearchModal,
 };
 use crate::modal_layout::{
     modal_height_for_viewport, modal_window_size_for_height, ModalFocus, SimpleModalUnitLayout,
@@ -32,6 +32,8 @@ use iced::keyboard::{key::Named, Key, Modifiers};
 use std::collections::{BTreeMap, HashMap};
 use std::ops::{Index, IndexMut};
 use std::path::PathBuf;
+
+pub(crate) const ERROR_MODAL_NO_REFERENCE_TOPICS_TEXT: &str = "No additional documentation.";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AppKey {
@@ -337,6 +339,7 @@ pub struct App {
     pub error_modal_flash: Option<ErrorModalFlash>,
     pub messages: Messages,
     pub copy_override_text: Option<String>,
+    pub copy_status_override: Option<String>,
     pub quit: bool,
     pub copy_requested: bool,
     pub copy_flash_until: Option<Instant>,
@@ -386,6 +389,13 @@ pub fn match_binding_str(binding: &str, key: &AppKey) -> bool {
         "backspace" => matches!(key, AppKey::Backspace),
         "tab" => matches!(key, AppKey::Tab),
         "shift+enter" => matches!(key, AppKey::ShiftEnter),
+        s if s
+            .strip_prefix("shift+")
+            .is_some_and(|suffix| suffix.chars().count() == 1) =>
+        {
+            let c = s.strip_prefix("shift+").unwrap().chars().next().unwrap();
+            matches!(key, AppKey::Char(k) if *k == shifted_char(c))
+        }
         s if s
             .strip_prefix("ctrl+")
             .is_some_and(|suffix| suffix.len() == 1) =>
@@ -473,6 +483,7 @@ impl App {
             error_modal_flash: None,
             messages,
             copy_override_text: None,
+            copy_status_override: None,
             quit: false,
             copy_requested: false,
             copy_flash_until: None,
@@ -526,6 +537,7 @@ impl App {
             error_modal_flash,
             messages: Messages::load(),
             copy_override_text: None,
+            copy_status_override: None,
             quit: false,
             copy_requested: false,
             copy_flash_until: None,
@@ -611,14 +623,115 @@ impl App {
         .collect()
     }
 
-    pub fn selected_help_copy_text(&self) -> Option<String> {
+    pub fn selected_help_topic_see_also_topics(&self) -> Vec<&'static help::HelpTopic> {
+        self.selected_help_topic()
+            .map(help::topic_see_also_topics)
+            .unwrap_or_default()
+    }
+
+    pub fn selected_help_topic_see_also_hint_labels(&self) -> Vec<String> {
+        let code_blocks = self.selected_help_topic_code_blocks();
+        let related_topics = self.selected_help_topic_see_also_topics();
+        const TOPIC_HINTS: [&str; 9] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+        let explicit_prefixes = (0..code_blocks.len() + related_topics.len())
+            .map(|idx| TOPIC_HINTS.get(idx).copied())
+            .collect::<Vec<_>>();
+        crate::data::assign_hint_labels(
+            &self.data.keybindings.hints,
+            &explicit_prefixes,
+            self.config.hint_labels_case_sensitive,
+        )
+        .into_iter()
+        .skip(code_blocks.len())
+        .map(|assignment| assignment.label)
+        .collect()
+    }
+
+    pub fn selected_help_code_block_copy_text(&self) -> Option<String> {
         let topic = self.selected_help_topic()?;
         let code_blocks = help::topic_code_blocks(topic);
-        if let Some(block) = code_blocks.get(self.help_state.selected_code_block) {
-            Some(block.code.clone())
-        } else {
-            Some(help::topic_markdown(topic))
+        code_blocks
+            .get(self.help_state.selected_code_block)
+            .map(|block| block.code.clone())
+    }
+
+    pub fn selected_help_topic_copy_text(&self) -> Option<String> {
+        self.selected_help_topic().map(help::topic_markdown)
+    }
+
+    pub fn error_modal_reference_topics(&self) -> Vec<&'static help::HelpTopic> {
+        let Some(report) = self.error_modal.as_ref() else {
+            return Vec::new();
+        };
+        let mut topic_ids = Vec::new();
+        if Self::error_modal_references_branching_fields(report) {
+            topic_ids.push("item-driven-branching");
         }
+        if Self::error_modal_references_list_output_affixes(report) {
+            topic_ids.push("list-output-affixes");
+        }
+
+        help::topics()
+            .iter()
+            .filter(|topic| topic_ids.contains(&topic.id))
+            .collect()
+    }
+
+    pub fn error_modal_reference_topic_hint_labels(&self) -> Vec<String> {
+        let topics = self.error_modal_reference_topics();
+        const REFERENCE_TOPIC_HINTS: [&str; 9] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+        let explicit_prefixes = (0..topics.len())
+            .map(|idx| REFERENCE_TOPIC_HINTS.get(idx).copied())
+            .collect::<Vec<_>>();
+        crate::data::assign_hint_labels(
+            &self.data.keybindings.hints,
+            &explicit_prefixes,
+            self.config.hint_labels_case_sensitive,
+        )
+        .into_iter()
+        .map(|assignment| assignment.label)
+        .collect()
+    }
+
+    fn error_modal_references_branching_fields(report: &ErrorReport) -> bool {
+        let params = report.params();
+        let has = |key: &str, value: &str| {
+            params
+                .iter()
+                .any(|(param_key, param_value)| param_key == key && param_value == value)
+        };
+        match report.kind_id() {
+            "invalid_authored_value_type" => {
+                has("owner_kind", "item")
+                    && has("actual_type", "map")
+                    && has("expected_type", "a string")
+                    && has("item_field_map_key", "field")
+                    && params
+                        .iter()
+                        .any(|(key, value)| key == "key_name" && value.starts_with("fields["))
+            }
+            "item_field_wrong_kind" => has("actual_kind", "list") && has("expected_kind", "field"),
+            _ => false,
+        }
+    }
+
+    fn error_modal_references_list_output_affixes(report: &ErrorReport) -> bool {
+        if report.kind_id() != "unsupported_authored_key" {
+            return false;
+        }
+        let params = report.params();
+        let has = |key: &str, value: &str| {
+            params
+                .iter()
+                .any(|(param_key, param_value)| param_key == key && param_value == value)
+        };
+        has("owner_kind", "item")
+            && params.iter().any(|(key, value)| {
+                key == "key_name" && (value == "output_prefix" || value == "output_suffix")
+            })
+            && params
+                .iter()
+                .any(|(key, _)| key == "item_affix_suggested_output_line")
     }
 
     pub fn selected_help_code_block_scroll_offset(&self) -> Option<f32> {
@@ -674,6 +787,36 @@ impl App {
         }
     }
 
+    fn open_help_topic_by_id(&mut self, topic_id: &str) -> bool {
+        let Some(topic_idx) = help::topics().iter().position(|topic| topic.id == topic_id) else {
+            return false;
+        };
+        self.open_help();
+        self.help_state.query.clear();
+        self.help_state.selected_filtered_index = topic_idx;
+        self.help_state.mode = HelpMode::Topic;
+        self.help_state.selected_code_block = 0;
+        true
+    }
+
+    fn open_error_reference_topic_by_hint(&mut self, key: &AppKey) -> bool {
+        let AppKey::Char(c) = key else {
+            return false;
+        };
+        let typed = c.to_ascii_lowercase().to_string();
+        let topics = self.error_modal_reference_topics();
+        let hints = self.error_modal_reference_topic_hint_labels();
+        for (idx, label) in hints.iter().enumerate() {
+            if label.to_ascii_lowercase() == typed {
+                let Some(topic) = topics.get(idx) else {
+                    return false;
+                };
+                return self.open_help_topic_by_id(topic.id);
+            }
+        }
+        false
+    }
+
     fn move_help_topic_selection(&mut self, delta: isize) {
         let len = self.filtered_help_topic_indices().len();
         if len == 0 {
@@ -712,6 +855,24 @@ impl App {
             if label.to_ascii_lowercase() == typed {
                 self.help_state.selected_code_block = idx;
                 return true;
+            }
+        }
+        false
+    }
+
+    fn open_help_topic_see_also_by_hint(&mut self, key: &AppKey) -> bool {
+        let AppKey::Char(c) = key else {
+            return false;
+        };
+        let typed = c.to_ascii_lowercase().to_string();
+        let related_topics = self.selected_help_topic_see_also_topics();
+        let hints = self.selected_help_topic_see_also_hint_labels();
+        for (idx, label) in hints.iter().enumerate() {
+            if label.to_ascii_lowercase() == typed {
+                let Some(topic) = related_topics.get(idx) else {
+                    return false;
+                };
+                return self.open_help_topic_by_id(topic.id);
             }
         }
         false
@@ -767,8 +928,21 @@ impl App {
                     self.help_state.selected_code_block = 0;
                     return;
                 }
+                if self.is_copy_section(&key) {
+                    self.copy_override_text = self.selected_help_code_block_copy_text();
+                    self.copy_status_override = self
+                        .copy_override_text
+                        .as_ref()
+                        .map(|_| "Copied selected help code block to clipboard.".to_string());
+                    self.copy_requested = self.copy_override_text.is_some();
+                    return;
+                }
                 if self.is_copy_note(&key) {
-                    self.copy_override_text = self.selected_help_copy_text();
+                    self.copy_override_text = self.selected_help_topic_copy_text();
+                    self.copy_status_override = self
+                        .copy_override_text
+                        .as_ref()
+                        .map(|_| "Copied help topic to clipboard.".to_string());
                     self.copy_requested = self.copy_override_text.is_some();
                     return;
                 }
@@ -778,6 +952,9 @@ impl App {
                 }
                 if self.is_nav_right(&key) || matches!(key, AppKey::Right) {
                     self.move_help_code_block_selection(1);
+                    return;
+                }
+                if self.open_help_topic_see_also_by_hint(&key) {
                     return;
                 }
                 let _ = self.select_help_code_block_by_hint(&key);
@@ -1456,6 +1633,10 @@ impl App {
         self.matches_key(key, &self.data.keybindings.copy_note)
     }
 
+    fn is_copy_section(&self, key: &AppKey) -> bool {
+        self.matches_key(key, &self.data.keybindings.copy_section)
+    }
+
     fn is_nav_left(&self, key: &AppKey) -> bool {
         self.matches_key(key, &self.data.keybindings.nav_left)
     }
@@ -1659,6 +1840,19 @@ impl App {
     pub fn config_for_index(&self, flat_idx: usize) -> Option<&SectionConfig> {
         let node_id = self.navigation.get(flat_idx)?.node_id.as_str();
         self.config_for_node_id(node_id)
+    }
+
+    fn current_section_copy_text(&self) -> Option<String> {
+        let cfg = self.config_for_index(self.current_idx)?;
+        let state = self.section_states.by_id(&cfg.id)?;
+        let body = crate::note::render_editable_section_body(
+            cfg,
+            state,
+            &self.assigned_values,
+            &self.config.sticky_values,
+            crate::note::NoteRenderMode::Export,
+        );
+        Some(crate::document::export_section_text(&body))
     }
 
     fn section_hint_assignments_only(&self) -> Vec<crate::data::HintLabelAssignment> {
@@ -2108,6 +2302,22 @@ impl App {
             markdown.push_str(&rendered.fix);
             markdown.push('\n');
         }
+        let reference_topics = self.error_modal_reference_topics();
+        markdown.push_str("\n### See Also\n\n");
+        if !reference_topics.is_empty() {
+            let hints = self.error_modal_reference_topic_hint_labels();
+            for (idx, topic) in reference_topics.iter().enumerate() {
+                let hint = hints.get(idx).map(String::as_str).unwrap_or("?");
+                markdown.push_str("- `");
+                markdown.push_str(hint);
+                markdown.push_str("` ");
+                markdown.push_str(topic.title);
+                markdown.push('\n');
+            }
+        } else {
+            markdown.push_str(ERROR_MODAL_NO_REFERENCE_TOPICS_TEXT);
+            markdown.push('\n');
+        }
         markdown.push_str("\n**Error ID:** `");
         markdown.push_str(&rendered.id);
         markdown.push_str("`\n");
@@ -2218,7 +2428,19 @@ impl App {
             return;
         }
 
+        if self.show_help {
+            self.handle_help_key(key);
+            return;
+        }
+
         if self.error_modal.is_some() {
+            if self.is_help(&key) {
+                self.open_help();
+                return;
+            }
+            if self.open_error_reference_topic_by_hint(&key) {
+                return;
+            }
             if self.is_copy_note(&key) {
                 self.copy_override_text = self.error_modal_markdown();
                 self.copy_requested = self.copy_override_text.is_some();
@@ -2240,17 +2462,28 @@ impl App {
             return;
         }
 
-        if self.show_help {
-            self.handle_help_key(key);
-            return;
-        }
-
         if !self.text_entry_active() && self.is_copy_note(&key) {
             self.modal_mouse_mode = false;
             self.modal = None;
             self.settle_modal_transitions();
             self.show_help = false;
+            self.copy_override_text = None;
+            self.copy_status_override = None;
             self.copy_requested = true;
+            return;
+        }
+
+        if !self.text_entry_active() && self.is_copy_section(&key) {
+            if let Some(section_text) = self.current_section_copy_text() {
+                self.modal_mouse_mode = false;
+                self.modal = None;
+                self.settle_modal_transitions();
+                self.show_help = false;
+                self.copy_override_text = Some(section_text);
+                self.copy_status_override =
+                    Some("Copied current section to clipboard.".to_string());
+                self.copy_requested = true;
+            }
             return;
         }
 
@@ -2392,7 +2625,16 @@ impl App {
         if self.current_idx + 1 < self.navigation.len() {
             self.current_idx += 1;
         } else {
-            self.status = Some(StatusMsg::success("End of note reached. Press c to copy."));
+            let copy_key = self
+                .data
+                .keybindings
+                .copy_note
+                .first()
+                .map(String::as_str)
+                .unwrap_or("shift+c");
+            self.status = Some(StatusMsg::success(format!(
+                "End of note reached. Press {copy_key} to copy the full note."
+            )));
         }
     }
 
@@ -4216,8 +4458,13 @@ pub fn compute_field_composition_spans(
             return flow
                 .values
                 .iter()
-                .map(|value| FieldCompositionSpan {
-                    text: value.clone(),
+                .enumerate()
+                .map(|(idx, value)| FieldCompositionSpan {
+                    text: flow
+                        .lists
+                        .get(idx)
+                        .map(|list| apply_list_output_affixes(list, value.clone()))
+                        .unwrap_or_else(|| value.clone()),
                     kind: FieldCompositionSpanKind::Confirmed,
                 })
                 .collect();
@@ -4225,8 +4472,9 @@ pub fn compute_field_composition_spans(
         if let Some(list) = flow.lists.get(flow.list_idx) {
             if !flow.repeat_values.is_empty() {
                 return vec![FieldCompositionSpan {
-                    text: joined_repeating_value(list, &flow.repeat_values)
-                        .unwrap_or_else(|| flow.repeat_values.join(", ")),
+                    text: joined_repeating_value(list, &flow.repeat_values).unwrap_or_else(|| {
+                        apply_list_output_affixes(list, flow.repeat_values.join(", "))
+                    }),
                     kind: FieldCompositionSpanKind::Confirmed,
                 }];
             }
@@ -4257,7 +4505,7 @@ pub fn compute_field_composition_spans(
                 if i < flow.values.len() {
                     spans.push(FieldCompositionSpan {
                         text: substitute_format_lists(
-                            flow.values[i].clone(),
+                            apply_list_output_affixes(&flow.lists[i], flow.values[i].clone()),
                             &flow.format_lists,
                             lookup,
                         ),
@@ -4267,7 +4515,12 @@ pub fn compute_field_composition_spans(
                     spans.push(FieldCompositionSpan {
                         text: substitute_format_lists(
                             joined_repeating_value(&flow.lists[i], &flow.repeat_values)
-                                .unwrap_or_else(|| flow.repeat_values.join(", ")),
+                                .unwrap_or_else(|| {
+                                    apply_list_output_affixes(
+                                        &flow.lists[i],
+                                        flow.repeat_values.join(", "),
+                                    )
+                                }),
                             &flow.format_lists,
                             lookup,
                         ),
@@ -4276,7 +4529,11 @@ pub fn compute_field_composition_spans(
                 } else if i == flow.list_idx {
                     if let Some(value) = active_value.clone().filter(|value| !value.is_empty()) {
                         spans.push(FieldCompositionSpan {
-                            text: substitute_format_lists(value, &flow.format_lists, lookup),
+                            text: substitute_format_lists(
+                                apply_list_output_affixes(&flow.lists[i], value),
+                                &flow.format_lists,
+                                lookup,
+                            ),
                             kind: FieldCompositionSpanKind::Active,
                         });
                     } else if let Some(value) = fallback_list_value(&flow.lists[i], lookup) {
@@ -4350,29 +4607,38 @@ fn compute_field_preview(
         }
         if let Some(list) = flow.lists.get(flow.list_idx) {
             if !flow.repeat_values.is_empty() {
-                return joined_repeating_value(list, &flow.repeat_values)
-                    .unwrap_or_else(|| flow.repeat_values.join(", "));
+                return joined_repeating_value(list, &flow.repeat_values).unwrap_or_else(|| {
+                    apply_list_output_affixes(list, flow.repeat_values.join(", "))
+                });
             }
         }
         if let Some(value) = active_value.filter(|value| !value.is_empty()) {
-            return value;
+            return flow
+                .lists
+                .get(flow.list_idx)
+                .map(|list| apply_list_output_affixes(list, value.clone()))
+                .unwrap_or(value);
         }
         return String::new();
     };
     let mut result = format.clone();
     for (i, val) in flow.values.iter().enumerate() {
         let placeholder = format!("{{{}}}", flow.lists[i].id);
-        result = result.replace(&placeholder, val);
+        result = result.replace(
+            &placeholder,
+            &apply_list_output_affixes(&flow.lists[i], val.clone()),
+        );
     }
     for (i, list) in flow.lists.iter().enumerate().skip(flow.list_idx) {
         let placeholder = format!("{{{}}}", list.id);
         let value = if i == flow.list_idx && !flow.repeat_values.is_empty() {
             joined_repeating_value(list, &flow.repeat_values)
-                .unwrap_or_else(|| flow.repeat_values.join(", "))
+                .unwrap_or_else(|| apply_list_output_affixes(list, flow.repeat_values.join(", ")))
         } else if i == flow.list_idx {
             active_value
                 .clone()
                 .filter(|value| !value.is_empty())
+                .map(|value| apply_list_output_affixes(list, value))
                 .or_else(|| fallback_list_value(list, lookup))
                 .unwrap_or_else(|| list.preview.as_deref().unwrap_or("?").to_string())
         } else {
@@ -5052,9 +5318,9 @@ mod tests {
 #[cfg(test)]
 mod composition_span_tests {
     use super::{
-        compute_field_composition_spans, empty_app_data, App, AppKey, FieldCompositionSpanKind,
-        Focus, FocusDirection, HelpMode, ModalCompositionTransition, ModalTransitionLayer,
-        SectionState,
+        compute_field_composition_spans, empty_app_data, match_binding_str, App, AppKey,
+        FieldCompositionSpanKind, Focus, FocusDirection, HelpMode, ModalCompositionTransition,
+        ModalTransitionLayer, SectionState, ERROR_MODAL_NO_REFERENCE_TOPICS_TEXT,
     };
     use crate::config::Config;
     use crate::data::{
@@ -5066,6 +5332,7 @@ mod composition_span_tests {
     use crate::diagnostics::{ErrorReport, ErrorSource, Messages};
     use crate::modal::SearchModal;
     use crate::modal_layout::ModalFocus;
+    use crate::sections::free_text::FreeTextState;
     use crate::sections::header::HeaderFieldValue;
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -5101,6 +5368,8 @@ mod composition_span_tests {
                     id: "muscle".to_string(),
                     label: Some("Muscle".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: Some("empty_space".to_string()),
                     modal_start: ModalStart::Search,
@@ -5115,6 +5384,8 @@ mod composition_span_tests {
                     id: "place".to_string(),
                     label: Some("Place".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: Some("empty_space".to_string()),
                     modal_start: ModalStart::Search,
@@ -5126,6 +5397,8 @@ mod composition_span_tests {
                     id: "tag".to_string(),
                     label: Some("Tag".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: Some("empty_space".to_string()),
                     modal_start: ModalStart::Search,
@@ -5156,6 +5429,8 @@ mod composition_span_tests {
                 id: "appointment_type".to_string(),
                 label: Some("Appointment Type".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::Search,
@@ -5183,6 +5458,8 @@ mod composition_span_tests {
                 id: "region".to_string(),
                 label: Some("Region".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: Some("empty_space".to_string()),
                 modal_start: ModalStart::Search,
@@ -5209,6 +5486,8 @@ mod composition_span_tests {
                 id: "place".to_string(),
                 label: Some("Place".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: Some("empty_space".to_string()),
                 modal_start: ModalStart::Search,
@@ -5309,6 +5588,8 @@ mod composition_span_tests {
                 id: "region".to_string(),
                 label: Some("Region".to_string()),
                 preview: Some("Region".to_string()),
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start,
@@ -5338,6 +5619,8 @@ mod composition_span_tests {
                 id: "optional_region".to_string(),
                 label: Some("Optional Region".to_string()),
                 preview: Some("Region".to_string()),
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: Some("empty_space".to_string()),
                 modal_start: ModalStart::Search,
@@ -5367,6 +5650,8 @@ mod composition_span_tests {
                 id: "pt_pronouns".to_string(),
                 label: Some("Patient Pronouns".to_string()),
                 preview: Some("Pronouns".to_string()),
+                output_prefix: None,
+                output_suffix: None,
                 sticky: true,
                 default: Some("they_them".to_string()),
                 modal_start: ModalStart::List,
@@ -5396,6 +5681,8 @@ mod composition_span_tests {
                 id: "pos_pronoun".to_string(),
                 label: Some("Possessive Pronoun".to_string()),
                 preview: Some("Poss".to_string()),
+                output_prefix: None,
+                output_suffix: None,
                 sticky: true,
                 default: Some("pos_their".to_string()),
                 modal_start: ModalStart::List,
@@ -5430,6 +5717,8 @@ mod composition_span_tests {
                     id: "neck_list".to_string(),
                     label: Some("Neck".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -5457,6 +5746,8 @@ mod composition_span_tests {
                     id: "start_hour".to_string(),
                     label: Some("Start Hour".to_string()),
                     preview: Some("hh".to_string()),
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -5471,6 +5762,8 @@ mod composition_span_tests {
                     id: "start_minute".to_string(),
                     label: Some("Start Minute".to_string()),
                     preview: Some("mm".to_string()),
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: Some("minute_00".to_string()),
                     modal_start: ModalStart::List,
@@ -5484,6 +5777,8 @@ mod composition_span_tests {
                 id: "am_pm".to_string(),
                 label: Some("AM/PM".to_string()),
                 preview: Some("XM".to_string()),
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::List,
@@ -5515,6 +5810,8 @@ mod composition_span_tests {
                     id: "start_hour".to_string(),
                     label: Some("Start Hour".to_string()),
                     preview: Some("hh".to_string()),
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -5526,6 +5823,8 @@ mod composition_span_tests {
                     id: "start_minute".to_string(),
                     label: Some("Start Minute".to_string()),
                     preview: Some("mm".to_string()),
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: Some("minute_00".to_string()),
                     modal_start: ModalStart::List,
@@ -5537,6 +5836,8 @@ mod composition_span_tests {
                     id: "duration".to_string(),
                     label: Some("Duration".to_string()),
                     preview: Some("dur".to_string()),
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: Some("duration_60".to_string()),
                     modal_start: ModalStart::List,
@@ -5730,7 +6031,7 @@ mod composition_span_tests {
         let report = ErrorReport::generic("yaml_parse_failed", "bad yaml");
         let mut app = App::new_error_state(report, Config::default(), PathBuf::new());
 
-        app.handle_key(AppKey::Char('c'));
+        app.handle_key(AppKey::Char('C'));
 
         assert!(app.copy_requested);
         let copied = app
@@ -5741,6 +6042,130 @@ mod composition_span_tests {
         assert!(copied.contains("**Error ID:** `yaml_parse_failed`"));
         assert!(copied.find("**Error ID:**").unwrap() > copied.find("bad yaml").unwrap());
         assert!(!app.quit);
+    }
+
+    fn item_field_shape_error_report() -> ErrorReport {
+        ErrorReport::generic("invalid_authored_value_type", "raw")
+            .with_param("owner_kind", "item")
+            .with_param(
+                "owner_label",
+                "item 'detail_freq' in list 'exha_details_root'",
+            )
+            .with_param("key_name", "fields[0]")
+            .with_param("actual_type", "map")
+            .with_param("expected_type", "a string")
+            .with_param("item_field_map_key", "field")
+            .with_param("item_field_map_value", "frequency_branch")
+            .with_param("item_field_output_placeholder", "{frequency_branch}")
+    }
+
+    fn item_field_wrong_kind_list_report() -> ErrorReport {
+        ErrorReport::generic("item_field_wrong_kind", "raw")
+            .with_param("owner_kind", "item")
+            .with_param(
+                "owner_label",
+                "item 'detail_starting_since' in list 'exha_details_root'",
+            )
+            .with_param("source_list_id", "exha_details_root")
+            .with_param("source_item_id", "detail_starting_since")
+            .with_param("referenced_id", "starting_since")
+            .with_param("actual_kind", "list")
+            .with_param("expected_kind", "field")
+            .with_param("suggested_field_id", "starting_since_field")
+            .with_param("suggested_field_placeholder", "{starting_since_field}")
+            .with_param("referenced_placeholder", "{starting_since}")
+    }
+
+    fn item_output_affix_error_report() -> ErrorReport {
+        ErrorReport::generic("unsupported_authored_key", "raw")
+            .with_param("owner_kind", "item")
+            .with_param("owner_label", "item 'alpha' in list 'demo'")
+            .with_param("key_name", "output_prefix")
+            .with_param(
+                "item_affix_suggested_output_line",
+                "output: \" ({child_field})\"",
+            )
+    }
+
+    #[test]
+    fn help_key_opens_help_topics_from_error_modal() {
+        let report = item_field_shape_error_report();
+        let mut app = App::new_error_state(report, Config::default(), PathBuf::new());
+
+        app.handle_key(AppKey::Char('?'));
+
+        assert!(app.show_help);
+        assert!(app.error_modal.is_some());
+        assert_eq!(app.help_state.mode, HelpMode::Search);
+    }
+
+    #[test]
+    fn error_modal_reference_hint_opens_branching_fields_topic() {
+        let report = item_field_shape_error_report();
+        let mut app = App::new_error_state(report, Config::default(), PathBuf::new());
+
+        app.handle_key(AppKey::Char('1'));
+
+        assert!(app.show_help);
+        assert_eq!(app.help_state.mode, HelpMode::Topic);
+        let topic = app
+            .selected_help_topic()
+            .expect("reference hint should select help topic");
+        assert_eq!(topic.id, "item-driven-branching");
+    }
+
+    #[test]
+    fn wrong_kind_item_field_reference_links_to_branching_fields_topic() {
+        let report = item_field_wrong_kind_list_report();
+        let mut app = App::new_error_state(report, Config::default(), PathBuf::new());
+
+        app.handle_key(AppKey::Char('1'));
+
+        assert!(app.show_help);
+        assert_eq!(app.help_state.mode, HelpMode::Topic);
+        let topic = app
+            .selected_help_topic()
+            .expect("reference hint should select help topic");
+        assert_eq!(topic.id, "item-driven-branching");
+    }
+
+    #[test]
+    fn error_modal_markdown_includes_see_also() {
+        let report = item_field_shape_error_report();
+        let app = App::new_error_state(report, Config::default(), PathBuf::new());
+
+        let copied = app
+            .error_modal_markdown()
+            .expect("error modal markdown should render");
+
+        assert!(copied.contains("### See Also"));
+        assert!(copied.contains("- `1` Item Opens Branching Fields"));
+    }
+
+    #[test]
+    fn error_modal_markdown_includes_empty_see_also_message() {
+        let report = ErrorReport::generic("yaml_parse_failed", "bad yaml");
+        let app = App::new_error_state(report, Config::default(), PathBuf::new());
+
+        let copied = app
+            .error_modal_markdown()
+            .expect("error modal markdown should render");
+
+        assert!(copied.contains("### See Also"));
+        assert!(copied.contains(ERROR_MODAL_NO_REFERENCE_TOPICS_TEXT));
+    }
+
+    #[test]
+    fn output_affix_error_modal_markdown_links_to_list_output_topic() {
+        let report = item_output_affix_error_report();
+        let app = App::new_error_state(report, Config::default(), PathBuf::new());
+
+        let copied = app
+            .error_modal_markdown()
+            .expect("error modal markdown should render");
+
+        assert!(copied.contains("### See Also"));
+        assert!(copied.contains("- `1` Output Prefixes & Suffixes (Lists)"));
     }
 
     #[test]
@@ -6787,6 +7212,8 @@ mod composition_span_tests {
                     id: "place".to_string(),
                     label: Some("Place".to_string()),
                     preview: Some("?".to_string()),
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -6806,6 +7233,8 @@ mod composition_span_tests {
                     id: "region".to_string(),
                     label: Some("Region".to_string()),
                     preview: Some("Region".to_string()),
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -6863,6 +7292,8 @@ mod composition_span_tests {
                     id: "place".to_string(),
                     label: Some("Place".to_string()),
                     preview: Some("?".to_string()),
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -6882,6 +7313,8 @@ mod composition_span_tests {
                     id: "region".to_string(),
                     label: Some("Region".to_string()),
                     preview: Some("Region".to_string()),
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -6951,6 +7384,8 @@ mod composition_span_tests {
                 id: "region".to_string(),
                 label: Some("Region".to_string()),
                 preview: Some("Region".to_string()),
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::List,
@@ -7567,6 +8002,85 @@ mod composition_span_tests {
     }
 
     #[test]
+    fn shift_c_binding_matches_shifted_copy_note_key() {
+        assert!(match_binding_str("shift+c", &AppKey::Char('C')));
+        assert!(!match_binding_str("shift+c", &AppKey::Char('c')));
+    }
+
+    #[test]
+    fn copy_section_key_prepares_only_current_section_text() {
+        let first = SectionConfig {
+            id: "subjective_section".to_string(),
+            name: "Subjective".to_string(),
+            map_label: "Subjective".to_string(),
+            section_type: SectionBodyMode::FreeText,
+            show_field_labels: true,
+            data_file: None,
+            fields: None,
+            lists: Vec::new(),
+            note_label: Some("#### SUBJECTIVE".to_string()),
+            group_id: "note".to_string(),
+            node_kind: RuntimeNodeKind::Section,
+        };
+        let second = SectionConfig {
+            id: "objective_section".to_string(),
+            name: "Objective".to_string(),
+            map_label: "Objective".to_string(),
+            section_type: SectionBodyMode::FreeText,
+            show_field_labels: true,
+            data_file: None,
+            fields: None,
+            lists: Vec::new(),
+            note_label: Some("#### OBJECTIVE".to_string()),
+            group_id: "note".to_string(),
+            node_kind: RuntimeNodeKind::Section,
+        };
+        let data = AppData {
+            template: RuntimeTemplate {
+                id: "test".to_string(),
+                children: vec![RuntimeGroup {
+                    id: "note".to_string(),
+                    nav_label: "Note".to_string(),
+                    note: GroupNoteMeta::default(),
+                    children: vec![
+                        RuntimeNode::Section(first.clone()),
+                        RuntimeNode::Section(second.clone()),
+                    ],
+                }],
+            },
+            list_data: HashMap::new(),
+            checklist_data: HashMap::new(),
+            collection_data: HashMap::new(),
+            boilerplate_texts: HashMap::new(),
+            keybindings: KeyBindings::default(),
+            hotkeys: Default::default(),
+        };
+        let mut app = App::new(data, Config::default(), PathBuf::new());
+        app.section_states[0] = SectionState::FreeText(FreeTextState {
+            entries: vec!["Subjective only".to_string()],
+            ..FreeTextState::new()
+        });
+        app.section_states[1] = SectionState::FreeText(FreeTextState {
+            entries: vec!["Objective only".to_string()],
+            ..FreeTextState::new()
+        });
+        app.current_idx = 1;
+
+        app.handle_key(AppKey::Char('c'));
+
+        assert!(app.copy_requested);
+        assert_eq!(
+            app.copy_override_text.as_deref(),
+            Some("Objective only"),
+            "section copy should not include other sections or headings"
+        );
+        assert_eq!(
+            app.copy_status_override.as_deref(),
+            Some("Copied current section to clipboard.")
+        );
+    }
+
+    #[test]
     fn help_key_opens_search_view() {
         let mut app = app_for_help_tests();
 
@@ -7612,7 +8126,7 @@ mod composition_span_tests {
     fn help_copy_uses_selected_code_block() {
         let mut app = app_for_help_tests();
         app.handle_key(AppKey::Char('?'));
-        app.handle_key(AppKey::Enter);
+        assert!(app.open_help_topic_by_id("item-driven-branching"));
 
         app.handle_key(AppKey::Char('c'));
 
@@ -7623,18 +8137,85 @@ mod composition_span_tests {
             .expect("help copy should prepare override text");
         assert!(copied.contains("lists:"));
         assert!(copied.contains("exercise_reason_field"));
+        assert_eq!(
+            app.copy_status_override.as_deref(),
+            Some("Copied selected help code block to clipboard.")
+        );
+    }
+
+    #[test]
+    fn help_shift_copy_uses_whole_topic_markdown() {
+        let mut app = app_for_help_tests();
+        app.handle_key(AppKey::Char('?'));
+        assert!(app.open_help_topic_by_id("item-driven-branching"));
+
+        app.handle_key(AppKey::Char('C'));
+
+        assert!(app.copy_requested);
+        let copied = app
+            .copy_override_text
+            .as_deref()
+            .expect("help full topic copy should prepare override text");
+        assert!(copied.starts_with("# "));
+        assert!(copied.contains("lists:"));
+        assert!(copied.contains("```yaml"));
+        assert_eq!(
+            app.copy_status_override.as_deref(),
+            Some("Copied help topic to clipboard.")
+        );
     }
 
     #[test]
     fn help_topic_code_block_hints_start_with_digits() {
         let mut app = app_for_help_tests();
         app.handle_key(AppKey::Char('?'));
-        app.handle_key(AppKey::Enter);
+        assert!(app.open_help_topic_by_id("item-driven-branching"));
 
         let hints = app.help_code_block_hint_labels();
 
         assert_eq!(hints[0], "1");
         assert_eq!(hints[8], "9");
+    }
+
+    #[test]
+    fn help_topic_see_also_hint_is_distinct_from_code_block_hints() {
+        let mut app = app_for_help_tests();
+        app.handle_key(AppKey::Char('?'));
+        assert!(app.open_help_topic_by_id("item-driven-branching"));
+
+        let code_hints = app.help_code_block_hint_labels();
+        let see_also_hints = app.selected_help_topic_see_also_hint_labels();
+
+        assert_eq!(see_also_hints.len(), 2);
+        assert!(!code_hints.contains(&see_also_hints[0]));
+    }
+
+    #[test]
+    fn help_topic_see_also_hint_opens_related_topic() {
+        let mut app = app_for_help_tests();
+        app.handle_key(AppKey::Char('?'));
+        assert!(app.open_help_topic_by_id("item-driven-branching"));
+        let see_also_hint = app
+            .selected_help_topic_see_also_hint_labels()
+            .into_iter()
+            .next()
+            .expect("branching topic should have a see also hint");
+        let mut chars = see_also_hint.chars();
+        let key = chars
+            .next()
+            .expect("see also hint should contain a key character");
+        assert!(
+            chars.next().is_none(),
+            "help topic see also hints should be single-key shortcuts"
+        );
+
+        app.handle_key(AppKey::Char(key));
+
+        let topic = app
+            .selected_help_topic()
+            .expect("see also hint should select related topic");
+        assert_eq!(topic.id, "yaml-list-item-class");
+        assert_eq!(app.help_state.mode, HelpMode::Topic);
     }
 
     #[test]

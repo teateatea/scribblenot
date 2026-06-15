@@ -133,6 +133,22 @@ fn entry_for_report<'a>(
     {
         return Some(&ITEM_BRANCH_FIELDS_UNSUPPORTED_ENTRY);
     }
+    if report.kind_id() == "unsupported_authored_key"
+        && params.get("owner_kind").map(String::as_str) == Some("item")
+        && matches!(
+            params.get("key_name").map(String::as_str),
+            Some("output_prefix" | "output_suffix")
+        )
+        && params.contains_key("item_affix_suggested_output_line")
+    {
+        return Some(&ITEM_OUTPUT_AFFIX_UNSUPPORTED_ENTRY);
+    }
+    if report.kind_id() == "item_field_wrong_kind"
+        && params.get("actual_kind").map(String::as_str) == Some("list")
+        && params.get("expected_kind").map(String::as_str) == Some("field")
+    {
+        return Some(&ITEM_FIELD_REFERENCES_LIST_ENTRY);
+    }
     if report.kind_id() == "invalid_authored_value_type"
         && params.get("owner_kind").map(String::as_str) == Some("field")
         && params.get("key_name").map(String::as_str) == Some("label")
@@ -147,6 +163,17 @@ fn entry_for_report<'a>(
                 &FIELD_LABEL_INLINE_MAP_LIST_MISSING_ENTRY
             },
         );
+    }
+    if report.kind_id() == "invalid_authored_value_type"
+        && params.get("owner_kind").map(String::as_str) == Some("item")
+        && params
+            .get("key_name")
+            .is_some_and(|key_name| key_name.starts_with("fields["))
+        && params.get("actual_type").map(String::as_str) == Some("map")
+        && params.get("expected_type").map(String::as_str) == Some("a string")
+        && params.get("item_field_map_key").map(String::as_str) == Some("field")
+    {
+        return Some(&ITEM_FIELDS_TYPED_REF_ENTRY);
     }
     if report.kind_id() == "invalid_authored_value_type"
         && params.get("actual_type").map(String::as_str) == Some("map")
@@ -188,6 +215,13 @@ static ITEM_BRANCH_FIELDS_UNSUPPORTED_ENTRY: MessageEntry = MessageEntry {
     fix: "Replace `branch_fields:` with `fields:` on this item. Item-driven branching is authored through `fields:` now.",
 };
 
+static ITEM_OUTPUT_AFFIX_UNSUPPORTED_ENTRY: MessageEntry = MessageEntry {
+    id: "unsupported_authored_key",
+    title: "Output Prefix And Suffix Go On Lists",
+    description: "{owner_label} uses unsupported key `{key_name}`.\n\n`output_prefix:` and `output_suffix:` are list-level properties. They wrap the final output of a whole list when that list contributes text; they are not supported on individual items.",
+    fix: "For item-specific punctuation, put the prefix and suffix directly into this item's `output:` instead.\n\nBased on this item, use:\n```yaml\n{item_affix_suggested_output_line}\n```",
+};
+
 static FIELD_LABEL_INLINE_MAP_LIST_EXISTS_ENTRY: MessageEntry = MessageEntry {
     id: "invalid_authored_value_type",
     title: "Field Label Needs Quotes",
@@ -207,6 +241,20 @@ static STRING_PROPERTY_INLINE_MAP_ENTRY: MessageEntry = MessageEntry {
     title: "This Needs Quotes",
     description: "{owner_label} expects {expected_type} for {key_name}, but {inline_map_token} is YAML inline-map syntax, not plain text.",
     fix: "a) If you meant the literal text, add quotes:\n```yaml\n{key_name}: {quoted_inline_map_token}\n```",
+};
+
+static ITEM_FIELDS_TYPED_REF_ENTRY: MessageEntry = MessageEntry {
+    id: "invalid_authored_value_type",
+    title: "Item Branch Field Uses the Wrong Shape",
+    description: "{owner_label} is trying to open a branch field, but item `fields:` entries are already field references. They should be plain field IDs, not `field:` maps.",
+    fix: "Change this:\n```yaml\nfields:\n  - field: {item_field_map_value}\n```\n\nto this:\n```yaml\nfields:\n  - {item_field_map_value}\n```\n\nFor a branching item, keep the selected item's output placeholder and list the branch field by ID:\n```yaml\nitems:\n  - id: detail_freq\n    label: \"Frequency\"\n    output: \"{item_field_output_placeholder}\"\n    fields:\n      - {item_field_map_value}\n```\n\nThe branch field itself should be defined under top-level `fields:` and can use `contains:` for its lists or child fields.",
+};
+
+static ITEM_FIELD_REFERENCES_LIST_ENTRY: MessageEntry = MessageEntry {
+    id: "item_field_wrong_kind",
+    title: "Branch Item Points Directly At a List",
+    description: "{owner_label} is trying to open follow-up branching content, but item `fields:` must reference field ids. `{referenced_id}` is a list, so it needs to be wrapped by a field first.",
+    fix: "Change the branching item from this:\n```yaml\nitems:\n  - id: {source_item_id}\n    fields:\n      - {referenced_id}\n```\n\nto this:\n```yaml\nitems:\n  - id: {source_item_id}\n    output: \"{suggested_field_placeholder}\"\n    fields:\n      - {suggested_field_id}\n```\n\nThen add the branch field under top-level `fields:`:\n```yaml\nfields:\n  - id: {suggested_field_id}\n    label: \"Branch Field Label\"\n    format: \"{referenced_placeholder}\"\n    contains:\n      - list: {referenced_id}\n```\n\nPlain English: item `fields:` chooses which follow-up field opens. That follow-up field can then contain the list.",
 };
 
 fn builtin_entries() -> Vec<MessageEntry> {
@@ -1151,6 +1199,96 @@ mod tests {
         assert!(rendered
             .fix
             .contains("Replace `branch_fields:` with `fields:`"));
+    }
+
+    #[test]
+    fn render_unsupported_item_output_affix_as_teaching_moment() {
+        let messages = Messages::load();
+        let report = ErrorReport::generic("unsupported_authored_key", "raw")
+            .with_param("owner_kind", "item")
+            .with_param("owner_label", "item 'alpha' in list 'demo'")
+            .with_param("key_name", "output_prefix")
+            .with_param(
+                "expected_keys",
+                "`id`, `label`, `default_enabled`, `output`, `hotkey`, `fields`, `assigns`",
+            )
+            .with_param(
+                "item_affix_suggested_output_line",
+                "output: \" ({child_field})\"",
+            );
+
+        let rendered = messages.render(&report);
+
+        assert_eq!(rendered.title, "Output Prefix And Suffix Go On Lists");
+        assert!(rendered.description.contains("are list-level properties"));
+        assert!(rendered
+            .fix
+            .contains("put the prefix and suffix directly into this item's `output:`"));
+        assert!(rendered.fix.contains("output: \" ({child_field})\""));
+        assert!(!rendered.fix.contains("help topic"));
+    }
+
+    #[test]
+    fn render_typed_item_field_ref_as_branching_teaching_moment() {
+        let messages = Messages::load();
+        let report = ErrorReport::generic("invalid_authored_value_type", "raw")
+            .with_param("owner_kind", "item")
+            .with_param(
+                "owner_label",
+                "item 'detail_freq' in list 'exha_details_root'",
+            )
+            .with_param("key_name", "fields[0]")
+            .with_param("actual_type", "map")
+            .with_param("expected_type", "a string")
+            .with_param("item_field_map_key", "field")
+            .with_param("item_field_map_value", "frequency_branch")
+            .with_param("item_field_output_placeholder", "{frequency_branch}");
+
+        let rendered = messages.render(&report);
+
+        assert_eq!(rendered.title, "Item Branch Field Uses the Wrong Shape");
+        assert!(rendered
+            .description
+            .contains("trying to open a branch field"));
+        assert!(rendered
+            .description
+            .contains("They should be plain field IDs"));
+        assert!(rendered.fix.contains("- field: frequency_branch"));
+        assert!(rendered.fix.contains("- frequency_branch"));
+        assert!(rendered.fix.contains("output: \"{frequency_branch}\""));
+        assert!(rendered.fix.contains("defined under top-level `fields:`"));
+    }
+
+    #[test]
+    fn render_item_field_wrong_kind_list_as_branching_teaching_moment() {
+        let messages = Messages::load();
+        let report = ErrorReport::generic("item_field_wrong_kind", "raw")
+            .with_param("owner_kind", "item")
+            .with_param(
+                "owner_label",
+                "item 'detail_starting_since' in list 'exha_details_root'",
+            )
+            .with_param("source_list_id", "exha_details_root")
+            .with_param("source_item_id", "detail_starting_since")
+            .with_param("referenced_id", "starting_since")
+            .with_param("actual_kind", "list")
+            .with_param("expected_kind", "field")
+            .with_param("suggested_field_id", "starting_since_field")
+            .with_param("suggested_field_placeholder", "{starting_since_field}")
+            .with_param("referenced_placeholder", "{starting_since}");
+
+        let rendered = messages.render(&report);
+
+        assert_eq!(rendered.title, "Branch Item Points Directly At a List");
+        assert!(rendered
+            .description
+            .contains("item `fields:` must reference field ids"));
+        assert!(rendered.description.contains("`starting_since` is a list"));
+        assert!(rendered.fix.contains("- starting_since"));
+        assert!(rendered.fix.contains("- starting_since_field"));
+        assert!(rendered.fix.contains("output: \"{starting_since_field}\""));
+        assert!(rendered.fix.contains("format: \"{starting_since}\""));
+        assert!(rendered.fix.contains("- list: starting_since"));
     }
 
     #[test]

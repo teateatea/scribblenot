@@ -18,17 +18,20 @@ sections:
 fields:
   - id: int_exha_field_brief
     label: "Exercise Habits Brief"
-    format: "- {year}-{month}-{day}: {patientdescribes} {int_exha_list}{frequency}{starting_since}{starting_frequency}{duration_unit}{exercise_due_to}." # {pluralizer}{starting_ago}." {year}-{month}-{day}: 
+    format: "- {year}-{month}-{day}: {patientdescribes} {exha_list_root}{exha_details_root}." 
+    #{int_exha_list} {frequency}{starting_since}{starting_frequency}{duration_unit}{exercise_due_to}." # {pluralizer}{starting_ago}." {year}-{month}-{day}: 
     max_entries: 12
    # joiner_style: newline
     contains:
       - list: patientdescribes
-      - list: int_exha_list
-      - list: frequency
-      - list: starting_since
-      - list: starting_frequency
-      - list: duration_unit
-      - list: exercise_due_to
+     # - list: int_exha_list
+      - list: exha_list_root
+      - list: exha_details_root
+     # - list: frequency
+     # - list: starting_since
+     # - list: starting_frequency
+     # - list: duration_unit
+     # - list: exercise_due_to
 
 
   - id: int_diagnosis_mental_brief
@@ -39,6 +42,33 @@ fields:
     contains:
       - list: patientdiagnosis
       - list: mentalcondition
+
+  - id: frequency_branch
+    label: "frequency branch"
+    format: "{frequency2}"
+    contains:
+      - list: frequency2
+  - id: starting_since_branch
+    label: "starting since branch"
+    format: "{starting_since2}"
+    contains:
+      - list: starting_since2
+  - id: starting_frequency_branch
+    label: "starting since branch"
+    format: "{starting_frequency}{duration_unit}"
+    contains:
+      - list: starting_frequency
+      - list: duration_unit
+  - id: activities_branch
+    label: activities
+    format: "{activities}"
+    contains:
+      - list: activities
+  - id: adherence_branch
+    label: adherence
+    format: "{adherence}"
+    contains:
+      - list: adherence
 
 lists:
   - id: patientdiagnosis
@@ -89,3 +119,358 @@ lists:
       - id: diagnosis
         label: "diagnosis"
         output: " diagnosis"
+        
+  - id: exha_details_root
+    label: "details"
+    default: empty
+    output_prefix: " "
+    max_entries: 4
+    joiner_style: comma
+    items:
+      - id: empty
+        label: "1 (Empty Space)"
+        output: ""   
+      - id: detail_freq
+        label: "Frequency"
+        output: "{frequency_branch}"
+        fields:
+          - frequency_branch
+      - id: detail_starting_since
+        label: "Starting Since"
+        output: "{starting_since_branch}"
+        fields:
+          - starting_since_branch
+     # - list: starting_since
+     # - list: starting_frequency
+     # - list: duration_unit
+     # - list: exercise_due_to
+
+  - id: starting_since2
+    label: "(starting"
+    default: empty_space
+    modal_start: list
+    preview: " (starting)"
+   # joiner_style: comma
+   # max_entries: 3
+    items:
+      - id: empty_space
+        label: "(empty)"
+        output: ""
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: in_the_past
+        label: "in the past"
+        output: "in the past{starting_frequency_branch}"
+        fields:
+          - starting_frequency_branch
+        assigns:
+          - list: starting_ago
+            item: empty_space
+       # fields:
+       #   - appointment_date_field
+      - id: starting
+        label: "starting"
+        output: "starting{starting_frequency_branch}"
+        fields:
+          - starting_frequency_branch
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: starting_around
+        label: "starting around"
+        output: "starting around{starting_frequency_branch}"
+        fields:
+          - starting_frequency_branch
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: starting_over
+        label: "starting over"
+        output: "starting over{starting_frequency_branch}"
+        fields:
+          - starting_frequency_branch
+        assigns:
+          - list: starting_ago
+            item: ago
+   #   - id: every
+   #     label: "every"
+   #     output: "every"
+   #     assigns:
+   #       - list: starting_ago
+   #         item: empty_space
+      - id: for
+        label: "for"
+        output: "for{starting_frequency_branch}"
+        fields:
+          - starting_frequency_branch
+        assigns:
+          - list: starting_ago
+            item: empty_space
+      - id: for_over
+        label: "for over"
+        output: "for over{starting_frequency_branch}"
+        fields:
+          - starting_frequency_branch
+        assigns:
+          - list: starting_ago
+            item: empty_space
+      - id: progressing_over_the_past
+        label: "progressing over the past"
+        output: "progressing over the past{starting_frequency_branch}"
+        fields:
+          - starting_frequency_branch
+        assigns:
+          - list: starting_ago
+            item: empty_space
+   #   - id: since_his_last_appointment
+   #     label: "since his last appointment"
+   #     output: ", since his last appointment"
+   #     assigns:
+   #       - list: starting_ago
+   #         item: empty_space
+   #   - id: since_her_last_appointment
+   #     label: "since her last appointment"
+   #     output: ", since her last appointment"
+   #     assigns:
+   #       - list: starting_ago
+   #         item: empty_space
+      - id: since_their_last_appointment
+        label: "since {pos_pronoun} last appointment"
+        output: "since {pos_pronoun} last appointment"
+        assigns:
+          - list: starting_ago
+            item: empty_space
+      - id: since_their_last_appointment_ago
+        label: "since {pos_pronoun} last appointment ... ago"
+        output: "since {pos_pronoun} last appointment{starting_frequency_branch}"
+        fields:
+          - starting_frequency_branch
+        assigns:
+          - list: starting_ago
+            item: ago
+    #  - id: since_his_injury
+    #    label: "since his injury"
+    #    output: ", since his injury"
+    #    assigns:
+    #      - list: starting_ago
+    #        item: empty_space
+    #  - id: since_her_injury
+    #    label: "since her injury"
+    #    output: ", since her injury"
+    #    assigns:
+    #      - list: starting_ago
+    #        item: empty_space
+      - id: since_their_injury
+        label: "since {pos_pronoun} injury"
+        output: "since {pos_pronoun} injury"
+        assigns:
+          - list: starting_ago
+            item: empty_space
+      - id: since_their_injury_ago
+        label: "since {pos_pronoun} injury ... ago{starting_frequency_branch}"
+        fields:
+          - starting_frequency_branch
+        output: "since {pos_pronoun} injury"
+        assigns:
+          - list: starting_ago
+            item: ago
+    #  - id: since_his_surgery
+    #    label: "since his surgery"
+    #    output: ", since his surgery"
+    #    assigns:
+    #      - list: starting_ago
+    #        item: empty_space
+    #  - id: since_her_surgery
+    #    label: "since her surgery"
+    #    output: ", since her surgery"
+    #    assigns:
+    #      - list: starting_ago
+    #        item: empty_space
+      - id: since_their_surgery
+        label: "since {pos_pronoun} surgery"
+        output: "since {pos_pronoun} surgery"
+        assigns:
+          - list: starting_ago
+            item: empty_space
+      - id: since_their_surgery_ago
+        label: "since {pos_pronoun} surgery ... ago{starting_frequency_branch}"
+        fields:
+          - starting_frequency_branch
+        output: "since {pos_pronoun} surgery"
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: ending
+        label: "ending"
+        output: "ending{starting_frequency_branch}"
+        fields:
+          - starting_frequency_branch
+        assigns:
+          - list: starting_ago
+            item: empty_space
+      - id: ending_ago
+        label: "ending ... ago{starting_frequency_branch}"
+        fields:
+          - starting_frequency_branch
+        output: "ending"
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: ending_over_ago
+        label: "ending over ... ago{starting_frequency_branch}"
+        fields:
+          - starting_frequency_branch
+        output: "ending over"
+        assigns:
+          - list: starting_ago
+            item: ago
+      - id: after
+        label: "after"
+        output: "after{starting_frequency_branch}"
+        fields:
+          - starting_frequency_branch
+        assigns:
+          - list: starting_ago
+            item: empty_space
+      # - ago -
+  #    - id: since_last_appointment_his_ago
+  #      label: "since his last appointment ... ago"
+  #      output: ", since his last appointment"
+  #      assigns:
+  #        - list: starting_ago
+  #          item: ago
+  #    - id: since_her_last_appointment_ago
+  #      label: "since her last appointment ... ago"
+  #      output: ", since her last appointment"
+  #      assigns:
+  #        - list: starting_ago
+  #          item: ago
+
+   #   - id: since_his_injury_ago
+   #     label: "since his injury ... ago"
+   #     output: ", since his injury"
+   #     assigns:
+   #       - list: starting_ago
+   #         item: ago
+   #   - id: since_her_injury_ago
+   #     label: "since her injury ... ago"
+   #     output: ", since her injury"
+   #     assigns:
+   #       - list: starting_ago
+   #         item: ago
+
+   #   - id: since_his_surgery_ago
+   #     label: "since his surgery ... ago"
+   #     output: ", since his surgery"
+   #     assigns:
+   #       - list: starting_ago
+   #         item: ago
+   #   - id: since_her_surgery_ago
+   #     label: "since her surgery ... ago"
+   #     output: ", since her surgery"
+   #     assigns:
+   #       - list: starting_ago
+   #         item: ago
+
+  - id: exha_list_root
+    label: "[ACTIVITYROOT]"
+    preview: "[ACTIVITYROOT]"
+    max_entries: 12
+    joiner_style: comma
+    modal_start: list
+    items:
+      - id: empty_space
+        label: "(empty)"
+        output: ""
+      - id: exha_activity
+        label: "[SPECIFIC ACTIVITY]"
+        output: "{activities_branch}"
+        fields:
+          - activities_branch
+      - id: exha_habits
+        label: "[HABITS ADHERENCE]"
+        output: "{adherence_branch}"
+        fields:
+          - adherence_branch
+  - id: activities
+    label: "activities"
+    preview: "[activities]"
+    max_entries: 12
+    joiner_style: comma_and
+    modal_start: list
+    items:
+      - id: empty_space
+        label: "(empty/done)"
+        output: ""
+      - id: exha_1
+        output: "training"
+      - id: exha_2
+        output: "walking"
+      - id: exha_21
+        output: "running"
+      - id: exha_22
+        output: "resistance training"
+      - id: exha_18
+        output: "working out (cardio)"
+      - id: exha_17
+        output: "yoga"
+      - id: exha_pil
+        output: "pilates"
+      - id: exha_19
+        output: "powerlifting"
+      - id: exha_20
+        output: "CrossFit"
+      - output: "dragonboating"
+      - "paddleboarding"
+
+  - id: adherence
+    label: "adherence"
+    preview: "[adherence]"
+    max_entries: 12
+    joiner_style: comma_and
+    modal_start: list
+    items:
+      - id: empty_space
+        label: "(empty/done)"
+        output: ""
+      - id: exha_31
+        output: "limited exercise"
+      - id: exha_3
+        output: "exercising"
+      - id: exha_3_re
+        output: "regular exercise"
+      - id: exha_4
+        output: "exercising regularly each week"
+      - id: exha__adherence_close
+        output: "close adherence to assigned rehab exercises"
+      - id: exha__adherence_reasonable
+        output: "reasonable adherence to assigned rehab exercises"
+      - id: exha_adherence_limited
+        output: "limited adherence to assigned exercises"
+      - id: exha__adherence_poor
+        output: "poor adherence to assigned exercises"
+      - id: exha__adherence_none
+        output: "not completing assigned exercises"
+      - id: exha_8
+        output: "a physically demanding work day"
+      - id: exha_9
+        output: "physical work that demands most or all of the Pt's daily energy"
+      - id: exha_10
+        output: "irregular exercise habits,"
+      - id: exha_11
+        output: "a return to previously assigned rehab exercises"
+      - id: exha_11b
+        output: "returning to regular exercise habits"
+      - id: exha_12
+        output: "reduced activity"
+      - id: exha_13
+        output: "resting without exercise"
+      - id: exha_14
+        output: "great interest in exercising more"
+      - id: exha_15
+        output: "interest in exercising more"
+      - id: exha_15
+        output: "interest in strength training"
+      - id: exha_16
+        output: "low interest in exercising more"

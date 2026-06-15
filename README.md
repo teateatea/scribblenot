@@ -121,7 +121,8 @@ nav_left: [left, h]
 nav_right: [right, i]
 hints: [a, r, s, t, q, w, f, p, 1, 2, 3, 4]
 super_confirm: [shift+enter]
-copy_note: [c]
+copy_note: [shift+c]
+copy_section: [c]
 ```
 
 Built-in fallback defaults:
@@ -140,7 +141,8 @@ nav_left: [left, h]
 nav_right: [right, i]
 hints: [1, 2, 3, 4, 5, 6, 7, 8, 9]
 super_confirm: [shift+enter]
-copy_note: [c]
+copy_note: [shift+c]
+copy_section: [c]
 ```
 
 | Action | What It Does |
@@ -155,7 +157,8 @@ copy_note: [c]
 | `quit` | Quit app |
 | `nav_left` / `nav_right` | Move left or right in the current context: pane movement, modal browsing between field parts, or wizard modal entry |
 | `super_confirm` | Confirm using defaults or sticky fallbacks where possible |
-| `copy_note` | Copy exported note |
+| `copy_note` | Copy exported full note |
+| `copy_section` | Copy exported text for the current section only |
 | `hints` | Hint key pool used to generate quick-select labels |
 
 Key string syntax:
@@ -514,7 +517,7 @@ That last distinction matters:
 
 ### list items
 
-String shorthand:
+Plain string item:
 
 ```yaml
 items:
@@ -534,11 +537,13 @@ items:
 
 | Key | Required | Meaning |
 |-----|----------|---------|
-| `id` | no | Item ID; auto-generated if omitted |
-| `label` | no | UI and search text |
-| `output` | no | Exported text |
+| `id` | no | Stable item ID; auto-generated if omitted |
+| `label` | no | UI and search text; falls back to output |
+| `output` | no | Exported text; falls back to label |
 | `default_enabled` | no | Initial enabled state inside collections |
 | `fields` | no | Referenced branch field IDs |
+
+For a full object item, include at least one of `id`, `label`, or `output`. Write `id` yourself when another config entry needs to point at this item, such as a list `default:` value or an `assigns:` target.
 
 ### `collection` block
 

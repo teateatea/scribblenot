@@ -181,6 +181,15 @@ pub fn export_editable_document(document: &str) -> String {
     compact_blank_lines(&out).trim().to_string()
 }
 
+pub fn export_section_text(body: &str) -> String {
+    let lines: Vec<String> = body
+        .lines()
+        .filter(|line| should_export_line(line))
+        .map(str::to_string)
+        .collect();
+    compact_blank_lines(&lines).trim().to_string()
+}
+
 fn is_marker_start_line(line: &str) -> bool {
     let trimmed = line.trim();
     trimmed.starts_with("<!-- scribblenot:section id=") && trimmed.ends_with(":start -->")
@@ -337,5 +346,12 @@ mod tests {
         let err = validate_section_anchors(&document, &template_with_sections(vec![section]))
             .expect_err("heading after marker should fail validation");
         assert!(err.contains("appears after its start marker"));
+    }
+
+    #[test]
+    fn export_section_text_filters_placeholder_lines() {
+        let exported = export_section_text("Kept line\n--\nArea: --\n\nSecond kept line\n");
+
+        assert_eq!(exported, "Kept line\n\nSecond kept line");
     }
 }

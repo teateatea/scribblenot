@@ -462,6 +462,39 @@ pub(crate) fn unsupported_authored_key_report(
     )
 }
 
+pub(crate) fn add_item_output_affix_hint(
+    report: ErrorReport,
+    value: &serde_yaml::Value,
+    owner_path: Option<&str>,
+    key_name: &str,
+) -> ErrorReport {
+    if key_name != "output_prefix" && key_name != "output_suffix" {
+        return report;
+    }
+
+    let Some(item) = mapping_at_authored_path(value, owner_path) else {
+        return report;
+    };
+    let prefix = item
+        .get(serde_yaml::Value::String("output_prefix".to_string()))
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or_default();
+    let output = item
+        .get(serde_yaml::Value::String("output".to_string()))
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or_default();
+    let suffix = item
+        .get(serde_yaml::Value::String("output_suffix".to_string()))
+        .and_then(serde_yaml::Value::as_str)
+        .unwrap_or_default();
+
+    let suggested_output = format!("{prefix}{output}{suffix}");
+    report.with_param(
+        "item_affix_suggested_output_line",
+        format!("output: {}", yaml_double_quoted(&suggested_output)),
+    )
+}
+
 pub(crate) fn missing_required_authored_key_report(
     context: ResolvedAuthoredOwnerContext,
     key_name: &str,
@@ -506,6 +539,12 @@ pub(crate) fn invalid_authored_value_type_report(
             .as_deref()
             .and_then(parse_inline_map_token_from_source_line)
     });
+    let item_field_map_details = source.as_ref().and_then(|source| {
+        source
+            .quoted_line
+            .as_deref()
+            .and_then(parse_single_key_yaml_list_map)
+    });
     let mut report = ErrorReport::generic(
         "invalid_authored_value_type",
         format!(
@@ -534,6 +573,21 @@ pub(crate) fn invalid_authored_value_type_report(
             .with_param("inline_map_list_exists", list_exists.to_string());
     }
 
+    if context.owner_kind == "item"
+        && key_name.starts_with("fields[")
+        && actual_type == "map"
+        && expected_type == "a string"
+    {
+        if let Some((map_key, map_value)) = item_field_map_details {
+            let suggested_field_id = format!("{map_value}_field");
+            report = report
+                .with_param("item_field_map_key", map_key)
+                .with_param("item_field_output_placeholder", format!("{{{map_value}}}"))
+                .with_param("item_field_map_value", map_value)
+                .with_param("item_field_suggested_field_id", suggested_field_id);
+        }
+    }
+
     report
 }
 
@@ -554,6 +608,18 @@ fn parse_inline_map_token_from_source_line(source_line: &str) -> Option<(String,
     Some((value.to_string(), identifier))
 }
 
+fn parse_single_key_yaml_list_map(source_line: &str) -> Option<(String, String)> {
+    let line = source_line.trim();
+    let map = line.strip_prefix("- ")?;
+    let (key, value) = map.split_once(':')?;
+    let key = key.trim();
+    let value = value.trim();
+    if key.is_empty() || value.is_empty() || value.contains(':') {
+        return None;
+    }
+    Some((key.to_string(), value.to_string()))
+}
+
 fn raw_value_contains_list_id(value: &serde_yaml::Value, list_id: &str) -> bool {
     value
         .get("lists")
@@ -567,6 +633,32 @@ fn raw_value_contains_list_id(value: &serde_yaml::Value, list_id: &str) -> bool 
             })
         })
         .unwrap_or(false)
+}
+
+fn mapping_at_authored_path<'a>(
+    value: &'a serde_yaml::Value,
+    path: Option<&str>,
+) -> Option<&'a serde_yaml::Mapping> {
+    let mut current = value;
+    for segment in path?.split('.') {
+        if let Some((key, idx)) = parse_indexed_path_segment(segment) {
+            current = current
+                .as_mapping()?
+                .get(serde_yaml::Value::String(key.to_string()))?
+                .as_sequence()?
+                .get(idx)?;
+        } else {
+            current = current
+                .as_mapping()?
+                .get(serde_yaml::Value::String(segment.to_string()))?;
+        }
+    }
+    current.as_mapping()
+}
+
+fn yaml_double_quoted(value: &str) -> String {
+    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
 }
 
 pub(crate) fn unclosed_yaml_structure_report(
@@ -692,6 +784,8 @@ fn allowed_keys_for_owner_kind(owner_kind: &str) -> &'static [&'static str] {
             "id",
             "label",
             "preview",
+            "output_prefix",
+            "output_suffix",
             "sticky",
             "default",
             "modal_start",
@@ -970,7 +1064,23 @@ pub(crate) fn validate_merged_hierarchy(
                                     kind_label(*other)
                                 ),
                                 index.source_for(&list.id),
-                            ));
+                            )
+                            .with_param("owner_kind", "item")
+                            .with_param(
+                                "owner_label",
+                                format!("item '{}' in list '{}'", item.id, list.id),
+                            )
+                            .with_param("source_list_id", list.id.clone())
+                            .with_param("source_item_id", item.id.clone())
+                            .with_param("referenced_id", field_id.clone())
+                            .with_param("actual_kind", kind_label(*other))
+                            .with_param("expected_kind", "field")
+                            .with_param("suggested_field_id", format!("{field_id}_field"))
+                            .with_param(
+                                "suggested_field_placeholder",
+                                format!("{{{field_id}_field}}"),
+                            )
+                            .with_param("referenced_placeholder", format!("{{{field_id}}}")));
                         }
                         None => {
                             return Err(report(

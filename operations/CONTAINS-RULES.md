@@ -233,6 +233,9 @@ lists:
 - `sticky` - remember chosen value across notes
 - `default` - item selected by default
 - `max_entries` - max number of repeat selections (same property as on fields)
+- `output_prefix` / `output_suffix` - optional text added around this list's final
+  rendered output only when that output is non-empty. These are useful for conditional
+  spaces, commas, or parentheses in field `format:` strings.
 
 **Gaps / open questions:**
 - `repeat_limit` is no longer part of the active authored schema. Live YAML now uses

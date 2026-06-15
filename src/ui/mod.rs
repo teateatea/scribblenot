@@ -35,6 +35,10 @@ pub fn help_topic_scroll_id() -> scrollable::Id {
     scrollable::Id::new("help-topic")
 }
 
+pub fn help_search_scroll_id() -> scrollable::Id {
+    scrollable::Id::new("help-search")
+}
+
 #[derive(Debug, Clone, Copy)]
 enum HintTarget {
     Section,
@@ -3227,11 +3231,11 @@ fn modal_top_offset(app: &App) -> f32 {
 
 /// Public entry point called from main.rs view().
 pub fn view(app: &App) -> Element<'_, Message> {
-    if app.error_modal.is_some() {
-        return error_modal_view(app);
-    }
     if app.show_help {
         return help_modal_view(app);
+    }
+    if app.error_modal.is_some() {
+        return error_modal_view(app);
     }
     if should_render_modal_overlay(app) {
         modal_overlay(app, app.modal.as_ref())
@@ -3276,7 +3280,11 @@ fn help_search_view(app: &App) -> Element<'_, Message> {
     let back_key = first_key_label(&app.data.keybindings.back, "Esc");
     let filtered = app.filtered_help_topic_indices();
     let topics = crate::help::topics();
-    let selected = app.help_state.selected_filtered_index;
+    let selected = app
+        .help_state
+        .selected_filtered_index
+        .min(filtered.len().saturating_sub(1));
+    let preview_limit = help_search_preview_char_limit(app);
 
     let search = help_search_box(app)
         .width(Length::Fill)
@@ -3294,11 +3302,7 @@ fn help_search_view(app: &App) -> Element<'_, Message> {
         } else {
             app.ui_theme.text
         };
-        let alias_text = if topic.aliases.is_empty() {
-            String::new()
-        } else {
-            format!("  {}", topic.aliases.join(", "))
-        };
+        let preview_text = crate::help::topic_preview_sentence_with_limit(topic, preview_limit);
         let row_background = if is_selected {
             app.ui_theme.modal_input_background
         } else {
@@ -3315,7 +3319,7 @@ fn help_search_view(app: &App) -> Element<'_, Message> {
                         .font(app.ui_theme.font_modal)
                         .size(17)
                         .color(title_color),
-                    text(alias_text)
+                    text(preview_text)
                         .font(app.ui_theme.font_status)
                         .size(13)
                         .color(app.ui_theme.muted),
@@ -3349,7 +3353,9 @@ fn help_search_view(app: &App) -> Element<'_, Message> {
                 .color(app.ui_theme.selected),
             search,
             muted_rule(app),
-            scrollable(column(rows).spacing(4)).height(Length::Fill),
+            themed_scrollable(app, column(rows).spacing(4))
+                .id(help_search_scroll_id())
+                .height(Length::Fill),
             muted_rule(app),
             text(footer)
                 .font(app.ui_theme.font_status)
@@ -3358,6 +3364,16 @@ fn help_search_view(app: &App) -> Element<'_, Message> {
         .spacing(14)
         .into(),
     )
+}
+
+fn help_search_preview_char_limit(app: &App) -> usize {
+    let width = app.viewport_size.map(|size| size.width).unwrap_or(900.0);
+    let panel_padding = 84.0;
+    let marker_width = 28.0;
+    let average_char_width = 7.2;
+    ((width - panel_padding - marker_width) / average_char_width)
+        .floor()
+        .clamp(48.0, 180.0) as usize
 }
 
 fn help_search_box(app: &App) -> iced::widget::Container<'_, Message> {
@@ -3426,7 +3442,8 @@ fn help_topic_view(app: &App) -> Element<'_, Message> {
         );
     };
     let back_key = first_key_label(&app.data.keybindings.back, "Esc");
-    let copy_key = first_key_label(&app.data.keybindings.copy_note, "c");
+    let copy_topic_key = first_key_label(&app.data.keybindings.copy_note, "shift+c");
+    let copy_code_key = first_key_label(&app.data.keybindings.copy_section, "c");
     let code_blocks = app.selected_help_topic_code_blocks();
     let hints = app.help_code_block_hint_labels();
     let alias_line = if topic.aliases.is_empty() {
@@ -3435,10 +3452,10 @@ fn help_topic_view(app: &App) -> Element<'_, Message> {
         format!("Aliases: {}", topic.aliases.join(", "))
     };
     let footer = if code_blocks.is_empty() {
-        format!("{back_key} returns to search. {copy_key} copies this topic.")
+        format!("{back_key} returns to search. {copy_topic_key} copies this topic.")
     } else {
         format!(
-            "{back_key} returns to search. Left/Right or code hint selects a block. {copy_key} copies selected code."
+            "{back_key} returns to search. Left/Right or code hint selects a block. {copy_code_key} copies selected code. {copy_topic_key} copies this topic."
         )
     };
 
@@ -3505,32 +3522,103 @@ fn help_topic_body_elements<'a>(
 
         if trimmed.is_empty() {
             push_help_paragraph(app, &mut items, &mut paragraph);
+        } else if trimmed == "---" {
+            push_help_paragraph(app, &mut items, &mut paragraph);
+            items.push(muted_rule(app));
         } else if let Some(heading) = trimmed.strip_prefix("## ") {
             push_help_paragraph(app, &mut items, &mut paragraph);
-            push_help_heading(app, &mut items, heading, 20);
+            push_help_heading(app, &mut items, topic.id, heading, 20);
         } else if let Some(heading) = trimmed.strip_prefix("### ") {
             push_help_paragraph(app, &mut items, &mut paragraph);
-            push_help_heading(app, &mut items, heading, 17);
+            push_help_heading(app, &mut items, topic.id, heading, 17);
         } else {
             paragraph.push(line.to_string());
         }
     }
     push_help_paragraph(app, &mut items, &mut paragraph);
+    push_help_topic_see_also(app, &mut items, topic);
 
     items
+}
+
+fn push_help_topic_see_also<'a>(
+    app: &'a App,
+    items: &mut Vec<Element<'a, Message>>,
+    topic: &'a crate::help::HelpTopic,
+) {
+    let related_topics = crate::help::topic_see_also_topics(topic);
+    if related_topics.is_empty() {
+        return;
+    }
+    let hint_labels = app.selected_help_topic_see_also_hint_labels();
+
+    items.push(muted_rule(app));
+    push_help_heading(app, items, topic.id, "See Also", 20);
+
+    let rows = related_topics
+        .into_iter()
+        .enumerate()
+        .map(|(idx, related)| {
+            let hint = hint_labels
+                .get(idx)
+                .cloned()
+                .unwrap_or_else(|| "?".to_string());
+            let hint = display_hint_label(app, &hint);
+            row![
+                container(
+                    text(hint)
+                        .font(app.ui_theme.font_modal)
+                        .size(15)
+                        .color(app.ui_theme.hint)
+                )
+                .padding([2.0, 8.0])
+                .style(move |_| {
+                    background_style(app.ui_theme.modal_input_background, app.ui_theme.hint).border(
+                        Border {
+                            color: app.ui_theme.hint,
+                            width: 1.0,
+                            radius: 3.0.into(),
+                        },
+                    )
+                }),
+                text(related.title)
+                    .font(app.ui_theme.font_modal)
+                    .size(16)
+                    .color(app.ui_theme.active),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center)
+            .into()
+        })
+        .collect::<Vec<Element<'a, Message>>>();
+    items.push(column(rows).spacing(6).into());
 }
 
 fn push_help_heading<'a>(
     app: &'a App,
     items: &mut Vec<Element<'a, Message>>,
+    topic_id: &str,
     heading: &str,
     size: u16,
 ) {
+    let color = if topic_id == "yaml-list-item-class"
+        && matches!(
+            heading,
+            "id (optional)" | "label (optional)" | "output (optional)"
+        ) {
+        Color::from_rgb8(0xCE, 0x93, 0xD8)
+    } else if heading.contains("(required)") {
+        app.ui_theme.error
+    } else if heading.contains("(optional)") {
+        Color::from_rgb(0.35, 0.62, 1.0)
+    } else {
+        app.ui_theme.selected
+    };
     items.push(
         text(heading.to_string())
             .font(app.ui_theme.font_heading)
             .size(size)
-            .color(app.ui_theme.selected)
+            .color(color)
             .width(Length::Fill)
             .into(),
     );
@@ -3731,7 +3819,10 @@ fn help_colored_yaml_spans(
         context.kind_stack.pop();
     }
 
-    let parent_kind = context.kind_stack.last().map(|context| context.kind.as_str());
+    let parent_kind = context
+        .kind_stack
+        .last()
+        .map(|context| context.kind.as_str());
     if let Some(kind) = help_yaml_kind_line(line) {
         if !(parent_kind == Some("items") && kind == "fields") {
             context.kind_stack.push(HelpYamlKindContext {
@@ -3844,9 +3935,7 @@ fn help_colored_id_line_spans(
     let value = &rest[value_offset..];
     let value_len = value
         .char_indices()
-        .find_map(|(idx, ch)| {
-            matches!(ch, ' ' | '\t' | ',' | ']' | '}').then_some(idx)
-        })
+        .find_map(|(idx, ch)| matches!(ch, ' ' | '\t' | ',' | ']' | '}').then_some(idx))
         .unwrap_or(value.len());
     let id_value = &value[..value_len];
     spans.push(
@@ -3855,7 +3944,10 @@ fn help_colored_id_line_spans(
             .color(help_standardized_colour(app, id_value).unwrap_or(app.ui_theme.text)),
     );
     if value_len < value.len() {
-        spans.extend(help_colored_identifier_value_spans(app, &value[value_len..]));
+        spans.extend(help_colored_identifier_value_spans(
+            app,
+            &value[value_len..],
+        ));
     }
 
     spans
@@ -3889,7 +3981,10 @@ fn help_colored_property_line_spans(
 
     let rest_start = marker_start + marker.len();
     if rest_start < line.len() {
-        spans.extend(help_colored_identifier_value_spans(app, &line[rest_start..]));
+        spans.extend(help_colored_identifier_value_spans(
+            app,
+            &line[rest_start..],
+        ));
     }
 
     spans
@@ -3976,7 +4071,11 @@ fn help_yaml_property_marker(line: &str) -> Option<(usize, usize)> {
         return None;
     }
 
-    let marker_start = if rest.starts_with("- ") { start } else { key_start };
+    let marker_start = if rest.starts_with("- ") {
+        start
+    } else {
+        key_start
+    };
     let marker_len = key_start + colon + 1 - marker_start;
     Some((marker_start, marker_len))
 }
@@ -4013,10 +4112,7 @@ fn help_example_output_spans(
 
     while cursor < line.len() {
         let rest = &line[cursor..];
-        if let Some((phrase, key)) = phrases
-            .iter()
-            .find(|(phrase, _)| rest.starts_with(*phrase))
-        {
+        if let Some((phrase, key)) = phrases.iter().find(|(phrase, _)| rest.starts_with(*phrase)) {
             spans.push(
                 span((*phrase).to_string())
                     .font(app.ui_theme.font_modal)
@@ -4095,9 +4191,10 @@ fn error_modal_view(app: &App) -> Element<'_, Message> {
         .expect("error modal view requires a report");
     let rendered = app.messages.render(report);
     let reload_key = first_key_label(&app.data.keybindings.data_reload, "\\");
-    let copy_key = first_key_label(&app.data.keybindings.copy_note, "c");
+    let copy_key = first_key_label(&app.data.keybindings.copy_note, "shift+c");
+    let help_key = first_key_label(&app.data.keybindings.help, "?");
     let footer = format!(
-        "Press Esc, Backspace, or {reload_key} to reload. Press {copy_key} to copy error text."
+        "Press Esc, Backspace, or {reload_key} to reload. Press {help_key} for Help Topics. Press {copy_key} to copy error text."
     );
     let source_block = error_modal_source_block(app, &rendered);
     let footer_block = column![
@@ -4129,6 +4226,7 @@ fn error_modal_view(app: &App) -> Element<'_, Message> {
         .width(Length::Fill);
 
     let fix_block = error_modal_fix_block(app, &rendered);
+    let reference_topics_block = error_modal_reference_topics_block(app);
 
     let content = column![
         text(rendered.title.clone())
@@ -4138,6 +4236,7 @@ fn error_modal_view(app: &App) -> Element<'_, Message> {
         description,
         source_block,
         fix_block,
+        reference_topics_block,
         footer_block,
     ]
     .spacing(18)
@@ -4163,6 +4262,70 @@ fn error_modal_view(app: &App) -> Element<'_, Message> {
         .padding(18)
         .style(move |_| background_style(app.ui_theme.background, app.ui_theme.text))
         .into()
+}
+
+fn error_modal_reference_topics_block<'a>(app: &'a App) -> Element<'a, Message> {
+    let topics = app.error_modal_reference_topics();
+    if topics.is_empty() {
+        return column![
+            muted_rule(app),
+            text("See Also")
+                .font(app.ui_theme.font_heading)
+                .size(18)
+                .color(app.ui_theme.muted),
+            text(crate::app::ERROR_MODAL_NO_REFERENCE_TOPICS_TEXT)
+                .font(app.ui_theme.font_modal)
+                .size(16)
+                .color(app.ui_theme.muted),
+        ]
+        .spacing(8)
+        .into();
+    }
+
+    let hints = app.error_modal_reference_topic_hint_labels();
+    let mut rows: Vec<Element<'a, Message>> = Vec::new();
+    for (idx, topic) in topics.iter().enumerate() {
+        let hint = hints.get(idx).cloned().unwrap_or_else(|| "?".to_string());
+        let hint = display_hint_label(app, &hint);
+        rows.push(
+            row![
+                container(
+                    text(hint)
+                        .font(app.ui_theme.font_modal)
+                        .size(15)
+                        .color(app.ui_theme.hint)
+                )
+                .padding([2.0, 8.0])
+                .style(move |_| {
+                    background_style(app.ui_theme.modal_input_background, app.ui_theme.hint).border(
+                        Border {
+                            color: app.ui_theme.hint,
+                            width: 1.0,
+                            radius: 3.0.into(),
+                        },
+                    )
+                }),
+                text(topic.title)
+                    .font(app.ui_theme.font_modal)
+                    .size(16)
+                    .color(app.ui_theme.active),
+            ]
+            .spacing(10)
+            .align_y(iced::Alignment::Center)
+            .into(),
+        );
+    }
+
+    column![
+        muted_rule(app),
+        text("See Also")
+            .font(app.ui_theme.font_heading)
+            .size(18)
+            .color(app.ui_theme.selected),
+        column(rows).spacing(6),
+    ]
+    .spacing(8)
+    .into()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -5086,6 +5249,8 @@ mod tests {
                 id: format!("{id}_list"),
                 label: Some(label.to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::List,
@@ -5123,6 +5288,8 @@ mod tests {
                 id: "demo".to_string(),
                 label: Some("Demo".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::List,
@@ -5197,6 +5364,8 @@ mod tests {
                     id: "neck_list".to_string(),
                     label: Some("Neck".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -5239,6 +5408,8 @@ mod tests {
                 id: "child_list".to_string(),
                 label: Some("Child".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::List,
@@ -5265,6 +5436,8 @@ mod tests {
                 id: "muscle".to_string(),
                 label: Some("Muscle".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::Search,
@@ -5381,6 +5554,8 @@ mod tests {
                 id: "region".to_string(),
                 label: Some("Region".to_string()),
                 preview: Some("Region".to_string()),
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::List,

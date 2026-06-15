@@ -11,6 +11,18 @@ use crate::sections::header::{
 };
 use std::collections::HashMap;
 
+pub fn apply_list_output_affixes(list: &HierarchyList, value: String) -> String {
+    if value.is_empty() {
+        return value;
+    }
+    format!(
+        "{}{}{}",
+        list.output_prefix.as_deref().unwrap_or_default(),
+        value,
+        list.output_suffix.as_deref().unwrap_or_default()
+    )
+}
+
 #[derive(Debug, Clone)]
 pub struct FieldModal {
     pub format: Option<String>,
@@ -26,6 +38,11 @@ pub struct FieldModal {
 #[derive(Debug, Clone)]
 pub struct BranchFrame {
     pub parent_flow: FieldModal,
+    pub parent_session_cursor_values: Vec<Option<String>>,
+    pub parent_session_cursor_item_ids: Vec<Option<String>>,
+    pub parent_session_confirmed_values: Vec<Option<String>>,
+    pub parent_session_confirmed_item_ids: Vec<Option<String>>,
+    pub assigned_values: HashMap<String, String>,
     pub output_format: String,
     pub branch_fields: Vec<HeaderFieldConfig>,
     pub field_idx: usize,
@@ -138,6 +155,7 @@ impl<'a> ListValueLookup<'a> {
 
     pub fn fallback_value(self, list: &HierarchyList) -> Option<String> {
         self.raw_fallback_value(list)
+            .map(|value| apply_list_output_affixes(list, value))
     }
 
     pub fn list_initial_cursor(self, list: &HierarchyList, outputs: &[String]) -> usize {
@@ -560,6 +578,7 @@ impl SearchModal {
         }
         for frame in &self.branch_stack {
             collect_assignments_from_flow(&frame.parent_flow, sticky_values, &mut assigned);
+            assigned.extend(frame.assigned_values.clone());
         }
         collect_assignments_from_flow(&self.field_flow, sticky_values, &mut assigned);
         assigned
@@ -1539,6 +1558,10 @@ impl SearchModal {
             return false;
         };
         self.field_flow = frame.parent_flow;
+        self.session_cursor_values = frame.parent_session_cursor_values;
+        self.session_cursor_item_ids = frame.parent_session_cursor_item_ids;
+        self.session_confirmed_values = frame.parent_session_confirmed_values;
+        self.session_confirmed_item_ids = frame.parent_session_confirmed_item_ids;
         self.reload_current_list(assigned_values, sticky_values, window_size);
         true
     }
@@ -1755,9 +1778,11 @@ impl SearchModal {
         }
         let list = &self.field_flow.lists[self.field_flow.list_idx];
         if let Some((output_format, branch_fields)) = branch_for_value(list, &value) {
+            let branch_item_id = selected_item_id_for_value(list, &value, self.selected_item_id());
             return self.start_branch(
                 output_format,
                 branch_fields,
+                branch_item_id,
                 assigned_values,
                 sticky_values,
                 window_size,
@@ -1807,6 +1832,7 @@ impl SearchModal {
                 &self.field_flow.format_lists,
                 lookup,
             );
+            self.all_outputs = list.items.iter().map(item_output).collect();
             self.query = String::new();
             self.focus = modal_start_focus(list);
             self.update_filter();
@@ -1862,9 +1888,17 @@ impl SearchModal {
             if let Some((output_format, branch_fields)) =
                 branch_for_value(&self.field_flow.lists[self.field_flow.list_idx], &value)
             {
+                let list = &self.field_flow.lists[self.field_flow.list_idx];
+                let candidate_item_id = self
+                    .selected_item_id()
+                    .map(str::to_string)
+                    .or_else(|| current_list_fallback_item_id(self, lookup));
+                let branch_item_id =
+                    selected_item_id_for_value(list, &value, candidate_item_id.as_deref());
                 return self.start_branch(
                     output_format,
                     branch_fields,
+                    branch_item_id,
                     assigned_values,
                     sticky_values,
                     window_size,
@@ -2102,6 +2136,7 @@ impl SearchModal {
         &mut self,
         output_format: String,
         branch_fields: Vec<HeaderFieldConfig>,
+        branch_item_id: Option<String>,
         assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
         window_size: usize,
@@ -2109,16 +2144,44 @@ impl SearchModal {
         let Some(first_field) = branch_fields.first().cloned() else {
             return FieldAdvance::NextList;
         };
+        let branch_assigned_values =
+            self.branch_assigned_values(branch_item_id.as_deref(), assigned_values, sticky_values);
         let parent_flow = self.field_flow.clone();
         self.branch_stack.push(BranchFrame {
             parent_flow,
+            parent_session_cursor_values: self.session_cursor_values.clone(),
+            parent_session_cursor_item_ids: self.session_cursor_item_ids.clone(),
+            parent_session_confirmed_values: self.session_confirmed_values.clone(),
+            parent_session_confirmed_item_ids: self.session_confirmed_item_ids.clone(),
+            assigned_values: branch_assigned_values.clone(),
             output_format,
             branch_fields,
             field_idx: 0,
             values: Vec::new(),
         });
-        self.load_field_flow(first_field, assigned_values, sticky_values, window_size);
+        self.load_field_flow(
+            first_field,
+            &branch_assigned_values,
+            sticky_values,
+            window_size,
+        );
         FieldAdvance::NextList
+    }
+
+    fn branch_assigned_values(
+        &self,
+        branch_item_id: Option<&str>,
+        assigned_values: &HashMap<String, String>,
+        sticky_values: &HashMap<String, String>,
+    ) -> HashMap<String, String> {
+        let mut merged = assigned_values.clone();
+        if let Some(item_id) = branch_item_id {
+            if let Some(list) = self.field_flow.lists.get(self.field_flow.list_idx) {
+                apply_item_assignments(list, item_id, &mut merged);
+                resolve_assigned_values(&self.field_flow, sticky_values, &mut merged);
+            }
+        }
+        merged
     }
 
     fn load_field_flow(
@@ -2136,6 +2199,7 @@ impl SearchModal {
             let _ = self.start_branch(
                 output_format,
                 branch_fields,
+                None,
                 assigned_values,
                 sticky_values,
                 window_size,
@@ -2264,13 +2328,23 @@ impl SearchModal {
         if frame.field_idx + 1 < frame.branch_fields.len() {
             frame.field_idx += 1;
             let next_field = frame.branch_fields[frame.field_idx].clone();
-            self.load_field_flow(next_field, assigned_values, sticky_values, window_size);
+            let branch_assigned_values = frame.assigned_values.clone();
+            self.load_field_flow(
+                next_field,
+                &branch_assigned_values,
+                sticky_values,
+                window_size,
+            );
             return FieldAdvance::NextList;
         }
 
         let frame = self.branch_stack.pop().unwrap();
         let branch_value = format_branch_output(&frame.output_format, &frame.values);
         self.field_flow = frame.parent_flow;
+        self.session_cursor_values = frame.parent_session_cursor_values;
+        self.session_cursor_item_ids = frame.parent_session_cursor_item_ids;
+        self.session_confirmed_values = frame.parent_session_confirmed_values;
+        self.session_confirmed_item_ids = frame.parent_session_confirmed_item_ids;
         self.advance_field(branch_value, assigned_values, sticky_values, window_size)
     }
 
@@ -2526,6 +2600,26 @@ fn item_id_for_output(list: &HierarchyList, value: &str) -> Option<String> {
         .map(|item| item.id.clone())
 }
 
+fn selected_item_id_for_value(
+    list: &HierarchyList,
+    value: &str,
+    candidate: Option<&str>,
+) -> Option<String> {
+    candidate
+        .filter(|candidate| {
+            list.items.iter().any(|item| {
+                item.id == *candidate && (item.output() == value || item.ui_label() == value)
+            })
+        })
+        .map(str::to_string)
+        .or_else(|| {
+            list.items
+                .iter()
+                .find(|item| item.output() == value || item.ui_label() == value)
+                .map(|item| item.id.clone())
+        })
+}
+
 fn modal_start_focus(list: &HierarchyList) -> ModalFocus {
     match list.modal_start {
         ModalStart::Search => ModalFocus::SearchBar,
@@ -2572,7 +2666,10 @@ pub fn format_field_value(flow: &FieldModal, lookup: ListValueLookup<'_>) -> Str
         let mut result = format.clone();
         for (idx, value) in flow.values.iter().enumerate() {
             if let Some(list) = flow.lists.get(idx) {
-                result = result.replace(&format!("{{{}}}", list.id), value);
+                result = result.replace(
+                    &format!("{{{}}}", list.id),
+                    &apply_list_output_affixes(list, value.clone()),
+                );
             }
         }
         for list in &flow.format_lists {
@@ -2586,10 +2683,18 @@ pub fn format_field_value(flow: &FieldModal, lookup: ListValueLookup<'_>) -> Str
         result
     } else {
         if !flow.values.is_empty() {
-            flow.values.first().cloned().unwrap_or_default()
+            flow.lists
+                .first()
+                .map(|list| {
+                    apply_list_output_affixes(
+                        list,
+                        flow.values.first().cloned().unwrap_or_default(),
+                    )
+                })
+                .unwrap_or_else(|| flow.values.first().cloned().unwrap_or_default())
         } else if let Some(list) = flow.lists.get(flow.list_idx) {
             joined_repeating_value(list, &flow.repeat_values)
-                .unwrap_or_else(|| flow.repeat_values.join(", "))
+                .unwrap_or_else(|| apply_list_output_affixes(list, flow.repeat_values.join(", ")))
         } else {
             String::new()
         }
@@ -2609,7 +2714,7 @@ fn current_list_fallback_item_id(
     lookup: ListValueLookup<'_>,
 ) -> Option<String> {
     let list = modal.field_flow.lists.get(modal.field_flow.list_idx)?;
-    let value = lookup.fallback_value(list)?;
+    let value = lookup.raw_fallback_value(list)?;
     item_id_for_output(list, &value)
 }
 
@@ -2664,11 +2769,15 @@ fn display_template_value(
 ) -> Option<String> {
     if let Some(idx) = flow.lists.iter().position(|list| list.id == id) {
         if let Some(value) = flow.values.get(idx) {
-            return Some(value.clone());
+            return Some(apply_list_output_affixes(&flow.lists[idx], value.clone()));
         }
         if idx == flow.list_idx && !flow.repeat_values.is_empty() {
-            return joined_repeating_value(&flow.lists[idx], &flow.repeat_values)
-                .or_else(|| Some(flow.repeat_values.join(", ")));
+            return joined_repeating_value(&flow.lists[idx], &flow.repeat_values).or_else(|| {
+                Some(apply_list_output_affixes(
+                    &flow.lists[idx],
+                    flow.repeat_values.join(", "),
+                ))
+            });
         }
         return resolved_lookup_value(&flow.lists[idx], flow, lookup, resolving_lists);
     }
@@ -2687,15 +2796,15 @@ fn resolved_lookup_value(
 ) -> Option<String> {
     let raw_value = lookup.raw_fallback_value(list)?;
     if !raw_value.contains('{') {
-        return Some(raw_value);
+        return Some(apply_list_output_affixes(list, raw_value));
     }
     if resolving_lists.iter().any(|list_id| list_id == &list.id) {
-        return Some(raw_value);
+        return Some(apply_list_output_affixes(list, raw_value));
     }
     resolving_lists.push(list.id.clone());
     let resolved = resolve_display_template_inner(&raw_value, flow, lookup, resolving_lists);
     resolving_lists.pop();
-    Some(resolved)
+    Some(apply_list_output_affixes(list, resolved))
 }
 
 fn list_initial_cursor(
@@ -2954,7 +3063,8 @@ fn collection_group_values(
 }
 
 pub fn joined_repeating_value(list: &HierarchyList, values: &[String]) -> Option<String> {
-    effective_joiner_style(list).map(|style| join_repeat_values(values, style))
+    effective_joiner_style(list)
+        .map(|style| apply_list_output_affixes(list, join_repeat_values(values, style)))
 }
 
 fn join_repeat_values(values: &[String], style: &JoinerStyle) -> String {
@@ -3023,6 +3133,8 @@ fn synthetic_list_for_field(field: &HeaderFieldConfig) -> HierarchyList {
         id: field.id.clone(),
         label: Some(field.name.clone()),
         preview: Some(field.name.clone()),
+        output_prefix: None,
+        output_suffix: None,
         sticky: false,
         default: None,
         modal_start: ModalStart::Search,
@@ -3117,6 +3229,8 @@ mod modal_filter_tests {
                 id: "list".to_string(),
                 label: None,
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start,
@@ -3152,6 +3266,8 @@ mod modal_filter_tests {
                     id: "muscle".to_string(),
                     label: Some("Muscle".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::Search,
@@ -3171,6 +3287,8 @@ mod modal_filter_tests {
                     id: "place".to_string(),
                     label: Some("Place".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::Search,
@@ -3222,6 +3340,8 @@ mod modal_filter_tests {
                     id: "side".to_string(),
                     label: Some("Side".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -3252,6 +3372,8 @@ mod modal_filter_tests {
                     id: "region".to_string(),
                     label: Some("Region".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::Search,
@@ -3282,6 +3404,8 @@ mod modal_filter_tests {
                     id: "pressure".to_string(),
                     label: Some("Pressure".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -3397,6 +3521,8 @@ mod modal_filter_tests {
                     id: "side".to_string(),
                     label: Some("Side".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -3427,6 +3553,8 @@ mod modal_filter_tests {
                     id: "region".to_string(),
                     label: Some("Region".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::Search,
@@ -3457,6 +3585,8 @@ mod modal_filter_tests {
                     id: "pressure".to_string(),
                     label: Some("Pressure".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -3476,6 +3606,8 @@ mod modal_filter_tests {
                     id: "pace".to_string(),
                     label: Some("Pace".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -3595,6 +3727,8 @@ mod modal_filter_tests {
                 id: "branch_root".to_string(),
                 label: Some("Branch Root".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::List,
@@ -3636,6 +3770,8 @@ mod modal_filter_tests {
                         id: "neck_list".to_string(),
                         label: Some("Neck".to_string()),
                         preview: None,
+                        output_prefix: None,
+                        output_suffix: None,
                         sticky: false,
                         default: None,
                         modal_start: ModalStart::List,
@@ -3662,6 +3798,8 @@ mod modal_filter_tests {
                         id: "back_list".to_string(),
                         label: Some("Back".to_string()),
                         preview: None,
+                        output_prefix: None,
+                        output_suffix: None,
                         sticky: false,
                         default: None,
                         modal_start: ModalStart::List,
@@ -3688,6 +3826,8 @@ mod modal_filter_tests {
                         id: "glutes_list".to_string(),
                         label: Some("Glutes".to_string()),
                         preview: None,
+                        output_prefix: None,
+                        output_suffix: None,
                         sticky: false,
                         default: None,
                         modal_start: ModalStart::List,
@@ -3810,6 +3950,8 @@ mod modal_filter_tests {
                 id: "side".to_string(),
                 label: Some("Side".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::List,
@@ -3841,6 +3983,8 @@ mod modal_filter_tests {
                 id: "body_part".to_string(),
                 label: Some("Body Part".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::List,
@@ -3933,6 +4077,8 @@ mod modal_filter_tests {
             id: "appointment_type".to_string(),
             label: Some("Appointment Type".to_string()),
             preview: None,
+            output_prefix: None,
+            output_suffix: None,
             sticky: false,
             default: None,
             modal_start: ModalStart::Search,
@@ -3976,6 +4122,8 @@ mod modal_filter_tests {
                     id: "region".to_string(),
                     label: Some("Region".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::Search,
@@ -4036,6 +4184,8 @@ mod modal_filter_tests {
             id: "year".to_string(),
             label: Some("Year".to_string()),
             preview: Some("YYYY".to_string()),
+            output_prefix: None,
+            output_suffix: None,
             sticky: true,
             default: None,
             modal_start: ModalStart::Search,
@@ -4061,6 +4211,8 @@ mod modal_filter_tests {
                 id: "appointment_type".to_string(),
                 label: Some("Appointment Type".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::Search,
@@ -4133,6 +4285,8 @@ mod modal_filter_tests {
                 id: "appointment_type".to_string(),
                 label: Some("Appointment Type".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::Search,
@@ -4164,6 +4318,8 @@ mod modal_filter_tests {
                 id: "region".to_string(),
                 label: Some("Region".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::Search,
@@ -4195,6 +4351,8 @@ mod modal_filter_tests {
                 id: "place".to_string(),
                 label: Some("Place".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::Search,
@@ -4668,6 +4826,8 @@ mod assignment_tests {
                 id: "start_hour".to_string(),
                 label: Some("Start Hour".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::List,
@@ -4701,6 +4861,8 @@ mod assignment_tests {
                 id: "am_pm".to_string(),
                 label: Some("AM/PM".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::List,
@@ -4754,6 +4916,8 @@ mod assignment_tests {
                     id: "frequency".to_string(),
                     label: Some("Frequency".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -4781,6 +4945,8 @@ mod assignment_tests {
                     id: "confirm_duration".to_string(),
                     label: Some("Duration Label".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -4795,6 +4961,8 @@ mod assignment_tests {
                     id: "pluralizer".to_string(),
                     label: Some("Pluralizer".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -4806,6 +4974,8 @@ mod assignment_tests {
                     id: "duration_label".to_string(),
                     label: Some("Duration Label".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -4846,6 +5016,8 @@ mod assignment_tests {
                     id: "frequency".to_string(),
                     label: Some("Frequency".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -4873,6 +5045,8 @@ mod assignment_tests {
                     id: "confirm_duration".to_string(),
                     label: Some("Duration Label".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -4887,6 +5061,8 @@ mod assignment_tests {
                     id: "pluralizer".to_string(),
                     label: Some("Pluralizer".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -4898,6 +5074,8 @@ mod assignment_tests {
                     id: "duration_label".to_string(),
                     label: Some("Duration Label".to_string()),
                     preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
                     sticky: false,
                     default: None,
                     modal_start: ModalStart::List,
@@ -4923,6 +5101,147 @@ mod assignment_tests {
 
         assert!(matches!(advance, FieldAdvance::NextList));
         assert_eq!(modal.all_entries, vec!["week".to_string()]);
+    }
+
+    #[test]
+    fn branch_item_assignments_resolve_empty_templates_in_child_modal_list() {
+        let every_branch = HeaderFieldConfig {
+            id: "every_branch".to_string(),
+            name: "Every Branch".to_string(),
+            format: Some("every{starting_frequency}{duration_unit}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![
+                HierarchyList {
+                    id: "starting_frequency".to_string(),
+                    label: Some("Frequency".to_string()),
+                    preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![item(
+                        "freq_2",
+                        "2",
+                        " 2",
+                        vec![ItemAssignment {
+                            list_id: "pluralizer".to_string(),
+                            item_id: "plural".to_string(),
+                            output: "s".to_string(),
+                        }],
+                    )],
+                },
+                HierarchyList {
+                    id: "duration_unit".to_string(),
+                    label: Some("Unit".to_string()),
+                    preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![item(
+                        "day",
+                        "day{pluralizer}{starting_ago}",
+                        " day{pluralizer}{starting_ago}",
+                        Vec::new(),
+                    )],
+                },
+            ],
+            collections: Vec::new(),
+            format_lists: vec![
+                HierarchyList {
+                    id: "pluralizer".to_string(),
+                    label: Some("Pluralizer".to_string()),
+                    preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
+                    sticky: false,
+                    default: Some("singular".to_string()),
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        item("singular", "singular", "", Vec::new()),
+                        item("plural", "plural", "s", Vec::new()),
+                    ],
+                },
+                HierarchyList {
+                    id: "starting_ago".to_string(),
+                    label: Some("Ago".to_string()),
+                    preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
+                    sticky: false,
+                    default: Some("ago".to_string()),
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![
+                        item("empty_space", "empty", "", Vec::new()),
+                        item("ago", "ago", " ago", Vec::new()),
+                    ],
+                },
+            ],
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let mut every = item(
+            "every",
+            "every",
+            "{every_branch}",
+            vec![ItemAssignment {
+                list_id: "starting_ago".to_string(),
+                item_id: "empty_space".to_string(),
+                output: String::new(),
+            }],
+        );
+        every.branch_fields = vec![every_branch];
+        let field = HeaderFieldConfig {
+            id: "frequency_branch".to_string(),
+            name: "Frequency Branch".to_string(),
+            format: Some("{frequency2}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "frequency2".to_string(),
+                label: Some("Frequency".to_string()),
+                preview: None,
+                output_prefix: None,
+                output_suffix: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![every],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let mut sticky_values = HashMap::new();
+        let mut modal = SearchModal::new_field(0, field, None, &HashMap::new(), &sticky_values, 5);
+
+        let advance = modal.advance_field(
+            "{every_branch}".to_string(),
+            &HashMap::new(),
+            &mut sticky_values,
+            5,
+        );
+        assert!(matches!(advance, FieldAdvance::NextList));
+        let advance = modal.advance_field(" 2".to_string(), &HashMap::new(), &mut sticky_values, 5);
+
+        assert!(matches!(advance, FieldAdvance::NextList));
+        assert_eq!(modal.all_entries, vec!["days".to_string()]);
     }
 }
 
@@ -4966,6 +5285,8 @@ mod branch_field_tests {
             id: "child_list".to_string(),
             label: None,
             preview: None,
+            output_prefix: None,
+            output_suffix: None,
             sticky: false,
             default: None,
             modal_start: ModalStart::List,
@@ -4984,6 +5305,8 @@ mod branch_field_tests {
             id: "muscle".to_string(),
             label: None,
             preview: None,
+            output_prefix: None,
+            output_suffix: None,
             sticky: false,
             default: None,
             modal_start: ModalStart::Search,
@@ -5014,11 +5337,405 @@ mod branch_field_tests {
     }
 
     #[test]
+    fn repeating_branch_list_restores_parent_outputs_after_branch_completion() {
+        let frequency_list = HierarchyList {
+            id: "frequency".to_string(),
+            label: None,
+            preview: None,
+            output_prefix: None,
+            output_suffix: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::List,
+            joiner_style: None,
+            max_entries: None,
+            items: vec![
+                item("empty", "Empty", Some("")),
+                item("regularly", "regularly", Some(" regularly")),
+                item("every", "every", Some(" every")),
+            ],
+        };
+        let starting_list = HierarchyList {
+            id: "starting_since".to_string(),
+            label: None,
+            preview: None,
+            output_prefix: None,
+            output_suffix: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::List,
+            joiner_style: None,
+            max_entries: None,
+            items: vec![item("starting", "Starting", Some(", starting"))],
+        };
+        let frequency_field = single_list_field("frequency_branch", frequency_list);
+        let starting_field = single_list_field("starting_since_branch", starting_list);
+        let mut frequency_item = item("detail_freq", "Frequency", Some("{frequency_branch}"));
+        frequency_item.branch_fields = vec![frequency_field];
+        let mut starting_item = item(
+            "detail_starting_since",
+            "Starting Since",
+            Some("{starting_since_branch}"),
+        );
+        starting_item.branch_fields = vec![starting_field];
+        let parent_list = HierarchyList {
+            id: "exha_details_root".to_string(),
+            label: None,
+            preview: None,
+            output_prefix: None,
+            output_suffix: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::List,
+            joiner_style: Some(JoinerStyle::Comma),
+            max_entries: Some(4),
+            items: vec![
+                item("empty", "Empty", Some("")),
+                frequency_item,
+                starting_item,
+            ],
+        };
+        let parent_field = single_list_field("exercise_details", parent_list);
+        let mut sticky_values = HashMap::new();
+        let mut modal =
+            SearchModal::new_field(0, parent_field, None, &HashMap::new(), &sticky_values, 5);
+
+        modal.list_cursor = 1;
+        let advance = modal.advance_field(
+            "{frequency_branch}".to_string(),
+            &HashMap::new(),
+            &mut sticky_values,
+            5,
+        );
+        assert!(matches!(advance, FieldAdvance::NextList));
+
+        modal.list_cursor = 1;
+        let advance = modal.advance_field(
+            " regularly".to_string(),
+            &HashMap::new(),
+            &mut sticky_values,
+            5,
+        );
+        assert!(matches!(advance, FieldAdvance::StayOnList));
+
+        modal.list_cursor = 2;
+        assert_eq!(modal.selected_value(), Some("{starting_since_branch}"));
+        let advance = modal.advance_field(
+            modal.selected_value().unwrap().to_string(),
+            &HashMap::new(),
+            &mut sticky_values,
+            5,
+        );
+
+        assert!(matches!(advance, FieldAdvance::NextList));
+        assert_eq!(modal.field_id, "starting_since_branch");
+        assert_eq!(
+            modal.branch_stack.last().unwrap().parent_flow.repeat_values,
+            vec![" regularly".to_string()]
+        );
+    }
+
+    #[test]
+    fn super_confirm_on_repeating_middle_list_preserves_prior_values() {
+        let patient_list = HierarchyList {
+            id: "patientdescribes".to_string(),
+            label: None,
+            preview: None,
+            output_prefix: None,
+            output_suffix: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::List,
+            joiner_style: None,
+            max_entries: None,
+            items: vec![item("pt_describes", "describes", Some("Pt describes"))],
+        };
+        let activity_list = HierarchyList {
+            id: "int_exha_list".to_string(),
+            label: None,
+            preview: None,
+            output_prefix: None,
+            output_suffix: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::List,
+            joiner_style: Some(JoinerStyle::Semicolon),
+            max_entries: Some(12),
+            items: vec![item("training", "training", Some("training"))],
+        };
+        let details_list = HierarchyList {
+            id: "exha_details_root".to_string(),
+            label: None,
+            preview: None,
+            output_prefix: Some(" ".to_string()),
+            output_suffix: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::List,
+            joiner_style: Some(JoinerStyle::Comma),
+            max_entries: Some(4),
+            items: vec![item("empty", "Empty", Some(""))],
+        };
+        let field = HeaderFieldConfig {
+            id: "int_exha_field_brief".to_string(),
+            name: "Exercise Habits Brief".to_string(),
+            format: Some("{patientdescribes} {int_exha_list}{exha_details_root}.".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![patient_list, activity_list, details_list],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: Some(12),
+            max_actives: None,
+        };
+        let mut sticky_values = HashMap::new();
+        let mut modal = SearchModal::new_field(0, field, None, &HashMap::new(), &sticky_values, 5);
+
+        let advance = modal.advance_field(
+            "Pt describes".to_string(),
+            &HashMap::new(),
+            &mut sticky_values,
+            5,
+        );
+        assert!(matches!(advance, FieldAdvance::NextList));
+
+        let advance = modal.super_confirm_field(&HashMap::new(), &mut sticky_values, 5);
+
+        assert!(matches!(advance, FieldAdvance::NextList));
+        assert_eq!(modal.field_flow.list_idx, 2);
+        assert_eq!(
+            modal.field_flow.values,
+            vec!["Pt describes".to_string(), "training".to_string()]
+        );
+    }
+
+    #[test]
+    fn brief_exercise_branch_details_complete_with_prior_values_intact() {
+        let patient_list = HierarchyList {
+            id: "patientdescribes".to_string(),
+            label: None,
+            preview: None,
+            output_prefix: None,
+            output_suffix: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::List,
+            joiner_style: None,
+            max_entries: None,
+            items: vec![item("pt_describes", "describes", Some("Pt describes"))],
+        };
+        let activity_list = HierarchyList {
+            id: "int_exha_list".to_string(),
+            label: None,
+            preview: None,
+            output_prefix: None,
+            output_suffix: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::List,
+            joiner_style: Some(JoinerStyle::Semicolon),
+            max_entries: Some(12),
+            items: vec![item("training", "training", Some("training"))],
+        };
+        let frequency_field = single_list_field(
+            "frequency_branch",
+            HierarchyList {
+                id: "frequency2".to_string(),
+                label: None,
+                preview: None,
+                output_prefix: None,
+                output_suffix: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![item("regularly", "regularly", Some("regularly"))],
+            },
+        );
+        let starting_field = HeaderFieldConfig {
+            id: "starting_since_branch".to_string(),
+            name: "starting since branch".to_string(),
+            format: Some("{starting_since2}{starting_frequency}{duration_unit}".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![
+                HierarchyList {
+                    id: "starting_since2".to_string(),
+                    label: None,
+                    preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![item("for", "for", Some("for"))],
+                },
+                HierarchyList {
+                    id: "starting_frequency".to_string(),
+                    label: None,
+                    preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![item("freq_2", "2", Some(" 2"))],
+                },
+                HierarchyList {
+                    id: "duration_unit".to_string(),
+                    label: None,
+                    preview: None,
+                    output_prefix: None,
+                    output_suffix: None,
+                    sticky: false,
+                    default: None,
+                    modal_start: ModalStart::List,
+                    joiner_style: None,
+                    max_entries: None,
+                    items: vec![item("week", "week", Some(" weeks"))],
+                },
+            ],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let mut frequency_item = item("detail_freq", "Frequency", Some("{frequency_branch}"));
+        frequency_item.branch_fields = vec![frequency_field];
+        let mut starting_item = item(
+            "detail_starting_since",
+            "Starting Since",
+            Some("{starting_since_branch}"),
+        );
+        starting_item.branch_fields = vec![starting_field];
+        let details_list = HierarchyList {
+            id: "exha_details_root".to_string(),
+            label: None,
+            preview: None,
+            output_prefix: Some(" ".to_string()),
+            output_suffix: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::List,
+            joiner_style: Some(JoinerStyle::Comma),
+            max_entries: Some(4),
+            items: vec![
+                item("empty", "Empty", Some("")),
+                frequency_item,
+                starting_item,
+            ],
+        };
+        let field = HeaderFieldConfig {
+            id: "int_exha_field_brief".to_string(),
+            name: "Exercise Habits Brief".to_string(),
+            format: Some("{patientdescribes} {int_exha_list}{exha_details_root}.".to_string()),
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![patient_list, activity_list, details_list],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: Some(12),
+            max_actives: None,
+        };
+        let mut sticky_values = HashMap::new();
+        let mut modal = SearchModal::new_field(0, field, None, &HashMap::new(), &sticky_values, 5);
+
+        assert!(matches!(
+            modal.advance_field(
+                "Pt describes".to_string(),
+                &HashMap::new(),
+                &mut sticky_values,
+                5,
+            ),
+            FieldAdvance::NextList
+        ));
+        assert!(matches!(
+            modal.super_confirm_field(&HashMap::new(), &mut sticky_values, 5),
+            FieldAdvance::NextList
+        ));
+        modal.list_cursor = 1;
+        assert!(matches!(
+            modal.advance_field(
+                "{frequency_branch}".to_string(),
+                &HashMap::new(),
+                &mut sticky_values,
+                5,
+            ),
+            FieldAdvance::NextList
+        ));
+        assert!(matches!(
+            modal.advance_field(
+                "regularly".to_string(),
+                &HashMap::new(),
+                &mut sticky_values,
+                5,
+            ),
+            FieldAdvance::StayOnList
+        ));
+        modal.list_cursor = 2;
+        assert!(matches!(
+            modal.advance_field(
+                "{starting_since_branch}".to_string(),
+                &HashMap::new(),
+                &mut sticky_values,
+                5,
+            ),
+            FieldAdvance::NextList
+        ));
+        assert!(matches!(
+            modal.advance_field("for".to_string(), &HashMap::new(), &mut sticky_values, 5),
+            FieldAdvance::NextList
+        ));
+        assert!(matches!(
+            modal.advance_field(" 2".to_string(), &HashMap::new(), &mut sticky_values, 5),
+            FieldAdvance::NextList
+        ));
+        assert!(matches!(
+            modal.advance_field(" weeks".to_string(), &HashMap::new(), &mut sticky_values, 5,),
+            FieldAdvance::StayOnList
+        ));
+        modal.list_cursor = 0;
+        let advance = modal.advance_field(String::new(), &HashMap::new(), &mut sticky_values, 5);
+
+        let FieldAdvance::Complete(value) = advance else {
+            panic!("empty detail should finish the brief field");
+        };
+        assert_eq!(
+            value.as_text(),
+            Some("Pt describes training regularly, for 2 weeks.")
+        );
+        let structured = modal
+            .confirmed_field_value_if_complete(&sticky_values)
+            .expect("complete modal should expose structured state");
+        let HeaderFieldValue::ListState(state) = structured else {
+            panic!("brief exercise should complete as list state");
+        };
+        assert_eq!(
+            state.values,
+            vec![
+                "Pt describes".to_string(),
+                "training".to_string(),
+                "regularly, for 2 weeks".to_string()
+            ]
+        );
+    }
+
+    #[test]
     fn branch_semantics_stay_nav_right_when_preview_layout_is_unavailable() {
         let child_list = HierarchyList {
             id: "child_list".to_string(),
             label: None,
             preview: None,
+            output_prefix: None,
+            output_suffix: None,
             sticky: false,
             default: None,
             modal_start: ModalStart::List,
@@ -5037,6 +5754,8 @@ mod branch_field_tests {
             id: "muscle".to_string(),
             label: None,
             preview: None,
+            output_prefix: None,
+            output_suffix: None,
             sticky: false,
             default: None,
             modal_start: ModalStart::Search,
@@ -5090,6 +5809,8 @@ mod collection_field_tests {
                 id: format!("{id}_list"),
                 label: Some(label.to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::List,
@@ -5185,6 +5906,8 @@ mod collection_field_tests {
                 id: "upper".to_string(),
                 label: Some("Upper".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::List,
@@ -5199,6 +5922,8 @@ mod collection_field_tests {
                 id: "lower".to_string(),
                 label: Some("Lower".to_string()),
                 preview: None,
+                output_prefix: None,
+                output_suffix: None,
                 sticky: false,
                 default: None,
                 modal_start: ModalStart::List,
