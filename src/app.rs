@@ -6861,6 +6861,30 @@ mod composition_span_tests {
     }
 
     #[test]
+    fn real_intake_branch_frequency_simple_uses_authored_hotkey_labels() {
+        let data_dir = crate::data::find_data_dir();
+        let data = AppData::load(data_dir.clone()).expect("real data should load");
+        let mut app = App::new(data, Config::default(), data_dir);
+
+        app.handle_key(AppKey::Char('7'));
+
+        for key in ['a', 'a', 'r', 't'] {
+            app.handle_key(AppKey::Char(key));
+        }
+
+        let modal = app.modal.as_ref().expect("branch modal should remain open");
+        let list = modal
+            .field_flow
+            .lists
+            .get(modal.field_flow.list_idx)
+            .expect("active list should exist");
+        assert_eq!(list.id, "frequency_simple");
+
+        let labels = app.visible_modal_hint_labels();
+        assert_eq!(&labels[..4], &["a", "1", "2", "3"]);
+    }
+
+    #[test]
     fn modal_assignments_persist_dependent_sticky_values() {
         let mut app = app_with_single_field(pronoun_assignment_field());
 

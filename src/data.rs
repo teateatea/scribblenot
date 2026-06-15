@@ -657,6 +657,30 @@ mod tests {
     }
 
     #[test]
+    fn parser_accepts_numeric_authored_item_hotkey() {
+        let (file, _) = parse_hierarchy_file_documents(
+            concat!(
+                "lists:\n",
+                "  - id: demo\n",
+                "    items:\n",
+                "      - id: alpha\n",
+                "        label: Alpha\n",
+                "        hotkey: 1\n",
+            ),
+            Path::new("inline-test.yml"),
+        )
+        .expect("numeric item hotkey should still parse");
+
+        assert_eq!(
+            file.item_hotkeys
+                .get("demo")
+                .and_then(|hotkeys| hotkeys.get("alpha"))
+                .map(String::as_str),
+            Some("1")
+        );
+    }
+
+    #[test]
     fn parser_rejects_authored_branch_fields_key() {
         let yaml = concat!(
             "lists:\n",

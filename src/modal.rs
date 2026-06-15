@@ -1221,12 +1221,15 @@ impl SearchModal {
             return None;
         }
 
+        let list = self.field_flow.lists.get(self.field_flow.list_idx)?;
         Some(ModalListViewSnapshot {
             title: self
                 .current_part_label(assigned_values, sticky_values)
                 .unwrap_or_else(|| self.field_name.clone()),
             query: self.query.clone(),
+            list_id: list.id.clone(),
             rows: self.all_entries.clone(),
+            item_ids: list.items.iter().map(|item| item.id.clone()).collect(),
             filtered: self.filtered.clone(),
             revisiting_completed_field: self.is_revisiting_completed_field(),
             confirmed_row: self.confirmed_row_for_current_list(),

@@ -88,6 +88,13 @@ pub(crate) fn read_hierarchy_dir(
         merged.fields.extend(file.fields);
         merged.lists.extend(file.lists);
         merged.boilerplates.extend(file.boilerplates);
+        for (list_id, item_hotkeys) in file.item_hotkeys {
+            merged
+                .item_hotkeys
+                .entry(list_id)
+                .or_default()
+                .extend(item_hotkeys);
+        }
         source_index.merge(file_sources);
     }
 
@@ -597,11 +604,11 @@ pub(crate) fn extract_item_hotkeys_from_value(
             };
             let Some(hotkey) = mapping
                 .get(serde_yaml::Value::String("hotkey".to_string()))
-                .and_then(serde_yaml::Value::as_str)
+                .and_then(authored_hotkey_value)
             else {
                 continue;
             };
-            hotkeys_for_list.insert(item.id.clone(), hotkey.to_string());
+            hotkeys_for_list.insert(item.id.clone(), hotkey);
         }
 
         if !hotkeys_for_list.is_empty() {
@@ -610,4 +617,12 @@ pub(crate) fn extract_item_hotkeys_from_value(
     }
 
     item_hotkeys
+}
+
+fn authored_hotkey_value(value: &serde_yaml::Value) -> Option<String> {
+    match value {
+        serde_yaml::Value::String(value) => Some(value.clone()),
+        serde_yaml::Value::Number(value) => Some(value.to_string()),
+        _ => None,
+    }
 }

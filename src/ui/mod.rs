@@ -4651,10 +4651,16 @@ fn preview_modal_hint_labels(
     app: &App,
     snapshot: &crate::modal_layout::ModalListViewSnapshot,
 ) -> Vec<String> {
-    let visible_count = (snapshot.list_scroll + app.modal_window_size().max(1))
-        .min(snapshot.filtered.len())
-        .saturating_sub(snapshot.list_scroll);
-    let explicit_prefixes = vec![None; visible_count];
+    let end = (snapshot.list_scroll + app.modal_window_size().max(1)).min(snapshot.filtered.len());
+    let explicit_prefixes: Vec<Option<&str>> = (snapshot.list_scroll..end)
+        .filter_map(|window_pos| snapshot.filtered.get(window_pos))
+        .map(|&item_idx| {
+            snapshot
+                .item_ids
+                .get(item_idx)
+                .and_then(|item_id| app.data.hotkeys.item(&snapshot.list_id, item_id))
+        })
+        .collect();
     crate::data::assign_hint_labels(
         &app.data.keybindings.hints,
         &explicit_prefixes,
@@ -5265,7 +5271,9 @@ mod tests {
         ModalListViewSnapshot {
             title: title.to_string(),
             query: String::new(),
+            list_id: String::new(),
             rows: vec![format!("{title} row")],
+            item_ids: vec![format!("{title}_item")],
             filtered: vec![0],
             revisiting_completed_field: false,
             confirmed_row: None,
@@ -5318,11 +5326,18 @@ mod tests {
         let snapshot = ModalListViewSnapshot {
             title: "Preview".to_string(),
             query: String::new(),
+            list_id: "preview_list".to_string(),
             rows: vec![
                 "Alpha".to_string(),
                 "Beta".to_string(),
                 "Gamma".to_string(),
                 "Delta".to_string(),
+            ],
+            item_ids: vec![
+                "alpha".to_string(),
+                "beta".to_string(),
+                "gamma".to_string(),
+                "delta".to_string(),
             ],
             filtered: vec![0, 1, 2, 3],
             revisiting_completed_field: false,
@@ -5334,6 +5349,39 @@ mod tests {
 
         assert_eq!(app.visible_modal_hint_labels().len(), 1);
         assert_eq!(preview_modal_hint_labels(&app, &snapshot).len(), 4);
+    }
+
+    #[test]
+    fn preview_modal_hint_labels_use_authored_item_hotkeys() {
+        let mut app = overlay_test_app();
+        app.data.hotkeys.items.insert(
+            "frequency_simple".to_string(),
+            HashMap::from([
+                ("freq_1".to_string(), "1".to_string()),
+                ("freq_2".to_string(), "2".to_string()),
+                ("freq_3".to_string(), "3".to_string()),
+            ]),
+        );
+
+        let snapshot = ModalListViewSnapshot {
+            title: "Frequency".to_string(),
+            query: String::new(),
+            list_id: "frequency_simple".to_string(),
+            rows: vec!["1".to_string(), "2".to_string(), "3".to_string()],
+            item_ids: vec![
+                "freq_1".to_string(),
+                "freq_2".to_string(),
+                "freq_3".to_string(),
+            ],
+            filtered: vec![0, 1, 2],
+            revisiting_completed_field: false,
+            confirmed_row: None,
+            list_cursor: 0,
+            list_scroll: 0,
+            focus: ModalFocus::List,
+        };
+
+        assert_eq!(preview_modal_hint_labels(&app, &snapshot), vec!["1", "2", "3"]);
     }
 
     #[test]

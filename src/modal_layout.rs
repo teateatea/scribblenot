@@ -17,7 +17,9 @@ pub enum ModalFocus {
 pub struct ModalListViewSnapshot {
     pub title: String,
     pub query: String,
+    pub list_id: String,
     pub rows: Vec<String>,
+    pub item_ids: Vec<String>,
     pub filtered: Vec<usize>,
     pub revisiting_completed_field: bool,
     pub confirmed_row: Option<usize>,
@@ -237,7 +239,9 @@ mod modal_sizing_tests {
                     ModalListViewSnapshot {
                         title: "One".to_string(),
                         query: String::new(),
+                        list_id: String::new(),
                         rows: vec!["A".to_string()],
+                        item_ids: vec!["a".to_string()],
                         filtered: vec![0],
                         revisiting_completed_field: false,
                         confirmed_row: None,
@@ -248,7 +252,9 @@ mod modal_sizing_tests {
                     ModalListViewSnapshot {
                         title: "Two".to_string(),
                         query: String::new(),
+                        list_id: String::new(),
                         rows: vec!["B".to_string()],
+                        item_ids: vec!["b".to_string()],
                         filtered: vec![0],
                         revisiting_completed_field: false,
                         confirmed_row: None,
@@ -259,7 +265,9 @@ mod modal_sizing_tests {
                     ModalListViewSnapshot {
                         title: "Three".to_string(),
                         query: String::new(),
+                        list_id: String::new(),
                         rows: vec!["C".to_string()],
+                        item_ids: vec!["c".to_string()],
                         filtered: vec![0],
                         revisiting_completed_field: false,
                         confirmed_row: None,
@@ -303,7 +311,9 @@ mod modal_sizing_tests {
                 snapshots: vec![ModalListViewSnapshot {
                     title: "Oversized".to_string(),
                     query: String::new(),
+                    list_id: String::new(),
                     rows: vec!["X".repeat(120)],
+                    item_ids: vec!["x".to_string()],
                     filtered: vec![0],
                     revisiting_completed_field: false,
                     confirmed_row: None,
