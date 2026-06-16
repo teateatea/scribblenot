@@ -277,7 +277,7 @@ fn truncate_single_line(value: &str, max_chars: usize) -> String {
 static TOPICS: [HelpTopic; 13] = [
     HelpTopic {
         id: "item-driven-branching",
-        title: "Item Opens Branching Fields",
+        title: "Item Branching",
         aliases: &[
             "branching fields",
             "branch fields",
@@ -288,9 +288,9 @@ static TOPICS: [HelpTopic; 13] = [
             "conditional fields",
             "how do I show fields from an item",
         ],
-        body: r#"Use branching fields when one list choice should open an extra follow-up field.
+        body: r#"Use item branching when one list choice should open extra follow-up choices.
 
-The overview is: put `fields:` on the item that needs follow-up questions. Each referenced field must still be authored as a normal field elsewhere in the YAML data, and the field controls its own lists or collections.
+The overview is: the item itself becomes a small inline field. Use `format:` for the branch output template, and use typed `contains:` refs for the follow-up field/list/collection choices. Do not use item `fields:`; that old shape is no longer valid.
 
 ```yaml
 fields:
@@ -300,12 +300,6 @@ fields:
     contains:
       - list: exercise_level
       - list: exercise_due_to
-
-  - id: exercise_reason_field
-    label: Due to
-    format: " due to {exercise_reason}"
-    contains:
-      - list: exercise_reason
 
 lists:
   - id: exercise_level
@@ -321,9 +315,9 @@ lists:
         output: ""
       - id: due_to
         label: "DUE TO"
-        output: "{exercise_reason_field}"
-        fields:
-          - exercise_reason_field
+        format: " due to {exercise_reason}"
+        contains:
+          - list: exercise_reason
 
   - id: exercise_reason
     items:
@@ -337,7 +331,7 @@ lists:
 
 ### Step 1
 
-When starting a split from the item level, the branching item uses `fields:` to open the named follow-up fields.
+When starting a split from the item level, make the selected item a branch item. A branch item uses `format:` and `contains:`.
 
 ```yaml
 lists:
@@ -348,9 +342,9 @@ lists:
         output: ""
       - id: due_to
         label: "DUE TO"
-        output: "{exercise_reason_field}"
-        fields:
-          - exercise_reason_field
+        format: " due to {exercise_reason}"
+        contains:
+          - list: exercise_reason
 ```
 
 Use this small fragment when you are adding one branching item to an existing list.
@@ -358,27 +352,14 @@ Use this small fragment when you are adding one branching item to an existing li
 ```yaml
 - id: example_item
   label: "label_text"
-  output: "{followup_field}"
-  fields:
-    - followup_field
+  format: "{followup_list}"
+  contains:
+    - list: followup_list
 ```
 
 ### Step 2
 
-If the follow-up field doesn't already exist, set it up now. This is the intermediary step that creates the branch.
-
-```yaml
-fields:
-  - id: exercise_reason_field
-    label: Due to
-    format: " due to {exercise_reason}"
-    contains:
-      - list: exercise_reason
-```
-
-### Step 3
-
-The follow-up field is populated with the follow-up answer list. This is where you fill out the options.
+Add the follow-up answer list. This is where you fill out the branch options.
 
 ```yaml
 lists:
@@ -390,7 +371,7 @@ lists:
       - "recent illness"
 ```
 
-### Step 4
+### Step 3
 
 Connect the branching list to the main field. This field asks about recent exercise and includes both the main answer list and the small branching list.
 
@@ -404,7 +385,7 @@ fields:
       - list: exercise_due_to
 ```
 
-### Step 5
+### Step 4
 
 Write the main answer list. These are the normal choices the field can output.
 
@@ -415,6 +396,24 @@ lists:
       - "regular exercise"
       - "limited exercise"
       - "no exercise"
+```
+
+### Step 5
+
+Choose one item shape. A leaf item uses `output:`. A branch item uses `format:` plus `contains:`. Do not mix `output:` with `format:` or `contains:`.
+
+```yaml
+# Leaf item
+- id: no_due_to
+  label: "[no reason]"
+  output: ""
+
+# Branch item
+- id: due_to
+  label: "DUE TO"
+  format: " due to {exercise_reason}"
+  contains:
+    - list: exercise_reason
 ```
 
 ## Example Outputs
@@ -448,7 +447,7 @@ Pt describes limited exercise in the past 2 weeks due to pain.
             "max_entries",
             "max_actives",
         ],
-        body: r########"Use `fields:` for prompts inside multi-field sections and branching items. Fields can contain lists, nested fields, or collections.
+        body: r########"Use `fields:` for reusable prompts inside multi-field sections and as `field:` children inside item branches. Fields can contain lists, nested fields, or collections.
 
 ---
 
@@ -623,7 +622,8 @@ lists:
             "default_enabled",
             "output",
             "hotkey",
-            "fields",
+            "format",
+            "contains",
             "assigns",
             "assign",
             "list",
@@ -643,7 +643,7 @@ That form has no explicit keys. Scribblenot uses the string as both the label an
 
 ## Property Keys
 
-For a full object item, use at least one content key: `id`, `label`, or `output`. `fields` and `assigns` add behavior to an item, but they should not be the only thing that identifies what the item is.
+For a full object item, use at least one content key: `id`, `label`, `output`, or `format`. Branch behavior is authored with `format:` plus `contains:`. `assigns:` adds a side effect to an item, but it should not be the only thing that identifies what the item is.
 
 ### id (optional)
 Stable item identifier. It is used by list `default:` values, `assigns:` targets, saved selections, branch/assignment restoration, hotkey lookup, and validation messages. If omitted, it is generated from `label` or `output`.
@@ -654,16 +654,19 @@ You usually only need to write it yourself when another place must point at this
 UI/search text. Falls back to output.
 
 ### output (optional)
-Note/export text. Falls back to label.
+Note/export text for a leaf item. Falls back to label.
+
+### format (optional)
+Branch output template. Use this with `contains:` when selecting the item should open follow-up choices.
+
+### contains (optional)
+Typed branch children. Allowed child refs: `field`, `list`, `collection`.
 
 ### default_enabled (optional)
 Defaults to `true`. Controls whether collection items start enabled.
 
 ### hotkey (optional)
 Must be exactly one visible character.
-
-### fields (optional)
-List of field ids opened as item-driven branching follow-up fields.
 
 ### assigns (optional)
 When this item is selected, also selects an item in another list. Each assign entry has `list` and `item`, both required. The `item` value must be the target item's id.
@@ -681,7 +684,7 @@ lists:
 
 This is the plain string form. It is valid because the string supplies the item's content.
 
-## Optional List Item
+## Leaf List Item
 
 ```yaml
 lists:
@@ -692,8 +695,24 @@ lists:
         output: item output
         default_enabled: [true|false]
         hotkey: i
-        fields:
-          - followup_field_id
+        assigns:
+          - list: target_list_id
+            item: target_item_id
+```
+
+## Branch List Item
+
+```yaml
+lists:
+  - id: list_id
+    items:
+      - id: item_id
+        label: Item Label
+        format: "{child_list_id}"
+        contains:
+          - list: child_list_id
+        default_enabled: [true|false]
+        hotkey: i
         assigns:
           - list: target_list_id
             item: target_item_id
@@ -1295,9 +1314,8 @@ mod tests {
             .map(|idx| topics()[idx].id)
             .collect::<Vec<_>>();
 
-        assert_eq!(matched_ids[0], "item-driven-branching");
-        assert_eq!(matched_ids[1], "yaml-field-class");
-        assert_eq!(matched_ids[2], "format-placeholders");
+        assert_eq!(matched_ids[0], "yaml-field-class");
+        assert_eq!(matched_ids[1], "format-placeholders");
         let section_class_pos = matched_ids
             .iter()
             .position(|id| *id == "yaml-section-class")
@@ -1307,6 +1325,11 @@ mod tests {
             .position(|id| *id == "format-placeholders")
             .expect("format placeholders should match by title");
         assert!(section_class_pos > format_placeholders_pos);
+        let branching_pos = matched_ids
+            .iter()
+            .position(|id| *id == "item-driven-branching")
+            .expect("item branching should still match by alias");
+        assert!(branching_pos > format_placeholders_pos);
     }
 
     #[test]
@@ -1346,11 +1369,15 @@ mod tests {
         assert_eq!(blocks[0].language.as_deref(), Some("yaml"));
         assert!(blocks[0].code.contains("fields:"));
         assert!(blocks[0].code.contains("exercise_recent"));
-        assert!(blocks[0].code.contains("exercise_reason_field"));
+        assert!(blocks[0]
+            .code
+            .contains("format: \" due to {exercise_reason}\""));
         assert!(blocks[1].code.contains("exercise_due_to"));
         assert!(blocks[2].code.contains("- id: example_item"));
-        assert!(blocks[2].code.contains("{followup_field}"));
-        assert!(blocks[6].code.contains("exercise_level"));
+        assert!(blocks[2].code.contains("contains:"));
+        assert!(blocks[2].code.contains("- list: followup_list"));
+        assert!(blocks[6].code.contains("# Leaf item"));
+        assert!(blocks[6].code.contains("# Branch item"));
     }
 
     #[test]
@@ -1455,7 +1482,7 @@ mod tests {
                 vec![
                     "List Class",
                     "Field Class",
-                    "Item Opens Branching Fields",
+                    "Item Branching",
                     "Item Assigns Target Item to Target List",
                 ],
             ),

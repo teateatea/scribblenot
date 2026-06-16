@@ -5548,6 +5548,8 @@ mod composition_span_tests {
             label: Some(label.to_string()),
             default_enabled: true,
             output: Some(output.to_string()),
+            format: None,
+            contains: Vec::new(),
             fields: None,
             branch_fields: Vec::new(),
             assigns: Vec::new(),
@@ -5567,6 +5569,8 @@ mod composition_span_tests {
             label: Some(label.to_string()),
             default_enabled: true,
             output: Some(output.to_string()),
+            format: None,
+            contains: Vec::new(),
             fields: None,
             branch_fields: Vec::new(),
             assigns: vec![ItemAssignment {
@@ -6139,7 +6143,7 @@ mod composition_span_tests {
             .expect("error modal markdown should render");
 
         assert!(copied.contains("### See Also"));
-        assert!(copied.contains("- `1` Item Opens Branching Fields"));
+        assert!(copied.contains("- `1` Item Branching"));
     }
 
     #[test]
@@ -6861,16 +6865,80 @@ mod composition_span_tests {
     }
 
     #[test]
-    fn real_intake_branch_frequency_simple_uses_authored_hotkey_labels() {
-        let data_dir = crate::data::find_data_dir();
-        let data = AppData::load(data_dir.clone()).expect("real data should load");
-        let mut app = App::new(data, Config::default(), data_dir);
+    fn inline_item_branch_frequency_simple_uses_authored_hotkey_labels() {
+        let frequency_field = HeaderFieldConfig {
+            id: "frequency_simple".to_string(),
+            name: "Frequency".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "frequency_simple".to_string(),
+                label: Some("Frequency".to_string()),
+                preview: None,
+                output_prefix: None,
+                output_suffix: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![
+                    item("acute", "Acute", "acute"),
+                    item("chronic", "Chronic", "chronic"),
+                    item("recurrent", "Recurrent", "recurrent"),
+                    item("intermittent", "Intermittent", "intermittent"),
+                ],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let mut branch_item = item("frequency_branch", "Frequency", "Frequency");
+        branch_item.output = None;
+        branch_item.format = Some("{frequency_simple}".to_string());
+        branch_item.contains = vec![crate::data::HierarchyChildRef::List {
+            list: "frequency_simple".to_string(),
+        }];
+        branch_item.branch_fields = vec![frequency_field];
+        let field = HeaderFieldConfig {
+            id: "branch_root".to_string(),
+            name: "Branch Root".to_string(),
+            format: None,
+            preview: None,
+            fields: Vec::new(),
+            lists: vec![HierarchyList {
+                id: "branch_root".to_string(),
+                label: Some("Branch Root".to_string()),
+                preview: None,
+                output_prefix: None,
+                output_suffix: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: None,
+                max_entries: None,
+                items: vec![branch_item],
+            }],
+            collections: Vec::new(),
+            format_lists: Vec::new(),
+            joiner_style: None,
+            max_entries: None,
+            max_actives: None,
+        };
+        let mut app = app_with_single_field(field);
+        app.data.hotkeys.items.insert(
+            "frequency_simple".to_string(),
+            HashMap::from([
+                ("acute".to_string(), "a".to_string()),
+                ("recurrent".to_string(), "r".to_string()),
+            ]),
+        );
 
-        app.handle_key(AppKey::Char('7'));
-
-        for key in ['a', 'a', 'r', 't'] {
-            app.handle_key(AppKey::Char(key));
-        }
+        app.open_header_modal();
+        app.handle_key(AppKey::Enter);
 
         let modal = app.modal.as_ref().expect("branch modal should remain open");
         let list = modal
@@ -7248,6 +7316,8 @@ mod composition_span_tests {
                         label: Some("Left".to_string()),
                         default_enabled: true,
                         output: Some("Left".to_string()),
+                        format: None,
+                        contains: Vec::new(),
                         fields: None,
                         branch_fields: Vec::new(),
                         assigns: Vec::new(),
@@ -7269,6 +7339,8 @@ mod composition_span_tests {
                         label: Some("Shoulder".to_string()),
                         default_enabled: true,
                         output: Some("Shoulder".to_string()),
+                        format: None,
+                        contains: Vec::new(),
                         fields: None,
                         branch_fields: Vec::new(),
                         assigns: Vec::new(),
@@ -7328,6 +7400,8 @@ mod composition_span_tests {
                         label: Some("Left".to_string()),
                         default_enabled: true,
                         output: Some("Left".to_string()),
+                        format: None,
+                        contains: Vec::new(),
                         fields: None,
                         branch_fields: Vec::new(),
                         assigns: Vec::new(),
@@ -7350,6 +7424,8 @@ mod composition_span_tests {
                             label: Some("Shoulder".to_string()),
                             default_enabled: true,
                             output: Some("Shoulder".to_string()),
+                            format: None,
+                            contains: Vec::new(),
                             fields: None,
                             branch_fields: Vec::new(),
                             assigns: Vec::new(),
@@ -7359,6 +7435,8 @@ mod composition_span_tests {
                             label: Some("Hip".to_string()),
                             default_enabled: false,
                             output: Some("Hip".to_string()),
+                            format: None,
+                            contains: Vec::new(),
                             fields: None,
                             branch_fields: Vec::new(),
                             assigns: Vec::new(),
@@ -7420,6 +7498,8 @@ mod composition_span_tests {
                     label: Some("Shoulder".to_string()),
                     default_enabled: true,
                     output: Some("Shoulder".to_string()),
+                    format: None,
+                    contains: Vec::new(),
                     fields: None,
                     branch_fields: Vec::new(),
                     assigns: Vec::new(),
@@ -8160,7 +8240,8 @@ mod composition_span_tests {
             .as_deref()
             .expect("help copy should prepare override text");
         assert!(copied.contains("lists:"));
-        assert!(copied.contains("exercise_reason_field"));
+        assert!(copied.contains("format: \" due to {exercise_reason}\""));
+        assert!(copied.contains("- list: exercise_reason"));
         assert_eq!(
             app.copy_status_override.as_deref(),
             Some("Copied selected help code block to clipboard.")

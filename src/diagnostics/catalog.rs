@@ -135,6 +135,12 @@ fn entry_for_report<'a>(
     }
     if report.kind_id() == "unsupported_authored_key"
         && params.get("owner_kind").map(String::as_str) == Some("item")
+        && params.get("key_name").map(String::as_str) == Some("fields")
+    {
+        return Some(&ITEM_FIELDS_UNSUPPORTED_ENTRY);
+    }
+    if report.kind_id() == "unsupported_authored_key"
+        && params.get("owner_kind").map(String::as_str) == Some("item")
         && matches!(
             params.get("key_name").map(String::as_str),
             Some("output_prefix" | "output_suffix")
@@ -212,7 +218,14 @@ static ITEM_BRANCH_FIELDS_UNSUPPORTED_ENTRY: MessageEntry = MessageEntry {
     id: "unsupported_authored_key",
     title: "Unsupported Item Property: branch_fields",
     description: "{owner_label} uses unsupported key `branch_fields`.",
-    fix: "Replace `branch_fields:` with `fields:` on this item. Item-driven branching is authored through `fields:` now.",
+    fix: "Use item `format:` plus typed `contains:` refs instead:\n```yaml\n- id: item_id\n  label: \"Display text\"\n  format: \"{child_field}{child_list}\"\n  contains:\n    - field: child_field\n    - list: child_list\n```\n\nUse `- field: some_field_id` when the child is a reusable field, or `- list: some_list_id` when the child is a list.",
+};
+
+static ITEM_FIELDS_UNSUPPORTED_ENTRY: MessageEntry = MessageEntry {
+    id: "unsupported_authored_key",
+    title: "Unsupported Item Property: fields",
+    description: "{owner_label} uses unsupported key `fields`.\n\nItem branches are no longer authored through `fields:`. The item itself now behaves like the branch field.",
+    fix: "Move the branch structure onto the item with `format:` and typed `contains:` refs:\n```yaml\n- id: item_id\n  label: \"Display text\"\n  format: \"{child_field}{child_list}\"\n  contains:\n    - field: child_field\n    - list: child_list\n```\n\n`contains:` entries must include their type. `contains: [field_id]` and item `fields:` are not valid authored item branching anymore.",
 };
 
 static ITEM_OUTPUT_AFFIX_UNSUPPORTED_ENTRY: MessageEntry = MessageEntry {
@@ -257,8 +270,32 @@ static ITEM_FIELD_REFERENCES_LIST_ENTRY: MessageEntry = MessageEntry {
     fix: "Change the branching item from this:\n```yaml\nitems:\n  - id: {source_item_id}\n    fields:\n      - {referenced_id}\n```\n\nto this:\n```yaml\nitems:\n  - id: {source_item_id}\n    output: \"{suggested_field_placeholder}\"\n    fields:\n      - {suggested_field_id}\n```\n\nThen add the branch field under top-level `fields:`:\n```yaml\nfields:\n  - id: {suggested_field_id}\n    label: \"Branch Field Label\"\n    format: \"{referenced_placeholder}\"\n    contains:\n      - list: {referenced_id}\n```\n\nPlain English: item `fields:` chooses which follow-up field opens. That follow-up field can then contain the list.",
 };
 
+static ITEM_LEAF_BRANCH_CONFLICT_ENTRY: MessageEntry = MessageEntry {
+    id: "item_leaf_branch_conflict",
+    title: "Item Is Both Leaf And Branch",
+    description: "{owner_label} has both `output:` and `{conflicting_key}:`.\n\n`output:` means this is a leaf item that directly contributes note text. `format:` + `contains:` means this is a branch item that opens follow-up choices and then formats those results.",
+    fix: "Choose one shape:\n\nLeaf item:\n```yaml\n- id: item_id\n  label: \"Display text\"\n  output: \"Final note text\"\n```\n\nBranch item:\n```yaml\n- id: item_id\n  label: \"Display text\"\n  format: \"{child_field}{child_list}\"\n  contains:\n    - field: child_field\n    - list: child_list\n```\n\nDo not keep `output:` on a branch item.",
+};
+
+static ITEM_FORMAT_WITHOUT_CONTAINS_ENTRY: MessageEntry = MessageEntry {
+    id: "format_without_contains",
+    title: "Branch Item Is Missing Contains",
+    description: "{owner_label} has `format:` but no `contains:`.",
+    fix: "For a branch item, add typed child references under `contains:`:\n```yaml\nformat: \"{child_field}{child_list}\"\ncontains:\n  - field: child_field\n  - list: child_list\n```\n\nFor a leaf item, replace `format:` with `output:`.",
+};
+
+static ITEM_CONTAINS_WITHOUT_FORMAT_ENTRY: MessageEntry = MessageEntry {
+    id: "contains_without_format",
+    title: "Branch Item Is Missing Format",
+    description: "{owner_label} has `contains:` but no `format:`.",
+    fix: "For a branch item, add `format:` with placeholders for the contained children:\n```yaml\nformat: \"{child_field}{child_list}\"\ncontains:\n  - field: child_field\n  - list: child_list\n```\n\nFor a leaf item, remove `contains:` and use `output:`.",
+};
+
 fn builtin_entries() -> Vec<MessageEntry> {
     vec![
+        ITEM_LEAF_BRANCH_CONFLICT_ENTRY.clone(),
+        ITEM_FORMAT_WITHOUT_CONTAINS_ENTRY.clone(),
+        ITEM_CONTAINS_WITHOUT_FORMAT_ENTRY.clone(),
         MessageEntry {
             id: "missing_child",
             title: "ID Not Found: {referenced_id}",
@@ -276,6 +313,12 @@ fn builtin_entries() -> Vec<MessageEntry> {
             title: "Invalid Child Kind",
             description: "{owner_label} may not contain {referenced_kind} '{referenced_id}'. Allowed child kinds here: {allowed_kinds}.",
             fix: "Remove `{referenced_kind}: {referenced_id}` from this `contains:` block, or move it under a parent that accepts {referenced_kind} references.",
+        },
+        MessageEntry {
+            id: "invalid_child_ref_syntax",
+            title: "Contains Entry Needs A Type",
+            description: "This `contains:` entry is written as a bare value, but `contains:` needs typed child references.",
+            fix: "Use `format:` for the text template, then make each placeholder explicit under `contains:`:\n```yaml\nformat: \"{adherence}\"\ncontains:\n  - list: adherence\n```\n\nUse `- list: some_id` when the child is a list, or `- field: some_id` when the child is a field.",
         },
         MessageEntry {
             id: "looks_like_list_missing_items",
@@ -847,6 +890,14 @@ fn render_source_blocks(report: &ErrorReport) -> Vec<RenderedErrorSourceBlock> {
         "duplicate_quoted_line_",
         RenderedErrorSourceRole::Owner,
     );
+    push_numbered_source_block_lines_from_params(
+        &mut blocks,
+        &params,
+        "related_file_",
+        "related_line_",
+        "related_quoted_line_",
+        RenderedErrorSourceRole::Owner,
+    );
 
     for block in &mut blocks {
         block.lines.sort_by_key(|line| line.line);
@@ -1190,7 +1241,7 @@ mod tests {
             .with_param("key_name", "branch_fields")
             .with_param(
                 "expected_keys",
-                "`id`, `label`, `default_enabled`, `output`, `hotkey`, `fields`, `assigns`",
+                "`id`, `label`, `default_enabled`, `output`, `format`, `contains`, `hotkey`, `assigns`",
             );
 
         let rendered = messages.render(&report);
@@ -1198,7 +1249,69 @@ mod tests {
         assert_eq!(rendered.title, "Unsupported Item Property: branch_fields");
         assert!(rendered
             .fix
-            .contains("Replace `branch_fields:` with `fields:`"));
+            .contains("format: \"{child_field}{child_list}\""));
+        assert!(rendered.fix.contains("- field: child_field"));
+        assert!(rendered.fix.contains("- list: child_list"));
+    }
+
+    #[test]
+    fn render_unsupported_item_fields_as_teaching_moment() {
+        let messages = Messages::load();
+        let report = ErrorReport::generic("unsupported_authored_key", "raw")
+            .with_param("owner_kind", "item")
+            .with_param("owner_label", "item 'alpha' in list 'demo'")
+            .with_param("key_name", "fields")
+            .with_param(
+                "expected_keys",
+                "`id`, `label`, `default_enabled`, `output`, `format`, `contains`, `hotkey`, `assigns`",
+            );
+
+        let rendered = messages.render(&report);
+
+        assert_eq!(rendered.title, "Unsupported Item Property: fields");
+        assert!(rendered
+            .description
+            .contains("no longer authored through `fields:`"));
+        assert!(rendered
+            .fix
+            .contains("format: \"{child_field}{child_list}\""));
+        assert!(rendered.fix.contains("- field: child_field"));
+        assert!(rendered.fix.contains("- list: child_list"));
+    }
+
+    #[test]
+    fn render_related_source_lines_for_item_fields_error() {
+        let messages = Messages::load();
+        let report = ErrorReport::generic("unsupported_authored_key", "raw")
+            .with_source(Some(ErrorSource {
+                file: PathBuf::from("data/branch_test.yml"),
+                line: 30,
+                quoted_line: Some("fields:".to_string()),
+            }))
+            .with_param("owner_kind", "item")
+            .with_param("owner_label", "item 'due_to' in list 'exercise_due_to'")
+            .with_param("key_name", "fields")
+            .with_param("related_file_1", "data/brief.yml")
+            .with_param("related_line_1", "146")
+            .with_param("related_quoted_line_1", "fields:")
+            .with_param("related_file_2", "data/brief.yml")
+            .with_param("related_line_2", "151")
+            .with_param("related_quoted_line_2", "fields:");
+
+        let rendered = messages.render(&report);
+
+        assert_eq!(rendered.source_blocks.len(), 2);
+        assert_eq!(rendered.source_blocks[0].file_name, "branch_test.yml");
+        assert_eq!(rendered.source_blocks[0].lines[0].line, 30);
+        assert_eq!(rendered.source_blocks[1].file_name, "brief.yml");
+        assert_eq!(
+            rendered.source_blocks[1]
+                .lines
+                .iter()
+                .map(|line| line.line)
+                .collect::<Vec<_>>(),
+            vec![146, 151]
+        );
     }
 
     #[test]
@@ -1210,7 +1323,7 @@ mod tests {
             .with_param("key_name", "output_prefix")
             .with_param(
                 "expected_keys",
-                "`id`, `label`, `default_enabled`, `output`, `hotkey`, `fields`, `assigns`",
+                "`id`, `label`, `default_enabled`, `output`, `format`, `contains`, `hotkey`, `assigns`",
             )
             .with_param(
                 "item_affix_suggested_output_line",
@@ -1229,66 +1342,23 @@ mod tests {
     }
 
     #[test]
-    fn render_typed_item_field_ref_as_branching_teaching_moment() {
+    fn render_item_leaf_branch_conflict_teaches_two_shapes() {
         let messages = Messages::load();
-        let report = ErrorReport::generic("invalid_authored_value_type", "raw")
+        let report = ErrorReport::generic("item_leaf_branch_conflict", "raw")
             .with_param("owner_kind", "item")
-            .with_param(
-                "owner_label",
-                "item 'detail_freq' in list 'exha_details_root'",
-            )
-            .with_param("key_name", "fields[0]")
-            .with_param("actual_type", "map")
-            .with_param("expected_type", "a string")
-            .with_param("item_field_map_key", "field")
-            .with_param("item_field_map_value", "frequency_branch")
-            .with_param("item_field_output_placeholder", "{frequency_branch}");
+            .with_param("owner_label", "item 'alpha' in list 'demo'")
+            .with_param("conflicting_key", "contains");
 
         let rendered = messages.render(&report);
 
-        assert_eq!(rendered.title, "Item Branch Field Uses the Wrong Shape");
+        assert_eq!(rendered.title, "Item Is Both Leaf And Branch");
         assert!(rendered
             .description
-            .contains("trying to open a branch field"));
-        assert!(rendered
-            .description
-            .contains("They should be plain field IDs"));
-        assert!(rendered.fix.contains("- field: frequency_branch"));
-        assert!(rendered.fix.contains("- frequency_branch"));
-        assert!(rendered.fix.contains("output: \"{frequency_branch}\""));
-        assert!(rendered.fix.contains("defined under top-level `fields:`"));
-    }
-
-    #[test]
-    fn render_item_field_wrong_kind_list_as_branching_teaching_moment() {
-        let messages = Messages::load();
-        let report = ErrorReport::generic("item_field_wrong_kind", "raw")
-            .with_param("owner_kind", "item")
-            .with_param(
-                "owner_label",
-                "item 'detail_starting_since' in list 'exha_details_root'",
-            )
-            .with_param("source_list_id", "exha_details_root")
-            .with_param("source_item_id", "detail_starting_since")
-            .with_param("referenced_id", "starting_since")
-            .with_param("actual_kind", "list")
-            .with_param("expected_kind", "field")
-            .with_param("suggested_field_id", "starting_since_field")
-            .with_param("suggested_field_placeholder", "{starting_since_field}")
-            .with_param("referenced_placeholder", "{starting_since}");
-
-        let rendered = messages.render(&report);
-
-        assert_eq!(rendered.title, "Branch Item Points Directly At a List");
-        assert!(rendered
-            .description
-            .contains("item `fields:` must reference field ids"));
-        assert!(rendered.description.contains("`starting_since` is a list"));
-        assert!(rendered.fix.contains("- starting_since"));
-        assert!(rendered.fix.contains("- starting_since_field"));
-        assert!(rendered.fix.contains("output: \"{starting_since_field}\""));
-        assert!(rendered.fix.contains("format: \"{starting_since}\""));
-        assert!(rendered.fix.contains("- list: starting_since"));
+            .contains("`output:` means this is a leaf item"));
+        assert!(rendered.description.contains("`format:` + `contains:`"));
+        assert!(rendered.fix.contains("Leaf item"));
+        assert!(rendered.fix.contains("Branch item"));
+        assert!(rendered.fix.contains("Do not keep `output:`"));
     }
 
     #[test]
@@ -1387,6 +1457,27 @@ mod tests {
             .description
             .contains("starts with `\"` but never closes with `\"`"));
         assert!(rendered.fix.contains("Add the missing closing `\"`"));
+    }
+
+    #[test]
+    fn render_invalid_child_ref_syntax_teaches_typed_contains_refs() {
+        let messages = Messages::load();
+        let report = ErrorReport::generic("invalid_child_ref_syntax", "raw").with_source(Some(
+            ErrorSource {
+                file: PathBuf::from("data/brief.yml"),
+                line: 405,
+                quoted_line: Some("- adherence".to_string()),
+            },
+        ));
+
+        let rendered = messages.render(&report);
+
+        assert_eq!(rendered.title, "Contains Entry Needs A Type");
+        assert!(rendered.description.contains("bare value"));
+        assert!(rendered.fix.contains("format: \"{adherence}\""));
+        assert!(rendered.fix.contains("contains:"));
+        assert!(rendered.fix.contains("- list: adherence"));
+        assert!(rendered.fix.contains("- field: some_id"));
     }
 
     #[test]

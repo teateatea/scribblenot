@@ -9,7 +9,7 @@ sections:
       - field: int_exha_field_brief
       - field: int_adl_field
       - field: int_specialist_field
-      - field: int_diagnosis_mental_brief
+      - field: int_diagnosis_mental_extended
 
      # - field: test_error_field
 
@@ -391,13 +391,14 @@ lists:
    #         item: ago
       - id: regularly
         label: "regularly"
-        output: "regularly"
+        output: " regularly"
 
       - id: every
         label: "every"
-        output: "{every_branch}"
-        fields:
-          - every_branch
+        format: "every{starting_frequency}{duration_unit}"
+        contains:
+          - list: starting_frequency
+          - list: duration_unit
         assigns:
           - list: starting_ago
             item: empty_space
@@ -405,38 +406,24 @@ lists:
     #      - list: starting_ago
     #        item: empty_space
       - id: parenthesis_every
-        label: "(parenthesis)"
+        label: "(X/week)"
        # output_prefix: " ("
-        output: "({parenthesis_branch})"
-       # output_suffix: ")"
-        fields:
-          - parenthesis_branch
+        format: "{frequency_simple}{frequency_unit}"
+        contains:
+          - list: frequency_simple
+          - list: frequency_unit
   - id: frequency_simple
     label: "[#]"
     default: empty_space
     modal_start: list
     preview: ""
+    output_prefix: " ("
    # joiner_style: comma
    # max_entries: 3
     items:
       - id: empty_space
-        label: "(Empty Space)"
+        label: " (Empty Space)"
         output: ""
-   #     assigns:
-   #       - list: pluralizer
-   #         item: singular
-   #   - id: freq_this
-   #     label: "this"
-   #     output: " this"
-   #     assigns:
-   #       - list: pluralizer
-   #         item: singular
-   #   - id: freq_last
-   #     label: "last"
-   #     output: " last"
-   #     assigns:
-   #       - list: pluralizer
-   #         item: singular
       - id: freq_1s
         label: "1"
         output: "1"
@@ -444,22 +431,10 @@ lists:
      #   assigns:
      #     - list: pluralizer
      #       item: singular
-      - id: freq_1_2
-        label: "1-2"
-        output: "1-2"
-        assigns:
-          - list: pluralizer
-            item: plural
       - id: freq_2s
         label: "2"
         output: "2"
         hotkey: 2
-        assigns:
-          - list: pluralizer
-            item: plural
-      - id: freq_2_3
-        label: "2-3"
-        output: "2-3"
         assigns:
           - list: pluralizer
             item: plural
@@ -470,12 +445,6 @@ lists:
         assigns:
           - list: pluralizer
             item: plural
-      - id: freq_3_4
-        label: "3-4"
-        output: "3-4"
-        assigns:
-          - list: pluralizer
-            item: plural
       - id: freq_4
         label: "4"
         output: "4"
@@ -483,22 +452,10 @@ lists:
         assigns:
           - list: pluralizer
             item: plural
-      - id: freq_4_5
-        label: "4-5"
-        output: "4-5"
-        assigns:
-          - list: pluralizer
-            item: plural
       - id: freq_5
         label: "5"
         output: "5"
         hotkey: 5
-        assigns:
-          - list: pluralizer
-            item: plural
-      - id: freq_5_6
-        label: "5-6"
-        output: "5-6"
         assigns:
           - list: pluralizer
             item: plural
@@ -549,15 +506,43 @@ lists:
           - list: pluralizer
             item: plural
 
-
-
-
+      - id: freq_1_2
+        label: "1-2"
+        output: "1-2"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_2_3
+        label: "2-3"
+        output: "2-3"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_3_4
+        label: "3-4"
+        output: "3-4"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_4_5
+        label: "4-5"
+        output: "4-5"
+        assigns:
+          - list: pluralizer
+            item: plural
+      - id: freq_5_6
+        label: "5-6"
+        output: "5-6"
+        assigns:
+          - list: pluralizer
+            item: plural
 
   - id: frequency_unit
-    label: "/[unit])"
-    default: empty_space
+    label: "{frequency_simple}/[unit])"
+    default: week
     modal_start: list
     preview: ""
+    output_suffix: ")"
    # joiner_style: comma
    # max_entries: 3
     items:
@@ -565,17 +550,30 @@ lists:
         label: "(empty)"
         output: ""
       - id: day
-        label: "/day"
+        label: "{frequency_simple}/day)"
         output: "/day" # {pluralizer}{starting_ago}"
       - id: week
-        label: "/week"
+        label: "{frequency_simple}/week)"
         output: "/week"
       - id: month
-        label: "/month"
+        label: "{frequency_simple}/month)"
         output: "/month"
       - id: year
-        label: "/year"
+        label: "{frequency_simple}/year)"
         output: "/year"
+
+      - id: dayplus
+        label: "{frequency_simple}+/day)"
+        output: "+/day"
+      - id: weekplus
+        label: "{frequency_simple}+/week)"
+        output: "+/week"
+      - id: monthplus
+        label: "{frequency_simple}+/month)"
+        output: "+/month"
+      - id: yearplus
+        label: "{frequency_simple}+/year)"
+        output: "+/year"
      # - id: today
      #   label: "today"
      #   output: " today"

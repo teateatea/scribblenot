@@ -5084,6 +5084,8 @@ mod tests {
             label: Some(label.to_string()),
             default_enabled: false,
             output: Some(label.to_string()),
+            format: None,
+            contains: Vec::new(),
             fields: None,
             branch_fields: Vec::new(),
             assigns: Vec::new(),
@@ -5381,7 +5383,10 @@ mod tests {
             focus: ModalFocus::List,
         };
 
-        assert_eq!(preview_modal_hint_labels(&app, &snapshot), vec!["1", "2", "3"]);
+        assert_eq!(
+            preview_modal_hint_labels(&app, &snapshot),
+            vec!["1", "2", "3"]
+        );
     }
 
     #[test]

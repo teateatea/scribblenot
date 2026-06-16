@@ -756,6 +756,8 @@ lists:
         output: "Finger (PIP)"
       - label: "31 one Finger (DIP jt DISTAL interphalangeal)"
         output: "Finger (DIP)"
+      - label: "Hand"
+        output: "Hand"
 
       ## PELVIC REGION
       - label: "Glutes (Buttocks)"

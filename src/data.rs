@@ -569,6 +569,33 @@ mod tests {
     }
 
     #[test]
+    fn parser_rejects_bare_contains_child_ref_with_teaching_error() {
+        let yaml = concat!(
+            "lists:\n",
+            "  - id: demo\n",
+            "    items:\n",
+            "      - id: branch\n",
+            "        label: Branch\n",
+            "        format: \"{adherence}\"\n",
+            "        contains:\n",
+            "          - adherence\n",
+        );
+        let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
+            .expect_err("bare contains child refs should fail");
+
+        assert_eq!(err.kind_id(), "invalid_child_ref_syntax");
+        assert!(err.contains("contains"));
+        assert!(err.contains("- list: some_id"));
+        assert_eq!(err.source.as_ref().map(|source| source.line), Some(8));
+        assert_eq!(
+            err.source
+                .as_ref()
+                .and_then(|source| source.quoted_line.as_deref()),
+            Some("- adherence")
+        );
+    }
+
+    #[test]
     fn parser_rejects_unknown_section_key() {
         let yaml = concat!(
             "sections:\n",
@@ -698,40 +725,82 @@ mod tests {
     }
 
     #[test]
-    fn parser_marks_typed_item_field_ref_wrong_shape_for_targeted_diagnostic() {
+    fn parser_rejects_authored_item_fields_key() {
         let yaml = concat!(
             "lists:\n",
             "  - id: demo\n",
             "    items:\n",
             "      - id: alpha\n",
             "        label: Alpha\n",
-            "        output: \"{child_field}\"\n",
+            "        format: \"{child_field}\"\n",
             "        fields:\n",
-            "          - field: child_field\n",
+            "          - child_field\n",
         );
         let err = parse_hierarchy_file_documents(yaml, Path::new("inline-test.yml"))
-            .expect_err("typed item field ref should fail");
+            .expect_err("authored item fields key should fail");
 
-        assert_eq!(err.kind_id(), "invalid_authored_value_type");
-        assert!(err.contains("item 'alpha' in list 'demo' expects a string"));
-        assert!(err.contains("`fields[0]` was written as map"));
-        assert_eq!(err.source.as_ref().map(|source| source.line), Some(8));
+        assert_eq!(err.kind_id(), "unsupported_authored_key");
+        assert!(err.contains("item 'alpha' in list 'demo' uses unsupported key `fields`"));
+        assert_eq!(err.source.as_ref().map(|source| source.line), Some(7));
         assert_eq!(
             err.source
                 .as_ref()
                 .and_then(|source| source.quoted_line.as_deref()),
-            Some("- field: child_field")
+            Some("fields:")
         );
+    }
+
+    #[test]
+    fn data_dir_item_fields_error_includes_related_item_fields_lines() {
+        let dir = TempTestDir::new("item-fields-related");
+        fs::write(
+            dir.path.join("branch_test.yml"),
+            concat!(
+                "lists:\n",
+                "  - id: exercise_due_to\n",
+                "    items:\n",
+                "      - id: due_to\n",
+                "        label: DUE TO\n",
+                "        format: \"{exercise_reason_field}\"\n",
+                "        fields:\n",
+                "          - exercise_reason_field\n",
+            ),
+        )
+        .expect("branch fixture should be written");
+        fs::write(
+            dir.path.join("brief.yml"),
+            concat!(
+                "lists:\n",
+                "  - id: exha_details_root\n",
+                "    items:\n",
+                "      - id: frequency\n",
+                "        label: frequency\n",
+                "        format: \"{frequency_branch}\"\n",
+                "        fields:\n",
+                "          - frequency_branch\n",
+                "      - id: starting_since\n",
+                "        label: starting since\n",
+                "        format: \"{starting_since_branch}\"\n",
+                "        fields:\n",
+                "          - starting_since_branch\n",
+            ),
+        )
+        .expect("brief fixture should be written");
+
+        let err = validate_data_dir(&dir.path).expect_err("item fields should fail");
+
+        assert_eq!(err.kind_id(), "unsupported_authored_key");
+        assert!(err.contains("item 'due_to' in list 'exercise_due_to'"));
         let params = err.params();
         assert!(params
             .iter()
-            .any(|(key, value)| key == "item_field_map_key" && value == "field"));
+            .any(|(key, value)| key == "related_line_1" && value == "7"));
         assert!(params
             .iter()
-            .any(|(key, value)| key == "item_field_map_value" && value == "child_field"));
-        assert!(params.iter().any(|(key, value)| {
-            key == "item_field_output_placeholder" && value == "{child_field}"
-        }));
+            .any(|(key, value)| key == "related_line_2" && value == "12"));
+        assert!(params
+            .iter()
+            .any(|(key, value)| { key == "related_file_1" && value.ends_with("brief.yml") }));
     }
 
     #[test]
@@ -1133,65 +1202,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_merged_hierarchy_rejects_missing_item_field_ref() {
-        let (file, index) = parse_with_index(concat!(
-            "template:\n  contains:\n    - group: g\n",
-            "groups:\n  - id: g\n    contains:\n      - section: s\n",
-            "sections:\n  - id: s\n    contains:\n      - list: demo\n",
-            "lists:\n",
-            "  - id: demo\n",
-            "    items:\n",
-            "      - id: alpha\n",
-            "        label: Alpha\n",
-            "        fields: [missing_field]\n",
-        ));
-        let err = validate_with_index(&file, &index).expect_err("missing item field ref must fail");
-        assert!(err.contains("list 'demo' item 'alpha' references unknown field 'missing_field'"));
-    }
-
-    #[test]
-    fn item_field_wrong_kind_list_reference_includes_branching_params() {
-        let (file, index) = parse_with_index(concat!(
-            "template:\n  contains:\n    - group: g\n",
-            "groups:\n  - id: g\n    contains:\n      - section: s\n",
-            "sections:\n  - id: s\n    contains:\n      - list: demo\n",
-            "lists:\n",
-            "  - id: demo\n",
-            "    items:\n",
-            "      - id: alpha\n",
-            "        label: Alpha\n",
-            "        fields: [starting_since]\n",
-            "  - id: starting_since\n",
-            "    items:\n",
-            "      - Today\n",
-        ));
-        let err = validate_with_index(&file, &index).expect_err("wrong item field kind must fail");
-
-        assert_eq!(err.kind_id(), "item_field_wrong_kind");
-        assert!(err.contains("list 'demo' item 'alpha' references 'starting_since' as field"));
-        let params = err.params();
-        assert!(params
-            .iter()
-            .any(|(key, value)| key == "actual_kind" && value == "list"));
-        assert!(params
-            .iter()
-            .any(|(key, value)| key == "expected_kind" && value == "field"));
-        assert!(params
-            .iter()
-            .any(|(key, value)| key == "referenced_id" && value == "starting_since"));
-        assert!(params.iter().any(|(key, value)| {
-            key == "suggested_field_id" && value == "starting_since_field"
-        }));
-        assert!(params.iter().any(|(key, value)| {
-            key == "suggested_field_placeholder" && value == "{starting_since_field}"
-        }));
-        assert!(params.iter().any(|(key, value)| {
-            key == "referenced_placeholder" && value == "{starting_since}"
-        }));
-    }
-
-    #[test]
-    fn item_fields_resolve_into_runtime_branch_fields() {
+    fn item_contains_field_ref_validates_as_branching_child() {
         let (file, index) = parse_with_index(concat!(
             "template:\n  contains:\n    - group: g\n",
             "groups:\n  - id: g\n    contains:\n      - section: s\n",
@@ -1206,12 +1217,41 @@ mod tests {
             "    items:\n",
             "      - id: alpha\n",
             "        label: Alpha\n",
-            "        fields: [child_field]\n",
+            "        format: \"{child_field}\"\n",
+            "        contains:\n",
+            "          - field: child_field\n",
             "  - id: child_list\n",
             "    items:\n",
             "      - Beta\n",
         ));
-        validate_with_index(&file, &index).expect("item field refs should validate");
+        validate_with_index(&file, &index).expect("item contains field refs should validate");
+    }
+
+    #[test]
+    fn item_format_contains_resolve_into_runtime_branch_field() {
+        let (file, index) = parse_with_index(concat!(
+            "template:\n  contains:\n    - group: g\n",
+            "groups:\n  - id: g\n    contains:\n      - section: s\n",
+            "sections:\n  - id: s\n    contains:\n      - list: demo\n",
+            "fields:\n",
+            "  - id: child_field\n",
+            "    label: Child\n",
+            "    contains:\n",
+            "      - list: child_list\n",
+            "lists:\n",
+            "  - id: demo\n",
+            "    items:\n",
+            "      - id: alpha\n",
+            "        label: Alpha\n",
+            "        format: \"{child_field}{child_list}\"\n",
+            "        contains:\n",
+            "          - field: child_field\n",
+            "          - list: child_list\n",
+            "  - id: child_list\n",
+            "    items:\n",
+            "      - Beta\n",
+        ));
+        validate_with_index(&file, &index).expect("item branch refs should validate");
         let runtime = runtime_with_index(file, &index).expect("runtime build should succeed");
         let section = runtime
             .template
@@ -1228,8 +1268,102 @@ mod tests {
             .expect("item exists");
 
         assert_eq!(item.branch_fields.len(), 1);
-        assert_eq!(item.branch_fields[0].id, "child_field");
-        assert_eq!(item.branch_fields[0].lists[0].id, "child_list");
+        assert_eq!(
+            item.branch_fields[0].format.as_deref(),
+            Some("{child_field}{child_list}")
+        );
+        assert_eq!(item.branch_fields[0].fields.len(), 2);
+        assert_eq!(item.branch_fields[0].fields[0].id, "child_field");
+        assert_eq!(item.branch_fields[0].fields[1].id, "child_list");
+    }
+
+    #[test]
+    fn item_cannot_mix_output_with_format_or_contains() {
+        let (file, index) = parse_with_index(concat!(
+            "template:\n  contains:\n    - group: g\n",
+            "groups:\n  - id: g\n    contains:\n      - section: s\n",
+            "sections:\n  - id: s\n    contains:\n      - list: demo\n",
+            "lists:\n",
+            "  - id: demo\n",
+            "    items:\n",
+            "      - id: alpha\n",
+            "        label: Alpha\n",
+            "        output: \"Alpha\"\n",
+            "        format: \"{child_list}\"\n",
+            "        contains:\n",
+            "          - list: child_list\n",
+            "  - id: child_list\n",
+            "    items:\n",
+            "      - Beta\n",
+        ));
+        let err =
+            validate_with_index(&file, &index).expect_err("item cannot be both leaf and branch");
+
+        assert_eq!(err.kind_id(), "item_leaf_branch_conflict");
+        assert!(err.contains("both `output:` and `format`"));
+        assert!(err.contains("leaf item"));
+        assert!(err.contains("branch item"));
+    }
+
+    #[test]
+    fn item_cannot_mix_output_with_contains() {
+        let (file, index) = parse_with_index(concat!(
+            "template:\n  contains:\n    - group: g\n",
+            "groups:\n  - id: g\n    contains:\n      - section: s\n",
+            "sections:\n  - id: s\n    contains:\n      - list: demo\n",
+            "lists:\n",
+            "  - id: demo\n",
+            "    items:\n",
+            "      - id: alpha\n",
+            "        label: Alpha\n",
+            "        output: \"Alpha\"\n",
+            "        contains:\n",
+            "          - list: child_list\n",
+            "  - id: child_list\n",
+            "    items:\n",
+            "      - Beta\n",
+        ));
+        let err =
+            validate_with_index(&file, &index).expect_err("leaf item cannot also declare contains");
+
+        assert_eq!(err.kind_id(), "item_leaf_branch_conflict");
+        assert!(err.contains("both `output:` and `contains`"));
+    }
+
+    #[test]
+    fn item_leaf_branch_conflict_points_to_item_property_line() {
+        let dir = TempTestDir::new("item-conflict-source");
+        let path = dir.path.join("brief.yml");
+        let yaml = concat!(
+            "template:\n  contains:\n    - group: g\n",
+            "groups:\n  - id: g\n    contains:\n      - section: s\n",
+            "sections:\n  - id: s\n    contains:\n      - list: starting_since2\n",
+            "lists:\n",
+            "  - id: starting_since2\n",
+            "    items:\n",
+            "      - id: empty\n",
+            "        output: \"\"\n",
+            "      - id: since_their_injury_ago\n",
+            "        label: since their injury ago\n",
+            "        output: \"since their injury\"\n",
+            "        contains:\n",
+            "          - list: starting_frequency\n",
+            "  - id: starting_frequency\n",
+            "    items:\n",
+            "      - one week\n",
+        );
+        fs::write(&path, yaml).expect("fixture should be written");
+        let (file, index) = parse_hierarchy_file_documents(yaml, &path).expect("yaml parses");
+        let err = validate_with_index(&file, &index).expect_err("item shape conflict must fail");
+
+        assert_eq!(err.kind_id(), "item_leaf_branch_conflict");
+        assert_eq!(err.source.as_ref().map(|source| source.line), Some(20));
+        assert_eq!(
+            err.source
+                .as_ref()
+                .and_then(|source| source.quoted_line.as_deref()),
+            Some("contains:")
+        );
     }
 
     #[test]

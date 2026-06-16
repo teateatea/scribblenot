@@ -128,6 +128,10 @@ lists:
         output: "Finger (PIP)"
       - label: "31 one Finger (DIP jt DISTAL interphalangeal)"
         output: "Finger (DIP)"
+      - label: "Wrist{summ_pluralizer}"
+        output: "Wrist{summ_pluralizer}"
+      - label: "Hand{summ_pluralizer}"
+        output: "Hand{summ_pluralizer}"
 
       ## PELVIC REGION
       - label: "Glutes (Buttocks)"
@@ -277,6 +281,9 @@ lists:
       - id: pain_10
         label: "pain 10/10"
         output: "10/10 Pain"
+      - id: weak_1
+        label: "weakness"
+        output: "weakness"
       - "pain and weakness"
       - "aching pain"
       - "sharp pain"

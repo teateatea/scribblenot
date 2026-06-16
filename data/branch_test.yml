@@ -26,9 +26,9 @@ lists:
         output: ""
       - id: due_to
         label: "DUE TO"
-        output: "{exercise_reason_field}"
-        fields:
-          - exercise_reason_field
+        format: " due to {exercise_reason}"
+        contains:
+          - list: exercise_reason
 
   - id: exercise_reason
     items:

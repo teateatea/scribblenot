@@ -303,6 +303,8 @@ mod tests {
             label: Some(label.to_string()),
             default_enabled,
             output: Some(label.to_string()),
+            format: None,
+            contains: Vec::new(),
             fields: None,
             branch_fields: Vec::new(),
             assigns: Vec::new(),

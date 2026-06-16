@@ -219,9 +219,13 @@ lists:
       - id: mental8
         label: "Anxiety"
         output: "Anxiety"
+      - id: mental8
+        label: "Social Anxiety"
+        output: "Social Anxiety"
       - id: mental9
         label: "Agoraphobia"
         output: "Agoraphobia"
       - id: mental10
         label: "Depression"
         output: "Depression"
+      - "ADHD"

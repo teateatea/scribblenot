@@ -2548,7 +2548,18 @@ fn branch_for_value(list: &HierarchyList, value: &str) -> Option<(String, Vec<He
     list.items
         .iter()
         .find(|item| item_output(item) == value && !item.branch_fields.is_empty())
-        .map(|item| (item.output().to_string(), item.branch_fields.clone()))
+        .map(|item| {
+            let branch_fields = item.branch_fields.clone();
+            let output_format = item
+                .branch_format()
+                .and_then(|_| {
+                    branch_fields
+                        .first()
+                        .map(|field| format!("{{{}}}", field.id))
+                })
+                .unwrap_or_else(|| item.output().to_string());
+            (output_format, branch_fields)
+        })
 }
 
 fn should_terminate_current_repeat(frame: &NestedFrame, final_value: &HeaderFieldValue) -> bool {
@@ -3147,6 +3158,8 @@ fn synthetic_list_for_field(field: &HeaderFieldConfig) -> HierarchyList {
             label: Some(field.name.clone()),
             default_enabled: true,
             output: Some(composite_output_format(field)),
+            format: None,
+            contains: Vec::new(),
             fields: None,
             branch_fields: field.fields.clone(),
             assigns: Vec::new(),
@@ -3243,6 +3256,8 @@ mod modal_filter_tests {
                     label: Some("One".to_string()),
                     default_enabled: true,
                     output: None,
+                    format: None,
+                    contains: Vec::new(),
                     fields: None,
                     branch_fields: Vec::new(),
                     assigns: Vec::new(),
@@ -3280,6 +3295,8 @@ mod modal_filter_tests {
                         label: Some("Trapezius Upper".to_string()),
                         default_enabled: true,
                         output: Some("Trapezius (Upper Fibers)".to_string()),
+                        format: None,
+                        contains: Vec::new(),
                         fields: None,
                         branch_fields: Vec::new(),
                         assigns: Vec::new(),
@@ -3301,6 +3318,8 @@ mod modal_filter_tests {
                         label: Some("Left".to_string()),
                         default_enabled: true,
                         output: Some("Left ".to_string()),
+                        format: None,
+                        contains: Vec::new(),
                         fields: None,
                         branch_fields: Vec::new(),
                         assigns: Vec::new(),
@@ -3355,6 +3374,8 @@ mod modal_filter_tests {
                             label: Some("Left".to_string()),
                             default_enabled: true,
                             output: Some("Left ".to_string()),
+                            format: None,
+                            contains: Vec::new(),
                             fields: None,
                             branch_fields: Vec::new(),
                             assigns: Vec::new(),
@@ -3364,6 +3385,8 @@ mod modal_filter_tests {
                             label: Some("Right".to_string()),
                             default_enabled: true,
                             output: Some("Right ".to_string()),
+                            format: None,
+                            contains: Vec::new(),
                             fields: None,
                             branch_fields: Vec::new(),
                             assigns: Vec::new(),
@@ -3387,6 +3410,8 @@ mod modal_filter_tests {
                             label: Some("Shoulder".to_string()),
                             default_enabled: true,
                             output: Some("Shoulder".to_string()),
+                            format: None,
+                            contains: Vec::new(),
                             fields: None,
                             branch_fields: Vec::new(),
                             assigns: Vec::new(),
@@ -3396,6 +3421,8 @@ mod modal_filter_tests {
                             label: Some("Neck".to_string()),
                             default_enabled: true,
                             output: Some("Neck".to_string()),
+                            format: None,
+                            contains: Vec::new(),
                             fields: None,
                             branch_fields: Vec::new(),
                             assigns: Vec::new(),
@@ -3418,6 +3445,8 @@ mod modal_filter_tests {
                         label: Some("Medium".to_string()),
                         default_enabled: true,
                         output: Some("Medium".to_string()),
+                        format: None,
+                        contains: Vec::new(),
                         fields: None,
                         branch_fields: Vec::new(),
                         assigns: Vec::new(),
@@ -3536,6 +3565,8 @@ mod modal_filter_tests {
                             label: Some("Left".to_string()),
                             default_enabled: true,
                             output: Some("Left ".to_string()),
+                            format: None,
+                            contains: Vec::new(),
                             fields: None,
                             branch_fields: Vec::new(),
                             assigns: Vec::new(),
@@ -3545,6 +3576,8 @@ mod modal_filter_tests {
                             label: Some("Right".to_string()),
                             default_enabled: true,
                             output: Some("Right ".to_string()),
+                            format: None,
+                            contains: Vec::new(),
                             fields: None,
                             branch_fields: Vec::new(),
                             assigns: Vec::new(),
@@ -3568,6 +3601,8 @@ mod modal_filter_tests {
                             label: Some("Shoulder".to_string()),
                             default_enabled: true,
                             output: Some("Shoulder".to_string()),
+                            format: None,
+                            contains: Vec::new(),
                             fields: None,
                             branch_fields: Vec::new(),
                             assigns: Vec::new(),
@@ -3577,6 +3612,8 @@ mod modal_filter_tests {
                             label: Some("Neck".to_string()),
                             default_enabled: true,
                             output: Some("Neck".to_string()),
+                            format: None,
+                            contains: Vec::new(),
                             fields: None,
                             branch_fields: Vec::new(),
                             assigns: Vec::new(),
@@ -3599,6 +3636,8 @@ mod modal_filter_tests {
                         label: Some("Medium".to_string()),
                         default_enabled: true,
                         output: Some("Medium".to_string()),
+                        format: None,
+                        contains: Vec::new(),
                         fields: None,
                         branch_fields: Vec::new(),
                         assigns: Vec::new(),
@@ -3620,6 +3659,8 @@ mod modal_filter_tests {
                         label: Some("Slow".to_string()),
                         default_enabled: true,
                         output: Some("Slow".to_string()),
+                        format: None,
+                        contains: Vec::new(),
                         fields: None,
                         branch_fields: Vec::new(),
                         assigns: Vec::new(),
@@ -3714,6 +3755,8 @@ mod modal_filter_tests {
             label: Some("Branch".to_string()),
             default_enabled: true,
             output: Some("{child}".to_string()),
+            format: None,
+            contains: Vec::new(),
             fields: None,
             branch_fields: vec![test_field(None, ModalStart::List)],
             assigns: Vec::new(),
@@ -3784,6 +3827,8 @@ mod modal_filter_tests {
                             label: Some("Upper Traps".to_string()),
                             default_enabled: true,
                             output: Some("Upper Traps".to_string()),
+                            format: None,
+                            contains: Vec::new(),
                             fields: None,
                             branch_fields: Vec::new(),
                             assigns: Vec::new(),
@@ -3812,6 +3857,8 @@ mod modal_filter_tests {
                             label: Some("Erectors".to_string()),
                             default_enabled: true,
                             output: Some("Erectors".to_string()),
+                            format: None,
+                            contains: Vec::new(),
                             fields: None,
                             branch_fields: Vec::new(),
                             assigns: Vec::new(),
@@ -3840,6 +3887,8 @@ mod modal_filter_tests {
                             label: Some("Glute Med".to_string()),
                             default_enabled: true,
                             output: Some("Glute Med".to_string()),
+                            format: None,
+                            contains: Vec::new(),
                             fields: None,
                             branch_fields: Vec::new(),
                             assigns: Vec::new(),
@@ -3964,6 +4013,8 @@ mod modal_filter_tests {
                     label: Some("Left".to_string()),
                     default_enabled: true,
                     output: Some("left ".to_string()),
+                    format: None,
+                    contains: Vec::new(),
                     fields: None,
                     branch_fields: Vec::new(),
                     assigns: Vec::new(),
@@ -3998,6 +4049,8 @@ mod modal_filter_tests {
                         label: Some("Shoulder".to_string()),
                         default_enabled: true,
                         output: Some("shoulder".to_string()),
+                        format: None,
+                        contains: Vec::new(),
                         fields: None,
                         branch_fields: Vec::new(),
                         assigns: Vec::new(),
@@ -4007,6 +4060,8 @@ mod modal_filter_tests {
                         label: Some("Head".to_string()),
                         default_enabled: true,
                         output: Some("head".to_string()),
+                        format: None,
+                        contains: Vec::new(),
                         fields: None,
                         branch_fields: Vec::new(),
                         assigns: Vec::new(),
@@ -4091,6 +4146,8 @@ mod modal_filter_tests {
                 label: Some("Treatment massage".to_string()),
                 default_enabled: true,
                 output: Some("Treatment massage".to_string()),
+                format: None,
+                contains: Vec::new(),
                 fields: None,
                 branch_fields: Vec::new(),
                 assigns: Vec::new(),
@@ -4136,6 +4193,8 @@ mod modal_filter_tests {
                         label: Some("Shoulder".to_string()),
                         default_enabled: true,
                         output: Some("shoulder".to_string()),
+                        format: None,
+                        contains: Vec::new(),
                         fields: None,
                         branch_fields: Vec::new(),
                         assigns: Vec::new(),
@@ -4198,6 +4257,8 @@ mod modal_filter_tests {
                 label: Some("2026".to_string()),
                 default_enabled: true,
                 output: Some("2026".to_string()),
+                format: None,
+                contains: Vec::new(),
                 fields: None,
                 branch_fields: Vec::new(),
                 assigns: Vec::new(),
@@ -4225,6 +4286,8 @@ mod modal_filter_tests {
                     label: Some("Treatment massage".to_string()),
                     default_enabled: true,
                     output: Some("Treatment massage".to_string()),
+                    format: None,
+                    contains: Vec::new(),
                     fields: None,
                     branch_fields: Vec::new(),
                     assigns: Vec::new(),
@@ -4299,6 +4362,8 @@ mod modal_filter_tests {
                     label: Some("Treatment massage".to_string()),
                     default_enabled: true,
                     output: Some("Treatment massage".to_string()),
+                    format: None,
+                    contains: Vec::new(),
                     fields: None,
                     branch_fields: Vec::new(),
                     assigns: Vec::new(),
@@ -4332,6 +4397,8 @@ mod modal_filter_tests {
                     label: Some("Shoulder".to_string()),
                     default_enabled: true,
                     output: Some("Shoulder".to_string()),
+                    format: None,
+                    contains: Vec::new(),
                     fields: None,
                     branch_fields: Vec::new(),
                     assigns: Vec::new(),
@@ -4365,6 +4432,8 @@ mod modal_filter_tests {
                     label: Some("Left ".to_string()),
                     default_enabled: true,
                     output: Some("Left ".to_string()),
+                    format: None,
+                    contains: Vec::new(),
                     fields: None,
                     branch_fields: Vec::new(),
                     assigns: Vec::new(),
@@ -4658,19 +4727,14 @@ mod modal_filter_tests {
         let advance = modal.advance_field(String::new(), &HashMap::new(), &mut sticky_values, 5);
         assert!(
             matches!(advance, FieldAdvance::NextList),
-            "blank place repeat terminator should reopen requested_regions for the next region"
+            "blank region should advance into the repeating place list's empty path"
         );
         assert_eq!(
             modal
                 .current_part_label(&HashMap::new(), &sticky_values)
                 .as_deref(),
-            Some("[REGION]"),
-            "real authored data should reopen the region picker after finishing place repeats"
-        );
-        let advance = modal.advance_field(String::new(), &HashMap::new(), &mut sticky_values, 5);
-        assert!(
-            matches!(advance, FieldAdvance::NextList),
-            "blank region should advance into the repeating place list's empty path"
+            Some("(direction)"),
+            "real authored data should ask for the place empty path after a blank region"
         );
         let advance = modal.advance_field(String::new(), &HashMap::new(), &mut sticky_values, 5);
 
@@ -4810,6 +4874,8 @@ mod assignment_tests {
             label: Some(label.to_string()),
             default_enabled: true,
             output: Some(output.to_string()),
+            format: None,
+            contains: Vec::new(),
             fields: None,
             branch_fields: Vec::new(),
             assigns,
@@ -5259,6 +5325,8 @@ mod branch_field_tests {
             label: Some(label.to_string()),
             default_enabled: true,
             output: output.map(str::to_string),
+            format: None,
+            contains: Vec::new(),
             fields: None,
             branch_fields: Vec::new(),
             assigns: Vec::new(),
@@ -5279,6 +5347,81 @@ mod branch_field_tests {
             max_entries: None,
             max_actives: None,
         }
+    }
+
+    #[test]
+    fn inline_item_branch_substitutes_child_list_placeholder() {
+        let activities_field = single_list_field(
+            "__item_branch_exha_list_root_exha_activity",
+            HierarchyList {
+                id: "activities".to_string(),
+                label: Some("activities".to_string()),
+                preview: None,
+                output_prefix: None,
+                output_suffix: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: Some(JoinerStyle::CommaAnd),
+                max_entries: Some(12),
+                items: vec![
+                    item("empty_space", "(empty/done)", Some("")),
+                    item("training", "training", Some("training")),
+                    item("walking", "walking", Some("walking")),
+                ],
+            },
+        );
+        let mut activity_item = item("exha_activity", "[SPECIFIC ACTIVITY]", None);
+        activity_item.format = Some("{activities}".to_string());
+        activity_item.contains = vec![crate::data::HierarchyChildRef::List {
+            list: "activities".to_string(),
+        }];
+        activity_item.branch_fields = vec![activities_field];
+        let parent_field = single_list_field(
+            "exha_list_root",
+            HierarchyList {
+                id: "exha_list_root".to_string(),
+                label: Some("[ACTIVITYROOT]".to_string()),
+                preview: None,
+                output_prefix: None,
+                output_suffix: None,
+                sticky: false,
+                default: None,
+                modal_start: ModalStart::List,
+                joiner_style: Some(JoinerStyle::Comma),
+                max_entries: Some(12),
+                items: vec![item("empty_space", "(empty)", Some("")), activity_item],
+            },
+        );
+        let mut sticky_values = HashMap::new();
+        let mut modal =
+            SearchModal::new_field(0, parent_field, None, &HashMap::new(), &sticky_values, 5);
+
+        let advance = modal.advance_field(
+            "[SPECIFIC ACTIVITY]".to_string(),
+            &HashMap::new(),
+            &mut sticky_values,
+            5,
+        );
+        assert!(matches!(advance, FieldAdvance::NextList));
+        let advance = modal.advance_field(
+            "training".to_string(),
+            &HashMap::new(),
+            &mut sticky_values,
+            5,
+        );
+        assert!(matches!(advance, FieldAdvance::StayOnList));
+        let advance = modal.advance_field(
+            "walking".to_string(),
+            &HashMap::new(),
+            &mut sticky_values,
+            5,
+        );
+        assert!(matches!(advance, FieldAdvance::StayOnList));
+        let advance = modal.advance_field(String::new(), &HashMap::new(), &mut sticky_values, 5);
+
+        assert!(matches!(advance, FieldAdvance::StayOnList));
+        assert_eq!(modal.field_flow.repeat_values, vec!["training and walking"]);
     }
 
     #[test]
@@ -5881,6 +6024,8 @@ mod collection_field_tests {
             label: Some(label.to_string()),
             default_enabled: true,
             output: Some(output.to_string()),
+            format: None,
+            contains: Vec::new(),
             fields: None,
             branch_fields: Vec::new(),
             assigns: Vec::new(),

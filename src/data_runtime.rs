@@ -807,29 +807,15 @@ fn resolve_runtime_list(
 ) -> std::result::Result<HierarchyList, ErrorReport> {
     let mut resolved = list.clone();
     for item in &mut resolved.items {
-        if let Some(field_ids) = item.fields.as_ref() {
-            let mut branch_fields = Vec::new();
-            for field_id in field_ids {
-                let field = fields_by_id.get(field_id.as_str()).ok_or_else(|| {
-                    report(
-                        "runtime_unknown_branch_field",
-                        format!(
-                            "list '{}' item '{}' references unknown branch field '{}'",
-                            list.id, item.id, field_id
-                        ),
-                        index.source_for(&list.id),
-                    )
-                })?;
-                branch_fields.push(resolve_field(
-                    field,
-                    fields_by_id,
-                    collections_by_id,
-                    lists_by_id,
-                    &mut Vec::new(),
-                    index,
-                )?);
-            }
-            item.branch_fields = branch_fields;
+        if item.format.is_some() || !item.contains.is_empty() {
+            item.branch_fields = vec![resolve_item_branch_field(
+                &list.id,
+                item,
+                fields_by_id,
+                collections_by_id,
+                lists_by_id,
+                index,
+            )?];
         }
         for assign in &mut item.assigns {
             let target_list = lists_by_id.get(assign.list_id.as_str()).ok_or_else(|| {
@@ -868,4 +854,35 @@ fn resolve_runtime_list(
         }
     }
     Ok(resolved)
+}
+
+fn resolve_item_branch_field(
+    list_id: &str,
+    item: &HierarchyItem,
+    fields_by_id: &HashMap<&str, &HierarchyField>,
+    collections_by_id: &HashMap<&str, &HierarchyCollection>,
+    lists_by_id: &HashMap<&str, &HierarchyList>,
+    index: &SourceIndex,
+) -> std::result::Result<HeaderFieldConfig, ErrorReport> {
+    let field = HierarchyField {
+        id: format!("__item_branch_{}_{}", list_id, item.id),
+        label: item.ui_label().to_string(),
+        nav_label: None,
+        hotkey: None,
+        format: item.format.clone(),
+        preview: None,
+        contains: item.contains.clone(),
+        joiner_style: None,
+        max_entries: None,
+        max_actives: None,
+    };
+
+    resolve_field(
+        &field,
+        fields_by_id,
+        collections_by_id,
+        lists_by_id,
+        &mut Vec::new(),
+        index,
+    )
 }

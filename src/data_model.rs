@@ -314,6 +314,10 @@ pub struct HierarchyItem {
     #[serde(default)]
     pub output: Option<String>,
     #[serde(default)]
+    pub format: Option<String>,
+    #[serde(default)]
+    pub contains: Vec<HierarchyChildRef>,
+    #[serde(default)]
     pub fields: Option<Vec<String>>,
     #[serde(skip)]
     pub branch_fields: Vec<HeaderFieldConfig>,
@@ -343,7 +347,9 @@ struct HierarchyItemRaw {
     #[serde(default)]
     hotkey: Option<String>,
     #[serde(default)]
-    fields: Option<Vec<String>>,
+    format: Option<String>,
+    #[serde(default)]
+    contains: Vec<HierarchyChildRef>,
     #[serde(default)]
     assigns: Vec<ItemAssignment>,
 }
@@ -405,7 +411,9 @@ impl HierarchyItem {
             label: item.label,
             default_enabled: item.default_enabled,
             output: item.output,
-            fields: item.fields,
+            format: item.format,
+            contains: item.contains,
+            fields: None,
             branch_fields: Vec::new(),
             assigns: item.assigns,
         }
@@ -417,6 +425,8 @@ impl HierarchyItem {
             label: Some(label.clone()),
             default_enabled: true,
             output: Some(label),
+            format: None,
+            contains: Vec::new(),
             fields: None,
             branch_fields: Vec::new(),
             assigns: Vec::new(),
@@ -435,6 +445,10 @@ impl HierarchyItem {
             .as_deref()
             .or(self.label.as_deref())
             .unwrap_or("")
+    }
+
+    pub fn branch_format(&self) -> Option<&str> {
+        self.format.as_deref()
     }
 
     pub fn default_enabled(&self) -> bool {

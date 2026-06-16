@@ -160,7 +160,7 @@ block rather than a `section` block.
 
 ## `field`
 
-**Parents:** `section`; `field` sub-field; `item` (via `fields:`); `group` (later)
+**Parents:** `section`; `field` sub-field; `item` branch (via `contains: - field:`); `group` (later)
 
 **Accepts in `contains`:** `field` refs, `list` refs, `collection` refs
 
@@ -253,8 +253,13 @@ lists:
 
 **Parents:** `list` only
 
-Items are the leaf nodes. They don't use `contains`. They have their own parallel mechanism
-for branching and side-effects.
+Items can be either leaf nodes or branch nodes.
+
+Leaf items use `output:` and directly contribute note text.
+
+Branch items use `format:` plus typed `contains:` refs. They behave like an inline field owned by
+the source item: when the item is chosen, Scribblenot opens the contained child choices and renders
+their confirmed values through the item's `format:`.
 
 ```yaml
 items:
@@ -264,10 +269,31 @@ items:
     assigns:
       - list: some_other_list
         item: some_item_id
-    fields: [field_id_one, field_id_two]       # item-driven branching
+
+  - id: appointment_type_branch
+    label: "Treatment massage with details"
+    format: "{region}{pressure}"
+    contains:
+      - field: region
+      - list: pressure
 ```
 
-**Contains (functional, not via `contains:` key):**
+An item cannot mix the two shapes:
+- `output:` is for leaf items.
+- `format:` + `contains:` is for branch items.
+- `output:` with either `format:` or `contains:` is a validation error.
+
+**Contains:**
+
+`contains:`
+- Target: `field`, `list`, and `collection` refs.
+- Opens follow-up branch content when the item is chosen.
+- The item `format:` should use placeholders for the contained child IDs, for example
+  `format: "{region}{pressure}"`.
+- Existing reusable top-level fields still work as `field:` children, but one-off branch structure
+  no longer needs a separate middleman field.
+
+**Side-effects:**
 
 `assigns:`
 - Target: `list` + `item` only. Explicit no for all other targets (field values, higher levels, etc).
@@ -281,13 +307,6 @@ items:
   This gets even more complicated on repeat behaviours, where the same field runs multiple times
   and each repetition may need its own isolated assign context.
 
-`fields:`
-- Intended to reference existing authored field blocks by ID and activate them as sub-fields
-  when this item is chosen.
-- Resolved and validated at load time. Missing IDs and wrong-kind IDs are hard errors.
-- At runtime, the chosen authored fields are wired into the branch flow in authored order.
-- `branch_fields` is no longer part of the authored schema; `fields:` is the supported path.
-
 ---
 
 ## Summary: where the schema is closed vs open
@@ -300,4 +319,4 @@ items:
 | collection | Yes | list-only by design |
 | field | Mostly | bare-field case unvalidated |
 | list | Partially | `modal_start: search` parsed but not wired |
-| item | Mostly | `fields` is validated and wired; assigns scoping still has open design work |
+| item | Mostly | branch items use `format` + typed `contains`; `assigns` scoping still has open design work |

@@ -12,6 +12,7 @@ sections:
       - field: appointment_date_field
       - field: appointment_requested_field_brief
       - field: int_exha_field_brief
+      - field: int_diagnosis_mental_extended
       - field: int_diagnosis_mental_brief
       - field: exercise_recent
       
@@ -34,13 +35,21 @@ fields:
      # - list: exercise_due_to
 
 
-  - id: int_diagnosis_mental_brief
-    label: "Mental Health Condition"
-    format: "- {year}-{month}-{day}: {patientdiagnosis} {mentalcondition}{diagnosis_list}." # {pluralizer}{starting_ago}." {year}-{month}-{day}: 
+  - id: int_diagnosis_mental_extended
+    label: "Mental Health Condition Detailed"
+    format: "- {year}-{month}-{day}: {patientdiagnosis} {mentalcondition}{diagnosis_word}." # {pluralizer}{starting_ago}." {year}-{month}-{day}: 
     max_entries: 12
    # joiner_style: newline
     contains:
       - list: patientdiagnosis
+      - list: mentalcondition
+  - id: int_diagnosis_mental_brief
+    label: "Mental Health Condition"
+    format: "- {year}-{month}-{day}: {mentalcondition}{diagnosis_word}." # {pluralizer}{starting_ago}." {year}-{month}-{day}: 
+    max_entries: 12
+   # joiner_style: newline
+    contains:
+     # - list: patientdiagnosis
       - list: mentalcondition
 
   - id: frequency_branch
@@ -79,18 +88,18 @@ lists:
         label: "[empty]"
         output: ""
         assigns:
-          - list: diagnosis_list
+          - list: diagnosis_word
             item: empty
       - id: pt_describes
         label: "describes managing"
         output: "Pt describes managing"
         assigns:
-          - list: diagnosis_list
+          - list: diagnosis_word
             item: empty
-      - label: "Pt reports diagnosis"
+      - label: "Pt reports [X] diagnosis"
         output: "Pt reports"
         assigns:
-          - list: diagnosis_list
+          - list: diagnosis_word
             item: diagnosis
    #   - label: "describes intermittent"
    #     output: "Pt describes intermittent"
@@ -109,7 +118,7 @@ lists:
    #   - label: "previously enjoyed"
    #     output: "Pt previously enjoyed"
 
-  - id: diagnosis_list
+  - id: diagnosis_word
     label: "diagnosis"
     default: empty
     items:
@@ -119,6 +128,7 @@ lists:
       - id: diagnosis
         label: "diagnosis"
         output: " diagnosis"
+        
         
   - id: exha_details_root
     label: "details"
@@ -132,14 +142,14 @@ lists:
         output: ""   
       - id: detail_freq
         label: "Frequency"
-        output: "{frequency_branch}"
-        fields:
-          - frequency_branch
+        format: "{frequency2}"
+        contains:
+          - list: frequency2
       - id: detail_starting_since
         label: "Starting Since"
-        output: "{starting_since_branch}"
-        fields:
-          - starting_since_branch
+        format: "{starting_since2}"
+        contains:
+          - list: starting_since2
      # - list: starting_since
      # - list: starting_frequency
      # - list: duration_unit
@@ -161,9 +171,11 @@ lists:
             item: ago
       - id: in_the_past
         label: "in the past"
-        output: "in the past{starting_frequency_branch}"
-        fields:
-          - starting_frequency_branch
+      #  output: "{starting_frequency_branch}"
+        format: "in the past{starting_frequency}{duration_unit}"
+        contains:
+          - list: starting_frequency
+          - list: duration_unit
         assigns:
           - list: starting_ago
             item: empty_space
@@ -171,25 +183,28 @@ lists:
        #   - appointment_date_field
       - id: starting
         label: "starting"
-        output: "starting{starting_frequency_branch}"
-        fields:
-          - starting_frequency_branch
+        format: "starting{starting_frequency}{duration_unit}"
+        contains:
+          - list: starting_frequency
+          - list: duration_unit
         assigns:
           - list: starting_ago
             item: ago
       - id: starting_around
         label: "starting around"
-        output: "starting around{starting_frequency_branch}"
-        fields:
-          - starting_frequency_branch
+        format: "starting around{starting_frequency}{duration_unit}"
+        contains:
+          - list: starting_frequency
+          - list: duration_unit
         assigns:
           - list: starting_ago
             item: ago
       - id: starting_over
         label: "starting over"
-        output: "starting over{starting_frequency_branch}"
-        fields:
-          - starting_frequency_branch
+        format: "starting over{starting_frequency}{duration_unit}"
+        contains:
+          - list: starting_frequency
+          - list: duration_unit
         assigns:
           - list: starting_ago
             item: ago
@@ -201,25 +216,28 @@ lists:
    #         item: empty_space
       - id: for
         label: "for"
-        output: "for{starting_frequency_branch}"
-        fields:
-          - starting_frequency_branch
+        format: "for{starting_frequency}{duration_unit}"
+        contains:
+          - list: starting_frequency
+          - list: duration_unit
         assigns:
           - list: starting_ago
             item: empty_space
       - id: for_over
         label: "for over"
-        output: "for over{starting_frequency_branch}"
-        fields:
-          - starting_frequency_branch
+        format: "for over{starting_frequency}{duration_unit}"
+        contains:
+          - list: starting_frequency
+          - list: duration_unit
         assigns:
           - list: starting_ago
             item: empty_space
       - id: progressing_over_the_past
         label: "progressing over the past"
-        output: "progressing over the past{starting_frequency_branch}"
-        fields:
-          - starting_frequency_branch
+        format: "progressing over the past{starting_frequency}{duration_unit}"
+        contains:
+          - list: starting_frequency
+          - list: duration_unit
         assigns:
           - list: starting_ago
             item: empty_space
@@ -236,16 +254,17 @@ lists:
    #       - list: starting_ago
    #         item: empty_space
       - id: since_their_last_appointment
-        label: "since {pos_pronoun} last appointment"
-        output: "since {pos_pronoun} last appointment"
+        label: "since {pos_pronoun} previous appointment"
+        output: "since {pos_pronoun} previous appointment"
         assigns:
           - list: starting_ago
             item: empty_space
       - id: since_their_last_appointment_ago
-        label: "since {pos_pronoun} last appointment ... ago"
-        output: "since {pos_pronoun} last appointment{starting_frequency_branch}"
-        fields:
-          - starting_frequency_branch
+        label: "since {pos_pronoun} previous appointment ... ago"
+        format: "since {pos_pronoun} previous appointment{starting_frequency}{duration_unit}"
+        contains:
+          - list: starting_frequency
+          - list: duration_unit
         assigns:
           - list: starting_ago
             item: ago
@@ -268,10 +287,11 @@ lists:
           - list: starting_ago
             item: empty_space
       - id: since_their_injury_ago
-        label: "since {pos_pronoun} injury ... ago{starting_frequency_branch}"
-        fields:
-          - starting_frequency_branch
-        output: "since {pos_pronoun} injury"
+        label: "since {pos_pronoun} injury ... ago"
+        format: "since {pos_pronoun} injury{starting_frequency}{duration_unit}"
+        contains:
+          - list: starting_frequency
+          - list: duration_unit      
         assigns:
           - list: starting_ago
             item: ago
@@ -294,42 +314,47 @@ lists:
           - list: starting_ago
             item: empty_space
       - id: since_their_surgery_ago
-        label: "since {pos_pronoun} surgery ... ago{starting_frequency_branch}"
-        fields:
-          - starting_frequency_branch
-        output: "since {pos_pronoun} surgery"
+        label: "since {pos_pronoun} surgery ... ago"
+        format: "since {pos_pronoun} surgery{starting_frequency}{duration_unit}"
+        contains:
+          - list: starting_frequency
+          - list: duration_unit
         assigns:
           - list: starting_ago
             item: ago
       - id: ending
         label: "ending"
-        output: "ending{starting_frequency_branch}"
-        fields:
-          - starting_frequency_branch
+        format: "ending{starting_frequency}{duration_unit}"
+        contains:
+          - list: starting_frequency
+          - list: duration_unit
         assigns:
           - list: starting_ago
             item: empty_space
       - id: ending_ago
-        label: "ending ... ago{starting_frequency_branch}"
-        fields:
-          - starting_frequency_branch
-        output: "ending"
+        label: "ending ... ago"
+        format: "ending{starting_frequency}{duration_unit}"
+        contains:
+          - list: starting_frequency
+          - list: duration_unit
         assigns:
           - list: starting_ago
             item: ago
       - id: ending_over_ago
-        label: "ending over ... ago{starting_frequency_branch}"
-        fields:
-          - starting_frequency_branch
-        output: "ending over"
+        label: "ending over ... ago"
+        format: "ending over{starting_frequency}{duration_unit}"
+        contains:
+          - list: starting_frequency
+          - list: duration_unit
         assigns:
           - list: starting_ago
             item: ago
       - id: after
         label: "after"
-        output: "after{starting_frequency_branch}"
-        fields:
-          - starting_frequency_branch
+        format: "after{starting_frequency}{duration_unit}"
+        contains:
+          - list: starting_frequency
+          - list: duration_unit
         assigns:
           - list: starting_ago
             item: empty_space
@@ -385,44 +410,86 @@ lists:
         output: ""
       - id: exha_activity
         label: "[SPECIFIC ACTIVITY]"
-        output: "{activities_branch}"
-        fields:
-          - activities_branch
+        format: "{activities}"
+        contains:
+          - list: activities
       - id: exha_habits
         label: "[HABITS ADHERENCE]"
-        output: "{adherence_branch}"
-        fields:
-          - adherence_branch
+        format: "{adherence}"
+        contains:
+          - list: adherence
   - id: activities
     label: "activities"
     preview: "[activities]"
     max_entries: 12
-    joiner_style: comma_and
+    joiner_style: comma
     modal_start: list
     items:
       - id: empty_space
         label: "(empty/done)"
         output: ""
       - id: exha_1
-        output: "training"
+        label: "training"
+        format: "training{frequency2}"
+        contains:
+          - list: frequency2
       - id: exha_2
-        output: "walking"
+        label: "walking"
+        format: "walking{frequency2}"
+        contains:
+          - list: frequency2
       - id: exha_21
-        output: "running"
-      - id: exha_22
-        output: "resistance training"
-      - id: exha_18
-        output: "working out (cardio)"
-      - id: exha_17
-        output: "yoga"
-      - id: exha_pil
-        output: "pilates"
-      - id: exha_19
-        output: "powerlifting"
-      - id: exha_20
-        output: "CrossFit"
-      - output: "dragonboating"
-      - "paddleboarding"
+        label: "running"
+        format: "running{frequency2}"
+        contains:
+          - list: frequency2
+      - label: "resistance training"
+        format: "resistance training{frequency2}"
+        contains:
+          - list: frequency2
+      - label: "cardio training"
+        format: "cardio training{frequency2}"
+        contains:
+          - list: frequency2
+      - label: "yoga"
+        format: "yoga{frequency2}"
+        contains:
+          - list: frequency2
+      - label: "pilates"
+        format: "pilates{frequency2}"
+        contains:
+          - list: frequency2
+      - label: "powerlifting"
+        format: "powerlifting{frequency2}"
+        contains:
+          - list: frequency2
+      - label: "CrossFit"
+        format: "CrossFit{frequency2}"
+        contains:
+          - list: frequency2
+      - label: "dragonboating"
+        format: "dragonboating{frequency2}"
+        contains:
+          - list: frequency2
+      - label: "paddleboarding"
+        format: "paddleboarding{frequency2}"
+        contains:
+          - list: frequency2
+
+
+
+
+
+
+ #       fields:
+ #         - 
+ # - id: adherence_branch
+ #   label: adherence
+ #   format: "{adherence}"
+ #   contains:
+ #     - list: adherence
+     # - output: "dragonboating"
+     # - "paddleboarding"
 
   - id: adherence
     label: "adherence"

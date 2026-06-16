@@ -260,9 +260,25 @@ pub(crate) fn detect_invalid_child_ref_line(
             after_dash
                 .split_once(':')
                 .map(|(key, _)| !valid.contains(&key.trim()))
-                .unwrap_or(false)
+                .unwrap_or(!after_dash.is_empty())
         })
         .map(|(idx, _)| idx + 1)
+}
+
+pub(crate) fn invalid_child_ref_syntax_report(
+    source: Option<ErrorSource>,
+    path: &Path,
+    doc_number: usize,
+) -> ErrorReport {
+    ErrorReport::generic(
+        "invalid_child_ref_syntax",
+        format!(
+            "failed to parse '{}' document {}: `contains:` entries must use typed child refs such as `- list: some_id` or `- field: some_id`.",
+            path.display(),
+            doc_number
+        ),
+    )
+    .with_source(source)
 }
 
 pub(crate) fn authored_unknown_key_context(
@@ -798,8 +814,9 @@ fn allowed_keys_for_owner_kind(owner_kind: &str) -> &'static [&'static str] {
             "label",
             "default_enabled",
             "output",
+            "format",
+            "contains",
             "hotkey",
-            "fields",
             "assigns",
         ],
         "assign" => &["list", "item"],
@@ -1049,6 +1066,7 @@ pub(crate) fn validate_merged_hierarchy(
         .collect();
     for list in &file.lists {
         for item in &list.items {
+            validate_item_branch_shape(list, item, &global_ids, index)?;
             if let Some(field_ids) = item.fields.as_ref() {
                 for field_id in field_ids {
                     match global_ids.get(field_id.as_str()) {
@@ -1149,6 +1167,250 @@ pub(crate) fn validate_merged_hierarchy(
     }
 
     Ok(())
+}
+
+fn validate_item_branch_shape(
+    list: &HierarchyList,
+    item: &HierarchyItem,
+    global_ids: &HashMap<String, TypeTag>,
+    index: &SourceIndex,
+) -> std::result::Result<(), ErrorReport> {
+    if item.output.is_some() && item.format.is_some() {
+        return Err(item_leaf_branch_conflict_report(
+            list, item, "format", index,
+        ));
+    }
+    if item.output.is_some() && !item.contains.is_empty() {
+        return Err(item_leaf_branch_conflict_report(
+            list, item, "contains", index,
+        ));
+    }
+    if item.format.is_some() && item.contains.is_empty() {
+        return Err(item_branch_incomplete_report(
+            list,
+            item,
+            "format_without_contains",
+            "has `format:` but no `contains:`",
+            "Add `contains:` entries for the child field/list placeholders, or make this a leaf item by replacing `format:` with `output:`.",
+            index,
+        ));
+    }
+    if item.format.is_none() && !item.contains.is_empty() {
+        return Err(item_branch_incomplete_report(
+            list,
+            item,
+            "contains_without_format",
+            "has `contains:` but no `format:`",
+            "Add `format:` with placeholders for the contained children, or make this a leaf item by removing `contains:` and using `output:`.",
+            index,
+        ));
+    }
+
+    let owner_label = format!("item '{}' in list '{}'", item.id, list.id);
+    for child in &item.contains {
+        validate_child_exists(
+            child,
+            global_ids,
+            &ValidationOwner {
+                label: owner_label.clone(),
+                kind: "item",
+                id: Some(item.id.clone()),
+                source_id: Some(list.id.clone()),
+            },
+            index,
+        )?;
+        if !matches!(
+            child.kind(),
+            TypeTag::Field | TypeTag::List | TypeTag::Collection
+        ) {
+            return Err(report(
+                "item_invalid_child_kind",
+                format!(
+                    "{} may not contain {} '{}'. Branch items may contain fields, lists, or collections.",
+                    owner_label,
+                    kind_label(child.kind()),
+                    child.id()
+                ),
+                index.source_for(&list.id),
+            )
+            .with_param("owner_kind", "item")
+            .with_param("owner_label", owner_label)
+            .with_param("referenced_kind", kind_label(child.kind()))
+            .with_param("referenced_id", child.id())
+            .with_param("allowed_kinds", "field, list, collection"));
+        }
+    }
+
+    let format = item.format.as_deref().unwrap_or_default();
+    for placeholder_id in referenced_placeholder_ids(item.format.as_deref()) {
+        let item_has_list = item.contains.iter().any(
+            |child| matches!(child, HierarchyChildRef::List { list } if list == &placeholder_id),
+        );
+        let item_has_collection = item.contains.iter().any(
+            |child| matches!(child, HierarchyChildRef::Collection { collection } if collection == &placeholder_id),
+        );
+        let item_has_field = item.contains.iter().any(
+            |child| matches!(child, HierarchyChildRef::Field { field } if field == &placeholder_id),
+        );
+        if item_has_list || item_has_collection || item_has_field {
+            continue;
+        }
+        match global_ids.get(placeholder_id.as_str()) {
+            Some(TypeTag::List) => {}
+            Some(other) => {
+                return Err(report(
+                    "item_expected_format_list_wrong_kind",
+                    format!(
+                        "{} expected format list '{}', found {}. Fix: add it to this item's `contains:` with the right kind, or update the placeholder.",
+                        owner_label,
+                        placeholder_id,
+                        kind_label(*other)
+                    ),
+                    index.source_for(&list.id),
+                )
+                .with_param("owner_kind", "item")
+                .with_param("owner_label", owner_label)
+                .with_param("placeholder_id", placeholder_id)
+                .with_param("actual_kind", kind_label(*other)));
+            }
+            None => {
+                if looks_like_double_brace_placeholder(format, &placeholder_id) {
+                    let normalized_id = placeholder_id.trim_start_matches('{');
+                    return Err(report(
+                        "item_double_brace_format_placeholder",
+                        format!(
+                            "{} uses invalid double-brace placeholder '{{{{{}}}}}' in `format:`. Scribblenot placeholders use single braces like '{{{}}}'.",
+                            owner_label, normalized_id, normalized_id
+                        ),
+                        index.source_for(&list.id),
+                    )
+                    .with_param("owner_kind", "item")
+                    .with_param("owner_label", owner_label)
+                    .with_param("placeholder_id", normalized_id)
+                    .with_param("actual_placeholder_token", format!("{{{{{normalized_id}}}}}")));
+                }
+                return Err(report(
+                    "item_unknown_format_list",
+                    format!(
+                        "{} references unknown format list '{}'. Fix: add the list or attach an existing field/list through this item's `contains:`.",
+                        owner_label, placeholder_id
+                    ),
+                    index.source_for(&list.id),
+                )
+                .with_param("owner_kind", "item")
+                .with_param("owner_label", owner_label)
+                .with_param("placeholder_id", placeholder_id));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn item_leaf_branch_conflict_report(
+    list: &HierarchyList,
+    item: &HierarchyItem,
+    conflicting_key: &'static str,
+    index: &SourceIndex,
+) -> ErrorReport {
+    let owner_label = format!("item '{}' in list '{}'", item.id, list.id);
+    let source = item_property_source(list, item, conflicting_key, index)
+        .or_else(|| index.source_for(&list.id));
+    report(
+        "item_leaf_branch_conflict",
+        format!(
+            "{} has both `output:` and `{}`. Choose one shape: leaf item (`output:` only) or branch item (`format:` + `contains:`).",
+            owner_label, conflicting_key
+        ),
+        source,
+    )
+    .with_param("owner_kind", "item")
+    .with_param("owner_label", owner_label)
+    .with_param("conflicting_key", conflicting_key)
+}
+
+fn item_branch_incomplete_report(
+    list: &HierarchyList,
+    item: &HierarchyItem,
+    kind_id: &'static str,
+    problem: &'static str,
+    fix: &'static str,
+    index: &SourceIndex,
+) -> ErrorReport {
+    let owner_label = format!("item '{}' in list '{}'", item.id, list.id);
+    let source = item_property_source(
+        list,
+        item,
+        if kind_id == "format_without_contains" {
+            "format"
+        } else {
+            "contains"
+        },
+        index,
+    )
+    .or_else(|| index.source_for(&list.id));
+    report(
+        kind_id,
+        format!("{} {}. Fix: {}", owner_label, problem, fix),
+        source,
+    )
+    .with_param("owner_kind", "item")
+    .with_param("owner_label", owner_label)
+}
+
+fn item_property_source(
+    list: &HierarchyList,
+    item: &HierarchyItem,
+    key: &str,
+    index: &SourceIndex,
+) -> Option<ErrorSource> {
+    let list_source = index.source_for(&list.id)?;
+    let content = fs::read_to_string(&list_source.file).ok()?;
+    let lines: Vec<&str> = content.lines().collect();
+    let list_start = list_source.line.saturating_sub(1);
+    let list_end = find_next_sibling_entry(&lines, list_start, 2).unwrap_or(lines.len());
+    let item_start = lines
+        .iter()
+        .enumerate()
+        .take(list_end)
+        .skip(list_start)
+        .find(|(_, line)| {
+            leading_spaces(line) >= 6
+                && line.trim().starts_with("- id:")
+                && line
+                    .trim()
+                    .trim_start_matches("- id:")
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    == item.id
+        })
+        .map(|(idx, _)| idx)?;
+    let item_indent = leading_spaces(lines[item_start]);
+    let item_end = find_next_sibling_entry(&lines, item_start, item_indent).unwrap_or(list_end);
+
+    lines
+        .iter()
+        .enumerate()
+        .take(item_end)
+        .skip(item_start)
+        .find(|(_, line)| {
+            line.trim() == format!("{key}:") || line.trim().starts_with(&format!("{key}: "))
+        })
+        .map(|(idx, line)| ErrorSource {
+            file: list_source.file,
+            line: idx + 1,
+            quoted_line: Some(line.trim().to_string()),
+        })
+}
+
+fn find_next_sibling_entry(lines: &[&str], start_idx: usize, indent: usize) -> Option<usize> {
+    lines
+        .iter()
+        .enumerate()
+        .skip(start_idx + 1)
+        .find(|(_, line)| leading_spaces(line) == indent && line.trim().starts_with("- id:"))
+        .map(|(idx, _)| idx)
 }
 
 pub(crate) fn kind_label(tag: TypeTag) -> &'static str {

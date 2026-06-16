@@ -65,7 +65,8 @@ pub(crate) fn read_hierarchy_dir(
                 format!("failed to read '{}': {err}", path.display()),
             )
         })?;
-        let (file, file_sources) = parse_hierarchy_file_documents(&content, &path)?;
+        let (file, file_sources) = parse_hierarchy_file_documents(&content, &path)
+            .map_err(|err| decorate_item_fields_error_with_related_sources(err, dir))?;
 
         if file.template.is_some() {
             template_count += 1;
@@ -110,6 +111,75 @@ pub(crate) fn read_hierarchy_dir(
     }
 
     Ok((merged, source_index, hierarchy_file_count))
+}
+
+fn decorate_item_fields_error_with_related_sources(err: ErrorReport, dir: &Path) -> ErrorReport {
+    if err.kind_id() != "unsupported_authored_key" {
+        return err;
+    }
+    let params = err.params();
+    let is_item_fields = params
+        .iter()
+        .any(|(key, value)| key == "owner_kind" && value == "item")
+        && params
+            .iter()
+            .any(|(key, value)| key == "key_name" && value == "fields");
+    if !is_item_fields {
+        return err;
+    }
+
+    with_related_item_fields_sources(err, dir)
+}
+
+fn with_related_item_fields_sources(mut report: ErrorReport, dir: &Path) -> ErrorReport {
+    let mut entries = match fs::read_dir(dir) {
+        Ok(entries) => entries
+            .filter_map(std::result::Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("yml"))
+            .collect::<Vec<_>>(),
+        Err(_) => return report,
+    };
+    entries.sort();
+
+    let mut number = 1usize;
+    for path in entries {
+        if matches!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("keybindings.yml" | "config.yml" | "default-theme.yml")
+        ) {
+            continue;
+        }
+        let Ok(content) = fs::read_to_string(&path) else {
+            continue;
+        };
+        for (line_idx, line) in content.lines().enumerate() {
+            if !looks_like_item_fields_line(line) {
+                continue;
+            }
+            let line = line.trim().to_string();
+            let line_number = line_idx + 1;
+            if report.source.as_ref().is_some_and(|source| {
+                source.file == path
+                    && source.line == line_number
+                    && source.quoted_line.as_deref() == Some(line.as_str())
+            }) {
+                continue;
+            }
+            report = report
+                .with_param(format!("related_file_{number}"), path.display().to_string())
+                .with_param(format!("related_line_{number}"), line_number.to_string())
+                .with_param(format!("related_quoted_line_{number}"), line);
+            number += 1;
+        }
+    }
+    report
+}
+
+fn looks_like_item_fields_line(line: &str) -> bool {
+    let leading = line.chars().take_while(|ch| *ch == ' ').count();
+    let trimmed = line.trim();
+    leading >= 8 && (trimmed == "fields:" || trimmed.starts_with("fields: ["))
 }
 
 pub fn load_hierarchy_dir(dir: &Path) -> std::result::Result<LoadedHierarchy, ErrorReport> {
@@ -372,19 +442,15 @@ pub(crate) fn authored_yaml_doc_error(
     }
 
     if let Some(rel_line) = detect_invalid_child_ref_line(&message, doc, &err) {
-        return ErrorReport::generic(
-            "yaml_parse_failed",
-            format!(
-                "failed to parse '{}' document {}: {err}",
-                path.display(),
-                doc_number
-            ),
-        )
-        .with_source(Some(ErrorSource {
-            file: path.to_path_buf(),
-            line: doc.start_line + rel_line - 1,
-            quoted_line: quoted_line(doc.text, rel_line),
-        }));
+        return invalid_child_ref_syntax_report(
+            Some(ErrorSource {
+                file: path.to_path_buf(),
+                line: doc.start_line + rel_line - 1,
+                quoted_line: quoted_line(doc.text, rel_line),
+            }),
+            path,
+            doc_number,
+        );
     }
 
     ErrorReport::generic(
