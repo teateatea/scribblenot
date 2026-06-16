@@ -1637,6 +1637,14 @@ mod tests {
         assert_eq!(kb.nav_right, vec!["right".to_string(), "i".to_string()]);
         assert_eq!(kb.copy_note, vec!["shift+c".to_string()]);
         assert_eq!(kb.copy_section, vec!["c".to_string()]);
+        assert_eq!(
+            kb.add_another,
+            vec!["shift+enter".to_string(), "shift+d".to_string()]
+        );
+        assert_eq!(
+            kb.super_confirm,
+            vec!["ctrl+enter".to_string(), "ctrl+d".to_string()]
+        );
         assert_eq!(kb.theme_reload, vec!["/".to_string()]);
         assert_eq!(kb.data_reload, vec!["\\".to_string()]);
     }
@@ -1649,6 +1657,7 @@ mod tests {
             "select: [space]\n",
             "confirm: [enter]\n",
             "add_entry: [d]\n",
+            "add_another: [shift+enter]\n",
             "back: [esc]\n",
             "swap_panes: ['`']\n",
             "help: ['?']\n",
@@ -1656,7 +1665,7 @@ mod tests {
             "nav_left: [left, h]\n",
             "nav_right: [right, i]\n",
             "hints: [a]\n",
-            "super_confirm: [shift+enter]\n",
+            "super_confirm: [ctrl+enter]\n",
             "copy_note: [shift+c]\n",
             "copy_section: [c]\n",
             "theme_reload: [/]\n",
@@ -1668,6 +1677,8 @@ mod tests {
         assert_eq!(kb.nav_right, vec!["right".to_string(), "i".to_string()]);
         assert_eq!(kb.copy_note, vec!["shift+c".to_string()]);
         assert_eq!(kb.copy_section, vec!["c".to_string()]);
+        assert_eq!(kb.add_another, vec!["shift+enter".to_string()]);
+        assert_eq!(kb.super_confirm, vec!["ctrl+enter".to_string()]);
         assert_eq!(kb.theme_reload, vec!["/".to_string()]);
         assert_eq!(kb.data_reload, vec!["\\".to_string()]);
     }

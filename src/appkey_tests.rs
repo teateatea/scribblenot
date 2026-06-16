@@ -41,6 +41,16 @@ mod appkey_conversion_tests {
     }
 
     #[test]
+    fn ctrl_enter_maps_to_ctrl_enter() {
+        let result = appkey_from_iced(Key::Named(Named::Enter), Modifiers::CTRL);
+        assert_eq!(
+            result,
+            AppKey::CtrlEnter,
+            "Named::Enter with CTRL modifier should map to AppKey::CtrlEnter"
+        );
+    }
+
+    #[test]
     fn escape_maps_to_esc() {
         assert_eq!(
             named(Named::Escape),

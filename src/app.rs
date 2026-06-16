@@ -41,6 +41,7 @@ pub enum AppKey {
     CtrlChar(char),
     CtrlC,
     Enter,
+    CtrlEnter,
     ShiftEnter,
     Esc,
     Up,
@@ -92,7 +93,9 @@ fn normalized_ctrl_char(c: char) -> char {
 pub fn appkey_from_iced(key: Key, modifiers: Modifiers) -> AppKey {
     match key {
         Key::Named(Named::Enter) => {
-            if modifiers.contains(Modifiers::SHIFT) {
+            if modifiers.contains(Modifiers::CTRL) {
+                AppKey::CtrlEnter
+            } else if modifiers.contains(Modifiers::SHIFT) {
                 AppKey::ShiftEnter
             } else {
                 AppKey::Enter
@@ -389,6 +392,7 @@ pub fn match_binding_str(binding: &str, key: &AppKey) -> bool {
         "backspace" => matches!(key, AppKey::Backspace),
         "tab" => matches!(key, AppKey::Tab),
         "shift+enter" => matches!(key, AppKey::ShiftEnter),
+        "ctrl+enter" => matches!(key, AppKey::CtrlEnter),
         s if s
             .strip_prefix("shift+")
             .is_some_and(|suffix| suffix.chars().count() == 1) =>
@@ -1205,11 +1209,15 @@ impl App {
 
     fn handle_modal_composition_key(&mut self, key: AppKey) {
         match key {
-            AppKey::ShiftEnter => {
+            AppKey::CtrlEnter => {
                 self.modal_composition_editing = false;
                 self.super_confirm_modal_field();
             }
-            AppKey::Tab | AppKey::Enter | AppKey::Esc | AppKey::CtrlChar('e') => {
+            AppKey::Tab
+            | AppKey::Enter
+            | AppKey::ShiftEnter
+            | AppKey::Esc
+            | AppKey::CtrlChar('e') => {
                 self.modal_composition_editing = false;
             }
             AppKey::Backspace => {
@@ -1611,6 +1619,10 @@ impl App {
 
     fn is_add_entry(&self, key: &AppKey) -> bool {
         self.matches_key(key, &self.data.keybindings.add_entry)
+    }
+
+    fn is_add_another(&self, key: &AppKey) -> bool {
+        self.matches_key(key, &self.data.keybindings.add_another)
     }
 
     fn is_back(&self, key: &AppKey) -> bool {
@@ -2865,6 +2877,11 @@ impl App {
             return;
         }
 
+        if self.is_add_another(&key) {
+            self.add_another_modal_value();
+            return;
+        }
+
         if self.is_super_confirm(&key) {
             self.super_confirm_modal_field();
             return;
@@ -3475,6 +3492,83 @@ impl App {
                     self.clear_live_modal_state_preserving_transitions();
                     let _ = self.config.save(&self.data_dir);
                 }
+            }
+        }
+    }
+
+    fn add_another_modal_value(&mut self) {
+        let idx = self.current_idx;
+        if self.modal.is_none() {
+            return;
+        }
+
+        let previous_layout = self.modal_unit_layout.clone();
+        let previous_modal = self.modal.as_ref().unwrap().clone();
+        let confirm_snapshot_override = self.modal.as_ref().and_then(|modal| {
+            modal.preview_current_list_as_confirmed(
+                None,
+                &self.assigned_values,
+                &self.config.sticky_values,
+            )
+        });
+        let window_size = self.modal_window_size();
+        let advance = self.modal.as_mut().unwrap().add_another_field(
+            &self.assigned_values,
+            &mut self.config.sticky_values,
+            window_size,
+        );
+
+        match advance {
+            FieldAdvance::NextList => {
+                self.sync_modal_preview_state(idx);
+                self.persist_modal_dependent_sticky_values();
+                let _ = self.config.save(&self.data_dir);
+                self.rebuild_modal_unit_layout(false);
+                self.fire_modal_transition_if_needed(
+                    previous_layout,
+                    previous_modal,
+                    confirm_snapshot_override,
+                );
+            }
+            FieldAdvance::StayOnList => {
+                self.sync_modal_preview_state(idx);
+                self.persist_modal_dependent_sticky_values();
+                let _ = self.config.save(&self.data_dir);
+            }
+            FieldAdvance::Complete(final_value) => {
+                let mut committed_value = self
+                    .modal
+                    .as_ref()
+                    .map(|modal| self.finalize_modal_completion_value(modal, final_value.clone()))
+                    .unwrap_or(final_value);
+                if let Some(override_text) = self
+                    .modal
+                    .as_ref()
+                    .and_then(|modal| modal.manual_override.clone())
+                {
+                    committed_value = HeaderFieldValue::ManualOverride {
+                        text: override_text,
+                        source: Box::new(committed_value),
+                    };
+                }
+                let modal_assignments =
+                    self.confirmed_assignments_for_current_header_field(idx, &committed_value);
+                self.persist_sticky_assignments(&modal_assignments);
+                if let Some(SectionState::Header(s)) = self.section_states.get_mut(idx) {
+                    s.composite_spans = None;
+                    s.set_current_value(committed_value);
+                    let done = s.advance();
+                    if let Some(key) = self.modal_assignment_source_key() {
+                        self.replace_assignments_for_key(key, modal_assignments);
+                    }
+                    self.sync_section_into_editable_note(idx);
+                    if done {
+                        self.advance_section();
+                    }
+                }
+                self.fire_modal_confirm_transition_if_possible(confirm_snapshot_override);
+                self.clear_live_modal_state_preserving_transitions();
+                let _ = self.config.save(&self.data_dir);
             }
         }
     }
@@ -4726,8 +4820,8 @@ mod tests {
     fn matches_key_super_confirm_binding_in_keybindings() {
         let kb = crate::data::KeyBindings::default();
         assert!(
-            kb.super_confirm.iter().any(|b| b == "shift+enter"),
-            "KeyBindings::default().super_confirm should contain \"shift+enter\""
+            kb.super_confirm.iter().any(|b| b == "ctrl+enter"),
+            "KeyBindings::default().super_confirm should contain \"ctrl+enter\""
         );
     }
 
@@ -4855,7 +4949,7 @@ mod tests {
             data_dir: PathBuf::new(),
         };
         let mut app = App::new(data, Config::default(), PathBuf::new());
-        app.handle_header_key(AppKey::ShiftEnter);
+        app.handle_header_key(AppKey::CtrlEnter);
         if let Some(SectionState::Header(s)) = app.section_states.get(0) {
             assert_eq!(
                 s.repeated_values[0]
@@ -4919,7 +5013,7 @@ mod tests {
             data_dir: PathBuf::new(),
         };
         let mut app = App::new(data, Config::default(), PathBuf::new());
-        app.handle_header_key(AppKey::ShiftEnter);
+        app.handle_header_key(AppKey::CtrlEnter);
         if let Some(SectionState::Header(s)) = app.section_states.get(0) {
             assert_eq!(
                 s.field_index, 0,
@@ -7614,17 +7708,17 @@ mod composition_span_tests {
     }
 
     #[test]
-    fn composition_override_shift_enter_super_confirms_manual_override() {
+    fn composition_override_ctrl_enter_super_confirms_manual_override() {
         let mut app = app_with_single_field(list_field(ModalStart::List));
         app.open_header_modal();
         app.handle_key(AppKey::CtrlChar('e'));
         app.set_modal_composition_text("Manual shoulder".to_string());
 
-        app.handle_key(AppKey::ShiftEnter);
+        app.handle_key(AppKey::CtrlEnter);
 
         assert!(
             app.modal.is_none(),
-            "shift+enter should commit and close the modal"
+            "ctrl+enter should commit and close the modal"
         );
         assert!(
             app.editable_note.contains("Region: Manual shoulder"),
@@ -7668,7 +7762,7 @@ mod composition_span_tests {
         state.field_index = 0;
         state.completed = false;
 
-        app.handle_header_key(AppKey::ShiftEnter);
+        app.handle_header_key(AppKey::CtrlEnter);
 
         let SectionState::Header(state) = &app.section_states[0] else {
             panic!("expected header state");

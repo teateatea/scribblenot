@@ -108,6 +108,8 @@ pub struct KeyBindings {
     pub select: Vec<String>,
     pub confirm: Vec<String>,
     pub add_entry: Vec<String>,
+    #[serde(default = "default_add_another")]
+    pub add_another: Vec<String>,
     pub back: Vec<String>,
     pub swap_panes: Vec<String>,
     pub help: Vec<String>,
@@ -149,7 +151,11 @@ fn default_data_reload() -> Vec<String> {
 }
 
 fn default_super_confirm() -> Vec<String> {
-    vec!["shift+enter".to_string()]
+    vec!["ctrl+enter".to_string(), "ctrl+d".to_string()]
+}
+
+fn default_add_another() -> Vec<String> {
+    vec!["shift+enter".to_string(), "shift+d".to_string()]
 }
 
 fn default_nav_left() -> Vec<String> {
@@ -175,6 +181,7 @@ impl Default for KeyBindings {
             select: vec!["space".to_string(), "s".to_string()],
             confirm: vec!["enter".to_string(), "t".to_string()],
             add_entry: vec!["a".to_string(), "d".to_string()],
+            add_another: default_add_another(),
             back: vec!["esc".to_string()],
             swap_panes: vec!["`".to_string()],
             help: vec!["?".to_string()],

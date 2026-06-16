@@ -113,6 +113,7 @@ nav_up: [up, e]
 select: [space]
 confirm: [enter]
 add_entry: [d]
+add_another: [shift+enter]
 back: [esc, backspace]
 swap_panes: ['`']
 help: ['?']
@@ -120,7 +121,7 @@ quit: [ctrl+q]
 nav_left: [left, h]
 nav_right: [right, i]
 hints: [a, r, s, t, q, w, f, p, 1, 2, 3, 4]
-super_confirm: [shift+enter]
+super_confirm: [ctrl+enter]
 copy_note: [shift+c]
 copy_section: [c]
 ```
@@ -133,6 +134,7 @@ nav_up: [up, e]
 select: [space, s]
 confirm: [enter, t]
 add_entry: [a, d]
+add_another: [shift+enter, shift+d]
 back: [esc]
 swap_panes: ['`']
 help: ['?']
@@ -140,7 +142,7 @@ quit: [ctrl+q]
 nav_left: [left, h]
 nav_right: [right, i]
 hints: [1, 2, 3, 4, 5, 6, 7, 8, 9]
-super_confirm: [shift+enter]
+super_confirm: [ctrl+enter, ctrl+d]
 copy_note: [shift+c]
 copy_section: [c]
 ```
@@ -151,6 +153,7 @@ copy_section: [c]
 | `select` | Toggle current item in multi-select or collection flows |
 | `confirm` | Confirm current value or advance |
 | `add_entry` | Start a new free-text entry; it is not used for reusable list authoring, and in list-select sections it currently shows an error because custom list entry creation was removed |
+| `add_another` | In repeating list modals, confirm the current item and stay in the picker for another item |
 | `back` | Go back, dismiss a modal, or leave a sub-context |
 | `swap_panes` | Toggle pane layout |
 | `help` | Show help overlay |
@@ -177,7 +180,7 @@ Modal reopen behavior:
 
 - Single characters: `a`, `1`, `/`
 - Special keys: `up`, `down`, `left`, `right`, `enter`, `esc`, `space`, `backspace`, `tab`
-- Modifier combos: `ctrl+q`, `shift+enter`
+- Modifier combos: `ctrl+q`, `ctrl+enter`, `shift+enter`
 
 ## Theme Reference (`default-theme.yml`)
 

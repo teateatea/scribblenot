@@ -1768,12 +1768,131 @@ impl SearchModal {
         self.advance_active_leaf_field(value, assigned_values, sticky_values, window_size)
     }
 
+    pub fn add_another_field(
+        &mut self,
+        assigned_values: &HashMap<String, String>,
+        sticky_values: &mut HashMap<String, String>,
+        window_size: usize,
+    ) -> FieldAdvance {
+        if !self.nested_stack.is_empty() {
+            return FieldAdvance::StayOnList;
+        }
+        if self.collection_state.is_none()
+            && self
+                .field_flow
+                .lists
+                .get(self.field_flow.list_idx)
+                .is_some_and(|list| effective_joiner_style(list).is_some())
+        {
+            return self.add_another_active_leaf_field(assigned_values, sticky_values, window_size);
+        }
+        if !self.branch_stack.is_empty() {
+            let Some(value) = self.selected_value().map(str::to_string) else {
+                return FieldAdvance::StayOnList;
+            };
+            return self.advance_active_leaf_field_with_branch_mode(
+                value,
+                assigned_values,
+                sticky_values,
+                window_size,
+                true,
+            );
+        }
+        FieldAdvance::StayOnList
+    }
+
+    fn add_another_active_leaf_field(
+        &mut self,
+        assigned_values: &HashMap<String, String>,
+        sticky_values: &mut HashMap<String, String>,
+        window_size: usize,
+    ) -> FieldAdvance {
+        if self.collection_state.is_some() {
+            return FieldAdvance::StayOnList;
+        }
+        let list = &self.field_flow.lists[self.field_flow.list_idx];
+        if effective_joiner_style(list).is_none() {
+            return FieldAdvance::StayOnList;
+        }
+        let Some(value) = self.selected_value().map(str::to_string) else {
+            return FieldAdvance::StayOnList;
+        };
+        if value.trim().is_empty() {
+            return FieldAdvance::StayOnList;
+        }
+        self.add_repeating_value(value, assigned_values, sticky_values, window_size)
+    }
+
+    fn add_repeating_value(
+        &mut self,
+        value: String,
+        assigned_values: &HashMap<String, String>,
+        sticky_values: &mut HashMap<String, String>,
+        window_size: usize,
+    ) -> FieldAdvance {
+        let list = &self.field_flow.lists[self.field_flow.list_idx];
+        if list.sticky {
+            sticky_values.insert(list.id.clone(), value.clone());
+        }
+        self.field_flow.repeat_values.push(value);
+        if let Some(item_id) = self.selected_item_id() {
+            self.field_flow.repeat_item_ids.push(item_id.to_string());
+        }
+        let mut merged_assigned = assigned_values.clone();
+        merged_assigned.extend(self.assigned_values(sticky_values));
+        let lookup = ListValueLookup::new(&merged_assigned, sticky_values);
+        if list
+            .max_entries
+            .is_some_and(|limit| self.field_flow.repeat_values.len() >= limit)
+        {
+            return self
+                .finish_repeating_current_list(
+                    None,
+                    None,
+                    assigned_values,
+                    sticky_values,
+                    window_size,
+                )
+                .unwrap_or(FieldAdvance::StayOnList);
+        }
+        self.all_entries = resolved_item_labels_for_list(
+            list,
+            &self.field_flow.values,
+            &self.field_flow.repeat_values,
+            &self.field_flow.lists,
+            &self.field_flow.format_lists,
+            lookup,
+        );
+        self.all_outputs = list.items.iter().map(item_output).collect();
+        self.query = String::new();
+        self.focus = modal_start_focus(list);
+        self.update_filter();
+        FieldAdvance::StayOnList
+    }
+
     fn advance_active_leaf_field(
         &mut self,
         value: String,
         assigned_values: &HashMap<String, String>,
         sticky_values: &mut HashMap<String, String>,
         window_size: usize,
+    ) -> FieldAdvance {
+        self.advance_active_leaf_field_with_branch_mode(
+            value,
+            assigned_values,
+            sticky_values,
+            window_size,
+            false,
+        )
+    }
+
+    fn advance_active_leaf_field_with_branch_mode(
+        &mut self,
+        value: String,
+        assigned_values: &HashMap<String, String>,
+        sticky_values: &mut HashMap<String, String>,
+        window_size: usize,
+        add_another_on_parent_branch: bool,
     ) -> FieldAdvance {
         if self.collection_state.is_some() {
             return FieldAdvance::Complete(self.collection_value());
@@ -1791,54 +1910,15 @@ impl SearchModal {
             );
         }
         if effective_joiner_style(list).is_some() {
-            if value.trim().is_empty() {
-                return self
-                    .finish_repeating_current_list(
-                        Some(value),
-                        self.selected_item_id().map(str::to_string),
-                        assigned_values,
-                        sticky_values,
-                        window_size,
-                    )
-                    .unwrap_or(FieldAdvance::StayOnList);
-            }
-            if list.sticky {
-                sticky_values.insert(list.id.clone(), value.clone());
-            }
-            self.field_flow.repeat_values.push(value);
-            if let Some(item_id) = self.selected_item_id() {
-                self.field_flow.repeat_item_ids.push(item_id.to_string());
-            }
-            let mut merged_assigned = assigned_values.clone();
-            merged_assigned.extend(self.assigned_values(sticky_values));
-            let lookup = ListValueLookup::new(&merged_assigned, sticky_values);
-            if list
-                .max_entries
-                .is_some_and(|limit| self.field_flow.repeat_values.len() >= limit)
-            {
-                return self
-                    .finish_repeating_current_list(
-                        None,
-                        None,
-                        assigned_values,
-                        sticky_values,
-                        window_size,
-                    )
-                    .unwrap_or(FieldAdvance::StayOnList);
-            }
-            self.all_entries = resolved_item_labels_for_list(
-                list,
-                &self.field_flow.values,
-                &self.field_flow.repeat_values,
-                &self.field_flow.lists,
-                &self.field_flow.format_lists,
-                lookup,
-            );
-            self.all_outputs = list.items.iter().map(item_output).collect();
-            self.query = String::new();
-            self.focus = modal_start_focus(list);
-            self.update_filter();
-            return FieldAdvance::StayOnList;
+            return self
+                .finish_repeating_current_list(
+                    Some(value),
+                    self.selected_item_id().map(str::to_string),
+                    assigned_values,
+                    sticky_values,
+                    window_size,
+                )
+                .unwrap_or(FieldAdvance::StayOnList);
         }
         let advance = self.finish_current_list(
             value,
@@ -1847,7 +1927,13 @@ impl SearchModal {
             sticky_values,
             window_size,
         );
-        self.resolve_branch_advance(advance, assigned_values, sticky_values, window_size)
+        self.resolve_branch_advance(
+            advance,
+            assigned_values,
+            sticky_values,
+            window_size,
+            add_another_on_parent_branch,
+        )
     }
 
     pub fn super_confirm_field(
@@ -1915,8 +2001,13 @@ impl SearchModal {
                 sticky_values,
                 window_size,
             );
-            let advance =
-                self.resolve_branch_advance(advance, assigned_values, sticky_values, window_size);
+            let advance = self.resolve_branch_advance(
+                advance,
+                assigned_values,
+                sticky_values,
+                window_size,
+                false,
+            );
             if matches!(advance, FieldAdvance::Complete(_)) {
                 return advance;
             }
@@ -1934,8 +2025,13 @@ impl SearchModal {
                 sticky_values,
                 window_size,
             );
-            let advance =
-                self.resolve_branch_advance(advance, assigned_values, sticky_values, window_size);
+            let advance = self.resolve_branch_advance(
+                advance,
+                assigned_values,
+                sticky_values,
+                window_size,
+                false,
+            );
             if matches!(advance, FieldAdvance::Complete(_)) {
                 return advance;
             }
@@ -1988,7 +2084,13 @@ impl SearchModal {
             sticky_values,
             window_size,
         );
-        Some(self.resolve_branch_advance(advance, assigned_values, sticky_values, window_size))
+        Some(self.resolve_branch_advance(
+            advance,
+            assigned_values,
+            sticky_values,
+            window_size,
+            false,
+        ))
     }
 
     fn finish_current_list(
@@ -2295,6 +2397,7 @@ impl SearchModal {
         assigned_values: &HashMap<String, String>,
         sticky_values: &mut HashMap<String, String>,
         window_size: usize,
+        add_another_on_parent_branch: bool,
     ) -> FieldAdvance {
         while let FieldAdvance::Complete(value) = advance {
             if self.branch_stack.is_empty() {
@@ -2305,6 +2408,7 @@ impl SearchModal {
                 assigned_values,
                 sticky_values,
                 window_size,
+                add_another_on_parent_branch,
             );
         }
         advance
@@ -2316,6 +2420,7 @@ impl SearchModal {
         assigned_values: &HashMap<String, String>,
         sticky_values: &mut HashMap<String, String>,
         window_size: usize,
+        add_another_on_parent_branch: bool,
     ) -> FieldAdvance {
         let Some(frame) = self.branch_stack.last_mut() else {
             return FieldAdvance::Complete(HeaderFieldValue::Text(value));
@@ -2347,7 +2452,11 @@ impl SearchModal {
         self.session_cursor_item_ids = frame.parent_session_cursor_item_ids;
         self.session_confirmed_values = frame.parent_session_confirmed_values;
         self.session_confirmed_item_ids = frame.parent_session_confirmed_item_ids;
-        self.advance_field(branch_value, assigned_values, sticky_values, window_size)
+        if add_another_on_parent_branch {
+            self.add_repeating_value(branch_value, assigned_values, sticky_values, window_size)
+        } else {
+            self.advance_field(branch_value, assigned_values, sticky_values, window_size)
+        }
     }
 
     pub fn collection_navigate_up(&mut self) {
@@ -3976,10 +4085,23 @@ mod modal_filter_tests {
         let mut sticky_values = HashMap::new();
         let mut modal = SearchModal::new_field(0, field, None, &HashMap::new(), &sticky_values, 5);
 
-        let advance =
-            modal.advance_field("One".to_string(), &HashMap::new(), &mut sticky_values, 5);
+        let advance = modal.add_another_field(&HashMap::new(), &mut sticky_values, 5);
         assert!(matches!(advance, FieldAdvance::StayOnList));
         assert_eq!(modal.field_flow.repeat_values, vec!["One".to_string()]);
+
+        let advance = modal.add_another_field(&HashMap::new(), &mut sticky_values, 5);
+        assert!(matches!(
+            advance,
+            FieldAdvance::Complete(HeaderFieldValue::Text(_))
+        ));
+    }
+
+    #[test]
+    fn confirm_finishes_repeating_list_after_single_selection() {
+        let mut field = test_field(Some(JoinerStyle::Comma), ModalStart::List);
+        field.lists[0].max_entries = Some(2);
+        let mut sticky_values = HashMap::new();
+        let mut modal = SearchModal::new_field(0, field, None, &HashMap::new(), &sticky_values, 5);
 
         let advance =
             modal.advance_field("One".to_string(), &HashMap::new(), &mut sticky_values, 5);
@@ -3987,6 +4109,7 @@ mod modal_filter_tests {
             advance,
             FieldAdvance::Complete(HeaderFieldValue::Text(value)) if value == "One"
         ));
+        assert!(modal.field_flow.repeat_values.is_empty());
     }
 
     #[test]
@@ -5404,24 +5527,11 @@ mod branch_field_tests {
             5,
         );
         assert!(matches!(advance, FieldAdvance::NextList));
-        let advance = modal.advance_field(
-            "training".to_string(),
-            &HashMap::new(),
-            &mut sticky_values,
-            5,
-        );
-        assert!(matches!(advance, FieldAdvance::StayOnList));
-        let advance = modal.advance_field(
-            "walking".to_string(),
-            &HashMap::new(),
-            &mut sticky_values,
-            5,
-        );
+        let advance = modal.add_another_field(&HashMap::new(), &mut sticky_values, 5);
         assert!(matches!(advance, FieldAdvance::StayOnList));
         let advance = modal.advance_field(String::new(), &HashMap::new(), &mut sticky_values, 5);
 
-        assert!(matches!(advance, FieldAdvance::StayOnList));
-        assert_eq!(modal.field_flow.repeat_values, vec!["training and walking"]);
+        assert!(matches!(advance, FieldAdvance::Complete(_)));
     }
 
     #[test]
@@ -5475,9 +5585,7 @@ mod branch_field_tests {
         let advance =
             modal.advance_field("T1-T12".to_string(), &HashMap::new(), &mut sticky_values, 5);
 
-        assert!(matches!(advance, FieldAdvance::StayOnList));
-        assert_eq!(modal.field_flow.list_idx, 0);
-        assert_eq!(modal.field_flow.repeat_values, vec!["T1-T12".to_string()]);
+        assert!(matches!(advance, FieldAdvance::Complete(_)));
         assert!(modal.branch_stack.is_empty());
     }
 
@@ -5646,12 +5754,7 @@ mod branch_field_tests {
         assert!(matches!(advance, FieldAdvance::NextList));
 
         modal.list_cursor = 1;
-        let advance = modal.advance_field(
-            " regularly".to_string(),
-            &HashMap::new(),
-            &mut sticky_values,
-            5,
-        );
+        let advance = modal.add_another_field(&HashMap::new(), &mut sticky_values, 5);
         assert!(matches!(advance, FieldAdvance::StayOnList));
 
         modal.list_cursor = 2;
@@ -5908,12 +6011,7 @@ mod branch_field_tests {
             FieldAdvance::NextList
         ));
         assert!(matches!(
-            modal.advance_field(
-                "regularly".to_string(),
-                &HashMap::new(),
-                &mut sticky_values,
-                5,
-            ),
+            modal.add_another_field(&HashMap::new(), &mut sticky_values, 5),
             FieldAdvance::StayOnList
         ));
         modal.list_cursor = 2;
@@ -5935,7 +6033,7 @@ mod branch_field_tests {
             FieldAdvance::NextList
         ));
         assert!(matches!(
-            modal.advance_field(" weeks".to_string(), &HashMap::new(), &mut sticky_values, 5,),
+            modal.add_another_field(&HashMap::new(), &mut sticky_values, 5),
             FieldAdvance::StayOnList
         ));
         modal.list_cursor = 0;
