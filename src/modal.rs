@@ -1219,6 +1219,17 @@ impl SearchModal {
         if !self.supports_simple_list_teasers() {
             return None;
         }
+        self.current_list_view_snapshot(assigned_values, sticky_values)
+    }
+
+    pub fn current_list_view_snapshot(
+        &self,
+        assigned_values: &HashMap<String, String>,
+        sticky_values: &HashMap<String, String>,
+    ) -> Option<ModalListViewSnapshot> {
+        if self.collection_state.is_some() {
+            return None;
+        }
 
         let list = self.field_flow.lists.get(self.field_flow.list_idx)?;
         Some(ModalListViewSnapshot {
@@ -1671,6 +1682,29 @@ impl SearchModal {
         }
     }
 
+    fn add_another_nested_field(
+        &mut self,
+        assigned_values: &HashMap<String, String>,
+        sticky_values: &mut HashMap<String, String>,
+        window_size: usize,
+    ) -> FieldAdvance {
+        let advance =
+            self.add_another_active_leaf_field(assigned_values, sticky_values, window_size);
+        match advance {
+            FieldAdvance::NextList | FieldAdvance::StayOnList => {
+                let preview = self.preview_active_leaf_value(sticky_values);
+                if let Some(frame) = self.nested_stack.last_mut() {
+                    frame.state.set_preview_value(preview);
+                }
+                self.sync_nested_state_chain();
+                advance
+            }
+            FieldAdvance::Complete(final_value) => {
+                self.complete_nested_value(final_value, assigned_values, sticky_values, window_size)
+            }
+        }
+    }
+
     pub fn go_back_one_step(
         &mut self,
         assigned_values: &HashMap<String, String>,
@@ -1775,7 +1809,7 @@ impl SearchModal {
         window_size: usize,
     ) -> FieldAdvance {
         if !self.nested_stack.is_empty() {
-            return FieldAdvance::StayOnList;
+            return self.add_another_nested_field(assigned_values, sticky_values, window_size);
         }
         if self.collection_state.is_none()
             && self
@@ -4672,6 +4706,67 @@ mod modal_filter_tests {
         let reopened =
             SearchModal::new_field(0, request, Some(&saved), &HashMap::new(), &sticky_values, 5);
         assert_eq!(reopened.field_id, "region");
+    }
+
+    #[test]
+    fn add_another_works_for_nested_repeating_search_leaf() {
+        let mut request = request_field_with_repeating_regions();
+        let requested_regions = request
+            .fields
+            .get_mut(1)
+            .expect("requested regions field exists");
+        let single_region = requested_regions
+            .fields
+            .get_mut(0)
+            .expect("single region field exists");
+        let place = single_region.fields.get_mut(1).expect("place field exists");
+        let place_list = place.lists.get_mut(0).expect("place list exists");
+        place_list.joiner_style = Some(JoinerStyle::Space);
+        place_list.max_entries = Some(2);
+        place_list.items.push(HierarchyItem {
+            id: "backk".to_string(),
+            label: Some("Backk".to_string()),
+            default_enabled: true,
+            output: Some("Backk".to_string()),
+            format: None,
+            contains: Vec::new(),
+            fields: None,
+            branch_fields: Vec::new(),
+            assigns: Vec::new(),
+        });
+
+        let mut sticky_values = HashMap::new();
+        let mut modal =
+            SearchModal::new_field(0, request, None, &HashMap::new(), &sticky_values, 5);
+
+        assert!(matches!(
+            modal.advance_field(
+                "Treatment massage".to_string(),
+                &HashMap::new(),
+                &mut sticky_values,
+                5,
+            ),
+            FieldAdvance::NextList
+        ));
+        assert!(matches!(
+            modal.advance_field(
+                "Shoulder".to_string(),
+                &HashMap::new(),
+                &mut sticky_values,
+                5,
+            ),
+            FieldAdvance::NextList
+        ));
+        assert_eq!(modal.field_id, "place");
+        modal.query = "backk".to_string();
+        modal.update_filter();
+        assert_eq!(modal.filtered.len(), 1);
+
+        let advance = modal.add_another_field(&HashMap::new(), &mut sticky_values, 5);
+
+        assert!(matches!(advance, FieldAdvance::StayOnList));
+        assert_eq!(modal.field_flow.repeat_values, vec!["Backk".to_string()]);
+        assert!(modal.query.is_empty());
     }
 
     #[test]

@@ -213,10 +213,11 @@ fields:
 
   - id: appointment_requested_field_brief
     label: Brief
-    format: "- {year}-{month}-{day}: {appointment_type_list_brief} ({requested_regions_brief})." # {the_region}."
+    format: "- {year}-{month}-{day}: {appointment_type_list_brief} ({region})" # ({requested_regions_brief})." # {the_region}."
     contains:
       - list: appointment_type_list_brief
-      - field: requested_regions_brief #
+      - list: region
+     # - field: requested_regions_brief #
      # - list: break
 
   - id: requested_regions
@@ -276,73 +277,85 @@ lists:
     sticky: true
     items:
       - id: month_word_01
-        label: "01"
+        label: "01 Jan"
+        hotkey: 1
         output: "Jan"
         assigns:
           - list: month
             item: month_num_01
       - id: month_word_02
-        label: "02"
+        label: "02 Feb"
+        hotkey: 2
         output: "Feb"
         assigns:
           - list: month
             item: month_num_02
       - id: month_word_03
-        label: "03"
+        label: "03 Mar"
+        hotkey: 3
         output: "Mar"
         assigns:
           - list: month
             item: month_num_03
       - id: month_word_04
-        label: "04"
+        label: "04 Apr"
+        hotkey: 4
         output: "Apr"
         assigns:
           - list: month
             item: month_num_04
       - id: month_word_05
-        label: "05"
+        label: "05 May"
+        hotkey: Q
         output: "May"
         assigns:
           - list: month
             item: month_num_05
       - id: month_word_06
-        label: "06"
+        label: "06 Jun"
+        hotkey: W
         output: "Jun"
         assigns:
           - list: month
             item: month_num_06
       - id: month_word_07
-        label: "07"
+        label: "07 Jul"
+        hotkey: F
         output: "Jul"
         assigns:
           - list: month
             item: month_num_07
       - id: month_word_08
-        label: "08"
+        label: "08 Aug"
+        hotkey: P
         output: "Aug"
         assigns:
           - list: month
             item: month_num_08
       - id: month_word_09
-        label: "09"
+        label: "09 Sep"
+        hotkey: A
         output: "Sep"
         assigns:
           - list: month
             item: month_num_09
       - id: month_word_10
-        label: "10"
+        label: "10 Oct"
+        hotkey: R
         output: "Oct"
         assigns:
           - list: month
             item: month_num_10
       - id: month_word_11
-        label: "11"
+        label: "11 Nov"
+        hotkey: S
         output: "Nov"
         assigns:
           - list: month
             item: month_num_11
       - id: month_word_12
-        label: "12"
+        label: "12 Dec"
+        hotkey: T
         output: "Dec"
         assigns:
           - list: month

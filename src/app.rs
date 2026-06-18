@@ -674,6 +674,9 @@ impl App {
         if Self::error_modal_references_list_output_affixes(report) {
             topic_ids.push("list-output-affixes");
         }
+        if let Some(topic_id) = Self::error_modal_owner_class_topic_id(report) {
+            topic_ids.push(topic_id);
+        }
 
         help::topics()
             .iter()
@@ -736,6 +739,26 @@ impl App {
             && params
                 .iter()
                 .any(|(key, _)| key == "item_affix_suggested_output_line")
+    }
+
+    fn error_modal_owner_class_topic_id(report: &ErrorReport) -> Option<&'static str> {
+        if report.kind_id() != "wrong_kind_reference" {
+            return None;
+        }
+        report
+            .params()
+            .iter()
+            .find_map(|(key, value)| match (key.as_str(), value.as_str()) {
+                ("owner_kind", "field") => Some("yaml-field-class"),
+                ("owner_kind", "list") => Some("yaml-list-class"),
+                ("owner_kind", "item") => Some("yaml-list-item-class"),
+                ("owner_kind", "section") => Some("yaml-section-class"),
+                ("owner_kind", "collection") => Some("yaml-collection-class"),
+                ("owner_kind", "group") => Some("yaml-group-class"),
+                ("owner_kind", "template") => Some("yaml-template-class"),
+                ("owner_kind", "boilerplate") => Some("yaml-boilerplate-class"),
+                _ => None,
+            })
     }
 
     pub fn selected_help_code_block_scroll_offset(&self) -> Option<f32> {
@@ -1069,6 +1092,24 @@ impl App {
         // Step 5 (full reset only): clear in-flight transitions.
         if full_reset {
             self.modal_transitions.clear();
+        }
+    }
+
+    fn refresh_active_modal_unit_snapshot(&mut self) {
+        let Some(layout) = self.modal_unit_layout.as_mut() else {
+            return;
+        };
+        let Some(modal) = self.modal.as_ref() else {
+            return;
+        };
+        let Some(snapshot) =
+            modal.current_list_view_snapshot(&self.assigned_values, &self.config.sticky_values)
+        else {
+            return;
+        };
+        let active_sequence_index = layout.sequence.active_sequence_index;
+        if let Some(active_snapshot) = layout.sequence.snapshots.get_mut(active_sequence_index) {
+            *active_snapshot = snapshot;
         }
     }
 
@@ -2302,7 +2343,8 @@ impl App {
     pub fn error_modal_markdown(&self) -> Option<String> {
         let report = self.error_modal.as_ref()?;
         let rendered = self.messages.render(report);
-        let mut markdown = format!("# {}\n\n", rendered.title);
+        let mut markdown = String::new();
+        Self::append_error_modal_title_markdown(&mut markdown, &rendered.title);
         markdown.push_str(&rendered.description);
         markdown.push_str("\n\n");
         if !rendered.source_blocks.is_empty() {
@@ -2342,6 +2384,21 @@ impl App {
             }
         }
         Some(markdown)
+    }
+
+    fn append_error_modal_title_markdown(markdown: &mut String, title: &str) {
+        let mut lines = title.lines();
+        if let Some(primary) = lines.next() {
+            markdown.push_str("# ");
+            markdown.push_str(primary);
+            markdown.push_str("\n");
+        }
+        for secondary in lines {
+            markdown.push_str("### ");
+            markdown.push_str(secondary);
+            markdown.push_str("\n");
+        }
+        markdown.push_str("\n");
     }
 
     fn append_error_modal_source_markdown(
@@ -3533,6 +3590,7 @@ impl App {
             FieldAdvance::StayOnList => {
                 self.sync_modal_preview_state(idx);
                 self.persist_modal_dependent_sticky_values();
+                self.refresh_active_modal_unit_snapshot();
                 let _ = self.config.save(&self.data_dir);
             }
             FieldAdvance::Complete(final_value) => {
@@ -6185,6 +6243,22 @@ mod composition_span_tests {
             )
     }
 
+    fn wrong_kind_field_owner_report() -> ErrorReport {
+        ErrorReport::generic("wrong_kind_reference", "raw")
+            .with_source(Some(ErrorSource {
+                file: PathBuf::from("C:/demo/data/sections.yml"),
+                line: 214,
+                quoted_line: Some("- id: appointment_requested_field_brief".to_string()),
+            }))
+            .with_param("owner_kind", "field")
+            .with_param("owner_label", "field 'appointment_requested_field_brief'")
+            .with_param("referenced_kind", "field")
+            .with_param("referenced_id", "region")
+            .with_param("actual_kind", "list")
+            .with_param("referenced_line", "219")
+            .with_param("referenced_quoted_line", "- field: region")
+    }
+
     #[test]
     fn help_key_opens_help_topics_from_error_modal() {
         let report = item_field_shape_error_report();
@@ -6264,6 +6338,32 @@ mod composition_span_tests {
 
         assert!(copied.contains("### See Also"));
         assert!(copied.contains("- `1` Output Prefixes & Suffixes (Lists)"));
+    }
+
+    #[test]
+    fn wrong_kind_reference_links_to_owner_class_topic() {
+        let report = wrong_kind_field_owner_report();
+        let app = App::new_error_state(report, Config::default(), PathBuf::new());
+
+        let topics = app.error_modal_reference_topics();
+
+        assert_eq!(topics.len(), 1);
+        assert_eq!(topics[0].id, "yaml-field-class");
+        assert_eq!(topics[0].title, "Field Class");
+    }
+
+    #[test]
+    fn wrong_kind_reference_markdown_links_to_owner_class_topic() {
+        let report = wrong_kind_field_owner_report();
+        let app = App::new_error_state(report, Config::default(), PathBuf::new());
+
+        let copied = app
+            .error_modal_markdown()
+            .expect("error modal markdown should render");
+
+        assert!(copied.contains("# Referenced List as a Field\n### Class Mismatch"));
+        assert!(copied.contains("### See Also"));
+        assert!(copied.contains("- `1` Field Class"));
     }
 
     #[test]
@@ -6807,6 +6907,50 @@ mod composition_span_tests {
         let modal = app.modal.as_ref().expect("modal should remain open");
         assert_eq!(modal.focus, ModalFocus::SearchBar);
         assert_eq!(modal.query, "h ");
+    }
+
+    #[test]
+    fn add_another_refreshes_active_modal_unit_snapshot_without_dropping_layout() {
+        let mut field = list_field(ModalStart::Search);
+        field.lists[0].joiner_style = Some(JoinerStyle::Space);
+        field.lists[0].max_entries = Some(2);
+        field.lists[0].items.push(item("backk", "1 Backk", "Back"));
+        let mut app = app_with_single_field(field);
+        app.open_header_modal();
+
+        for ch in "backk".chars() {
+            app.handle_key(AppKey::Char(ch));
+        }
+        let layout = app
+            .modal_unit_layout
+            .as_mut()
+            .expect("modal unit layout should exist before add another");
+        let active_idx = layout.sequence.active_sequence_index;
+        let active_snapshot = layout
+            .sequence
+            .snapshots
+            .get_mut(active_idx)
+            .expect("active snapshot should exist");
+        active_snapshot.query = "backk".to_string();
+        active_snapshot.filtered = vec![2];
+
+        app.handle_key(AppKey::ShiftEnter);
+
+        let modal = app.modal.as_ref().expect("modal should stay open");
+        assert_eq!(modal.field_flow.repeat_values, vec!["Back".to_string()]);
+        assert!(modal.query.is_empty());
+
+        let layout = app
+            .modal_unit_layout
+            .as_ref()
+            .expect("add another should preserve the modal unit layout");
+        let active_snapshot = layout
+            .sequence
+            .snapshots
+            .get(layout.sequence.active_sequence_index)
+            .expect("active snapshot should still exist");
+        assert!(active_snapshot.query.is_empty());
+        assert_eq!(active_snapshot.filtered.len(), 3);
     }
 
     #[test]

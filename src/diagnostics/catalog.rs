@@ -304,9 +304,9 @@ fn builtin_entries() -> Vec<MessageEntry> {
         },
         MessageEntry {
             id: "wrong_kind_reference",
-            title: "[Type: ID] Mismatch",
+            title: "Referenced {actual_kind_title} as a {referenced_kind_title}\nClass Mismatch",
             description: "{owner_label} references '{referenced_id}' as a {referenced_kind}, but that id is registered as a {actual_kind}.",
-            fix: "a) Update the type: *{referenced_kind}* -> **{actual_kind}**:\n     ln {source_line} `{source_quoted_line}`\n     ...\n     **ln {referenced_line}** `  - **{actual_kind}**: {referenced_id}`\n  \nb) Update the ID: *'{referenced_id}'* -> **existing {referenced_kind}**:\n     ln {source_line} `{source_quoted_line}`\n     ...\n     **ln {referenced_line}** `  - {referenced_kind}: **correct_{referenced_kind}_id**`\n",
+            fix: "You can fix this in either place: choose a) if the reference should point at the registered {actual_kind}, or choose b) if it should stay a {referenced_kind} and use a different ID.\n\na) Update the type: *{referenced_kind}* -> **{actual_kind}**:\n     ln {source_line} `{source_quoted_line}`\n     ...\n     **ln {referenced_line}** `  - **{actual_kind}**: {referenced_id}`\n  \nb) Update the ID: *'{referenced_id}'* -> **existing {referenced_kind}**:\n     ln {source_line} `{source_quoted_line}`\n     ...\n     **ln {referenced_line}** `  - {referenced_kind}: **correct_{referenced_kind}_id**`\n",
         },
         MessageEntry {
             id: "invalid_child_kind",
@@ -668,6 +668,13 @@ fn report_params(report: &ErrorReport) -> HashMap<String, String> {
 }
 
 fn add_derived_params(params: &mut HashMap<String, String>) {
+    for key in ["actual_kind", "referenced_kind", "expected_kind"] {
+        if let Some(value) = params.get(key).cloned() {
+            params
+                .entry(format!("{key}_title"))
+                .or_insert_with(|| title_case_words(&value));
+        }
+    }
     if let Some(placeholder_id) = params.get("placeholder_id").cloned() {
         params
             .entry("placeholder_token".to_string())
@@ -699,6 +706,20 @@ fn add_derived_params(params: &mut HashMap<String, String>) {
             );
         }
     }
+}
+
+fn title_case_words(value: &str) -> String {
+    value
+        .split_whitespace()
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(first) => format!("{}{}", first.to_ascii_uppercase(), chars.as_str()),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn extract_inline_map_token(source_quoted_line: &str) -> Option<String> {
@@ -1636,7 +1657,14 @@ mod tests {
 
         let rendered = messages.render(&report);
 
+        assert_eq!(
+            rendered.title,
+            "Referenced Collection as a Field\nClass Mismatch"
+        );
         assert_eq!(rendered.description, "section 'subjective_section' references 'back_all_prone_collection' as a field, but that id is registered as a collection.");
+        assert!(rendered.fix.contains(
+            "You can fix this in either place: choose a) if the reference should point at the registered collection, or choose b) if it should stay a field and use a different ID."
+        ));
         assert_eq!(rendered.source_blocks.len(), 2);
         assert_eq!(rendered.source_blocks[0].file_name, "subjective.yml");
         assert_eq!(rendered.source_blocks[0].lines.len(), 2);

@@ -21,11 +21,12 @@ mod theme;
 mod transition;
 mod ui;
 
-use iced::keyboard;
 use iced::time;
 use iced::widget::scrollable;
+use iced::{event, keyboard};
 use iced::{Element, Size, Subscription, Task};
 use std::io::{stderr, stdout, IsTerminal};
+use std::path::Path;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
@@ -41,6 +42,7 @@ pub enum Message {
     ModalRowHovered(app::ModalPaneTarget, usize),
     ModalBackdropPressed,
     ModalPanelPressed,
+    OpenErrorFile(std::path::PathBuf, Option<usize>),
     WindowResized(Size),
     Tick,
 }
@@ -141,6 +143,21 @@ fn update(state: &mut ScribbleApp, message: Message) -> Task<Message> {
         Message::ModalPanelPressed => {
             state.inner.activate_modal_mouse_mode();
         }
+        Message::OpenErrorFile(path, line) => match open_file_path(&path, line) {
+            Ok(()) => {
+                let location = line
+                    .map(|line| format!("{}:{line}", path.display()))
+                    .unwrap_or_else(|| path.display().to_string());
+                state.inner.status =
+                    Some(app::StatusMsg::success(format!("Opening file: {location}")));
+            }
+            Err(err) => {
+                state.inner.status = Some(app::StatusMsg::error(format!(
+                    "Could not open {}: {err}",
+                    path.display()
+                )));
+            }
+        },
         Message::WindowResized(size) => {
             state.inner.set_viewport_size(size);
         }
@@ -255,12 +272,92 @@ fn update(state: &mut ScribbleApp, message: Message) -> Task<Message> {
     Task::none()
 }
 
+fn open_file_path(path: &Path, line: Option<usize>) -> std::io::Result<()> {
+    if !path.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "file does not exist",
+        ));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(line) = line {
+            if open_file_path_in_notepad_plus_plus(path, line).is_ok() {
+                return Ok(());
+            }
+        }
+
+        let path_arg = path.display().to_string();
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &path_arg])
+            .spawn()?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(path).spawn()?;
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open").arg(path).spawn()?;
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn open_file_path_in_notepad_plus_plus(path: &Path, line: usize) -> std::io::Result<()> {
+    let line_arg = format!("-n{line}");
+    for executable in notepad_plus_plus_candidates() {
+        if std::process::Command::new(executable)
+            .arg(&line_arg)
+            .arg(path)
+            .spawn()
+            .is_ok()
+        {
+            return Ok(());
+        }
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "notepad++ was not found",
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn notepad_plus_plus_candidates() -> Vec<std::path::PathBuf> {
+    let mut candidates = vec![std::path::PathBuf::from("notepad++")];
+    for var in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Some(root) = std::env::var_os(var) {
+            candidates.push(
+                std::path::PathBuf::from(root)
+                    .join("Notepad++")
+                    .join("notepad++.exe"),
+            );
+        }
+    }
+    candidates
+}
+
 fn view(state: &ScribbleApp) -> Element<'_, Message> {
     ui::view(&state.inner)
 }
 
 fn subscription(state: &ScribbleApp) -> Subscription<Message> {
-    let keys = keyboard::on_key_press(|key, mods| Some(Message::KeyPressed(key, mods)));
+    let keys = event::listen_with(|event, status, _window| match event {
+        iced::Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => match status {
+            event::Status::Ignored => Some(Message::KeyPressed(key, modifiers)),
+            event::Status::Captured => {
+                let app_key = app::appkey_from_iced(key.clone(), modifiers);
+                matches!(app_key, app::AppKey::ShiftEnter | app::AppKey::CtrlEnter)
+                    .then_some(Message::KeyPressed(key, modifiers))
+            }
+        },
+        _ => None,
+    });
     let resize = iced::window::resize_events().map(|(_id, size)| Message::WindowResized(size));
     let tick_interval = if state.inner.copy_flash_until.is_some()
         || state.inner.has_active_text_flash()

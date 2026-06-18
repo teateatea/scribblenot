@@ -418,6 +418,31 @@ fn plain_modal_row_button_style() -> iced::widget::button::Style {
     }
 }
 
+fn error_modal_file_link_button_style(
+    app_theme: &crate::theme::AppTheme,
+    status: iced::widget::button::Status,
+) -> iced::widget::button::Style {
+    let text_color = match status {
+        iced::widget::button::Status::Hovered | iced::widget::button::Status::Pressed => {
+            app_theme.selected
+        }
+        iced::widget::button::Status::Active | iced::widget::button::Status::Disabled => {
+            app_theme.active
+        }
+    };
+
+    iced::widget::button::Style {
+        background: None,
+        text_color,
+        border: Border {
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius: 0.0.into(),
+        },
+        shadow: iced::Shadow::default(),
+    }
+}
+
 fn modal_input_style(
     app_theme: &crate::theme::AppTheme,
     status: iced::widget::text_input::Status,
@@ -4227,12 +4252,10 @@ fn error_modal_view(app: &App) -> Element<'_, Message> {
 
     let fix_block = error_modal_fix_block(app, &rendered);
     let reference_topics_block = error_modal_reference_topics_block(app);
+    let title_block = error_modal_title_block(app, &rendered.title);
 
     let content = column![
-        text(rendered.title.clone())
-            .font(app.ui_theme.font_heading)
-            .size(24)
-            .color(app.ui_theme.error),
+        title_block,
         description,
         source_block,
         fix_block,
@@ -4262,6 +4285,27 @@ fn error_modal_view(app: &App) -> Element<'_, Message> {
         .padding(18)
         .style(move |_| background_style(app.ui_theme.background, app.ui_theme.text))
         .into()
+}
+
+fn error_modal_title_block<'a>(app: &'a App, title: &str) -> Element<'a, Message> {
+    let mut lines = title.lines();
+    let primary = lines.next().unwrap_or(title);
+    let mut block = column![text(primary.to_string())
+        .font(app.ui_theme.font_heading)
+        .size(24)
+        .color(app.ui_theme.error)]
+    .spacing(2);
+
+    for line in lines {
+        block = block.push(
+            text(line.to_string())
+                .font(app.ui_theme.font_heading)
+                .size(16)
+                .color(app.ui_theme.muted),
+        );
+    }
+
+    block.into()
 }
 
 fn error_modal_reference_topics_block<'a>(app: &'a App) -> Element<'a, Message> {
@@ -4947,10 +4991,17 @@ fn error_modal_full_paths<'a>(
         .source_blocks
         .iter()
         .map(|block| {
-            text(format!("File: {}", block.file_path))
-                .font(app.ui_theme.font_status)
-                .color(app.ui_theme.muted)
-                .into()
+            let path = std::path::PathBuf::from(&block.file_path);
+            let line = block.lines.first().map(|line| line.line);
+            button(
+                text(format!("File: {}", block.file_path))
+                    .font(app.ui_theme.font_status)
+                    .color(app.ui_theme.active),
+            )
+            .padding(0)
+            .on_press(Message::OpenErrorFile(path, line))
+            .style(move |_theme, status| error_modal_file_link_button_style(&app.ui_theme, status))
+            .into()
         })
         .collect::<Vec<Element<'a, Message>>>();
 

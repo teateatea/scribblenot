@@ -43,20 +43,24 @@ lists:
     modal_start: search
     preview: "[REGION]"
    # joiner_style: comma
-   # max_entries: 3
+    max_entries: 3
     items:
       - id: empty_space
         label: "[EMPTY]"
         output: ""
-        # Head Region
+        # FREQUENT
       - label: "Head, Neck, Shoulders HNS"
         output: "Head, Neck, Shoulders"
-      - label: "Head, Neck, and Shoulders HNS"
-        output: "Head, Neck, and Shoulders"
-      - label: "Shoulder{summ_pluralizer} GH"
-        output: "Shoulder{summ_pluralizer}"
-   #   - label: "2 ShoulderS Bilateral GHS"
-   #     output: "Shoulders"
+      - label: "[X] Head, Neck, and Shoulders HNS"
+        format: "{side}Head, Neck, and Shoulders"
+        contains:
+          - list: side
+        # Head Region
+
+      - label: "[X] Shoulder{summ_pluralizer} GH"
+        format: "{side}Shoulder{summ_pluralizer}"
+        contains:
+          - list: side
       - label: "Head Only HNS"
         output: "Head"
       - label: "Neck Only HNS"

@@ -232,14 +232,59 @@ lists:
       - label: "Medial Pterygoid (TMJ)"
         output: "Medial Pterygoid"
 
+  - id: side
+    label: "(side)" # {region}"
+    preview: "(side) "
+    modal_start: list
+    default: bilateral
+    max_entries: 2
+    joiner_style: space
+    output_suffix: " "
+    items:
+      - id: empty_space
+        label: "(empty)"
+        output: ""
+        assigns:
+          - list: summ_pluralizer
+            item: singular
+      - label: "Left LL"
+        output: "Left"
+        assigns:
+          - list: summ_pluralizer
+            item: singular
+      - label: "RRight RR"
+        output: "Right"
+        assigns:
+          - list: summ_pluralizer
+            item: singular
+
+      - id: bilateral
+        label: "Bilateral BB"
+        output: "BL"
+        assigns:
+          - list: summ_pluralizer
+            item: plural
+      - label: "Bilateral (Left > R) BL"
+        output: "BL (L > R)"
+        assigns:
+          - list: summ_pluralizer
+            item: plural
+      - label: "Bilateral (Right > L) BR"
+        output: "BL (R > L)"
+        assigns:
+          - list: summ_pluralizer
+            item: plural
+
+
 
   - id: place
     label: "(direction)" # {region}"
     preview: "(direction) "
     modal_start: search
     default: empty_space
-    max_entries: 1
+    max_entries: 2
     joiner_style: space
+    output_suffix: " "
     items:
       - id: empty_space
         label: "(empty)"
@@ -249,58 +294,58 @@ lists:
             item: singular
       - id: bilateral
         label: "Bilateral BB"
-        output: "BL "
+        output: "BL"
         assigns:
           - list: summ_pluralizer
             item: plural
       - label: "Bilateral (Left > R) BL"
-        output: "BL (L > R) "
+        output: "BL (L > R)"
         assigns:
           - list: summ_pluralizer
             item: plural
       - label: "Bilateral (Right > L) BR"
-        output: "BL (R > L) "
+        output: "BL (R > L)"
         assigns:
           - list: summ_pluralizer
             item: plural
       - label: "Left LL"
-        output: "Left "
+        output: "Left"
         assigns:
           - list: summ_pluralizer
             item: singular
       - label: "RRight RR"
-        output: "Right "
+        output: "Right"
         assigns:
           - list: summ_pluralizer
             item: singular
-      - label: "Upper, Mid & Low "
-        output: "Upper, Mid & Low "
-      - label: "Upper & Mid "
-        output: "Upper & Mid "
+      - label: "Upper, Mid & Low"
+        output: "Upper, Mid & Low"
+      - label: "Upper & Mid"
+        output: "Upper & Mid"
       - label: "Upper UU"
-        output: "Upper "
+        output: "Upper"
       - label: "Mid DD"
-        output: "Mid "
-      - label: "Mid & Low "
-        output: "Mid & Low "
+        output: "Mid"
+      - label: "Mid & Low"
+        output: "Mid & Low"
       - label: "Low WW"
-        output: "Low "
-      - label: "Lowwwer "
-        output: "Lower "
+        output: "Low"
+      - label: "Lowwwer"
+        output: "Lower"
       - label: "Anterior"
-        output: "Anterior "
+        output: "Anterior"
       - label: "Posterior"
-        output: "Posterior "
+        output: "Posterior"
       - label: "Superior"
-        output: "Superior "
+        output: "Superior"
       - label: "Inferior"
-        output: "Inferior "
+        output: "Inferior"
       - label: "Lateral"
-        output: "Lateral "
+        output: "Lateral"
       - label: "Medial"
-        output: "Medial "
+        output: "Medial"
       - label: "Central"
-        output: "Central "
+        output: "Central"
       - label: "Lumbar Spine L1-L5"
         output: "L1-L5"
       - label: "Cervical Spine C7-T1"
