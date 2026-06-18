@@ -72,7 +72,7 @@ lists:
       - label: "TMJ1 HNS+Intraoral"
         output: "Head, Neck, Shoulders, and Intraoral"
       - label: "Vertebra"
-        output: "Vertbra"
+        output: "Vertebra"
       # CHEST REGION (ANTERIOR THORACIC)
       - label: "Pectoral Muscles Pecs"
         output: "Pectoral Muscles"

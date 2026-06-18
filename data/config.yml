@@ -1,30 +1,30 @@
 pane_layout: default
 theme: default-theme
 sticky_values:
-  appointment_type_list_brief: General Tx
   pt_pronouns: she/her
-  start_minute_list: '00'
-  date_month_word_list: Jun
-  day: '17'
   month: '06'
+  date_month_word_list: Jun
   pos_pronoun: her
-  start_hour_list: '3'
   year: '2026'
+  day: '17'
+  appointment_type_list_brief: General Tx
+  start_hour_list: '3'
+  start_minute_list: '00'
 hint_labels_capitalized: true
 hint_labels_case_sensitive: false
 standardized_colours:
-  exercise_level: '#D4E157'
-  lists: '#DB4437'
-  sections: '#4285F4'
-  items: '#0F9D58'
   exercise_reason_field: '#FF9800'
-  template: '#F4B400'
+  sections: '#4285F4'
   collections: '#8E44AD'
-  fields: '#4285F4'
+  exercise_recent: '#90CAF9'
+  lists: '#DB4437'
   exercise_due_to: '#EC407A'
+  example_item: '#CE93D8'
+  exercise_level: '#D4E157'
+  template: '#F4B400'
+  exercise_reason: '#80CBC4'
   followup_field: '#FFB74D'
+  fields: '#4285F4'
+  items: '#0F9D58'
   boilerplates: '#FF00FF'
   groups: '#00FFFF'
-  exercise_reason: '#80CBC4'
-  exercise_recent: '#90CAF9'
-  example_item: '#CE93D8'
