@@ -38,6 +38,7 @@ pub(crate) const ERROR_MODAL_NO_REFERENCE_TOPICS_TEXT: &str = "No additional doc
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AppKey {
     Char(char),
+    ShiftChar(char),
     CtrlChar(char),
     CtrlC,
     Enter,
@@ -123,6 +124,7 @@ pub fn appkey_from_iced(key: Key, modifiers: Modifiers) -> AppKey {
             } else {
                 if modifiers.contains(Modifiers::SHIFT) {
                     c = shifted_char(c);
+                    return AppKey::ShiftChar(c);
                 }
                 AppKey::Char(c)
             }
@@ -398,7 +400,7 @@ pub fn match_binding_str(binding: &str, key: &AppKey) -> bool {
             .is_some_and(|suffix| suffix.chars().count() == 1) =>
         {
             let c = s.strip_prefix("shift+").unwrap().chars().next().unwrap();
-            matches!(key, AppKey::Char(k) if *k == shifted_char(c))
+            matches!(key, AppKey::ShiftChar(k) | AppKey::Char(k) if *k == shifted_char(c))
         }
         s if s
             .strip_prefix("ctrl+")
@@ -413,6 +415,37 @@ pub fn match_binding_str(binding: &str, key: &AppKey) -> bool {
             matches!(key, AppKey::Char(k) if *k == c)
         }
         _ => false,
+    }
+}
+
+fn app_key_char(key: &AppKey) -> Option<char> {
+    match key {
+        AppKey::Char(c) | AppKey::ShiftChar(c) => Some(*c),
+        _ => None,
+    }
+}
+
+fn app_key_hint_char(key: &AppKey) -> Option<(char, bool)> {
+    match key {
+        AppKey::Char(c) => Some((*c, false)),
+        AppKey::ShiftChar(c) => Some((unshifted_hint_char(*c), true)),
+        _ => None,
+    }
+}
+
+fn unshifted_hint_char(c: char) -> char {
+    match c {
+        '!' => '1',
+        '@' => '2',
+        '#' => '3',
+        '$' => '4',
+        '%' => '5',
+        '^' => '6',
+        '&' => '7',
+        '*' => '8',
+        '(' => '9',
+        ')' => '0',
+        _ => c,
     }
 }
 
@@ -1272,7 +1305,7 @@ impl App {
             AppKey::CtrlChar('r') => {
                 self.reset_modal_composition_override();
             }
-            AppKey::Char(c) => {
+            AppKey::Char(c) | AppKey::ShiftChar(c) => {
                 if let Some(modal) = self.modal.as_mut() {
                     modal
                         .manual_override
@@ -1651,7 +1684,7 @@ impl App {
     }
 
     fn is_text_entry_printable_key(key: &AppKey) -> bool {
-        matches!(key, AppKey::Char(_) | AppKey::Space)
+        matches!(key, AppKey::Char(_) | AppKey::ShiftChar(_) | AppKey::Space)
     }
 
     fn is_search_bar_confirm(&self, key: &AppKey) -> bool {
@@ -3049,7 +3082,7 @@ impl App {
                     return;
                 }
 
-                if let AppKey::Char(c) = key {
+                if let Some(c) = app_key_char(&key) {
                     let modal = self.modal.as_mut().unwrap();
                     modal.query.push(c);
                     modal.update_filter();
@@ -3096,7 +3129,7 @@ impl App {
                 return;
             }
             ModalFocus::List => {
-                if let AppKey::Char(c) = key {
+                if let Some((c, add_another)) = app_key_hint_char(&key) {
                     let ch_str = self.normalize_hint_char(c);
                     let assignments = self.visible_modal_hint_assignments();
                     if self.should_prioritize_authored_hints(&assignments, &ch_str) {
@@ -3105,14 +3138,7 @@ impl App {
                         match self.resolve_hint_assignments(&assignments, &typed) {
                             crate::data::HintResolveResult::Exact(hint_pos) => {
                                 self.hint_buffer.clear();
-                                if let Some(val) = self
-                                    .modal
-                                    .as_ref()
-                                    .and_then(|modal| modal.hint_value(hint_pos))
-                                    .map(String::from)
-                                {
-                                    self.confirm_modal_value(val);
-                                }
+                                self.confirm_modal_hint_value(hint_pos, add_another);
                             }
                             crate::data::HintResolveResult::Partial(_) => {}
                             crate::data::HintResolveResult::NoMatch => {
@@ -3181,7 +3207,7 @@ impl App {
                     return;
                 }
 
-                if let AppKey::Char(c) = key {
+                if let Some((c, add_another)) = app_key_hint_char(&key) {
                     let ch_str = self.normalize_hint_char(c);
                     self.hint_buffer.push_str(&ch_str);
                     let typed = self.hint_buffer.clone();
@@ -3189,14 +3215,7 @@ impl App {
                     match self.resolve_hint_assignments(&assignments, &typed) {
                         crate::data::HintResolveResult::Exact(hint_pos) => {
                             self.hint_buffer.clear();
-                            if let Some(val) = self
-                                .modal
-                                .as_ref()
-                                .and_then(|modal| modal.hint_value(hint_pos))
-                                .map(String::from)
-                            {
-                                self.confirm_modal_value(val);
-                            }
+                            self.confirm_modal_hint_value(hint_pos, add_another);
                         }
                         crate::data::HintResolveResult::Partial(_) => return,
                         crate::data::HintResolveResult::NoMatch => {
@@ -3550,6 +3569,21 @@ impl App {
                     let _ = self.config.save(&self.data_dir);
                 }
             }
+        }
+    }
+
+    fn confirm_modal_hint_value(&mut self, hint_pos: usize, add_another: bool) {
+        let Some(value) = self
+            .modal
+            .as_mut()
+            .and_then(|modal| modal.select_hint_value(hint_pos))
+        else {
+            return;
+        };
+        if add_another {
+            self.add_another_modal_value();
+        } else {
+            self.confirm_modal_value(value);
         }
     }
 
@@ -7100,6 +7134,40 @@ mod composition_span_tests {
             Some(HeaderFieldValue::ListState(value))
                 if value.values == vec!["Hip".to_string()] && value.item_ids == vec!["hip".to_string()]
         ));
+    }
+
+    #[test]
+    fn shifted_modal_hint_confirms_and_adds_another() {
+        let mut field = list_field(ModalStart::List);
+        field.lists[0].joiner_style = Some(JoinerStyle::Comma);
+        let mut app = app_with_single_field(field);
+        app.open_header_modal();
+        let hint = app
+            .visible_modal_hint_labels()
+            .first()
+            .and_then(|label| label.chars().next())
+            .expect("modal should expose a first-row hint");
+
+        app.handle_key(AppKey::ShiftChar(hint.to_ascii_uppercase()));
+
+        let modal = app.modal.as_ref().expect("add another should keep modal open");
+        assert_eq!(modal.field_flow.repeat_values, vec!["Shoulder".to_string()]);
+        assert!(modal.query.is_empty());
+    }
+
+    #[test]
+    fn shifted_numeric_modal_hint_confirms_and_adds_another() {
+        let mut field = list_field(ModalStart::List);
+        field.lists[0].joiner_style = Some(JoinerStyle::Comma);
+        let mut app = app_with_single_field(field);
+        app.data.keybindings.hints = vec!["1".to_string(), "2".to_string()];
+        app.open_header_modal();
+
+        app.handle_key(AppKey::ShiftChar('@'));
+
+        let modal = app.modal.as_ref().expect("add another should keep modal open");
+        assert_eq!(modal.field_flow.repeat_values, vec!["Hip".to_string()]);
+        assert!(modal.query.is_empty());
     }
 
     #[test]

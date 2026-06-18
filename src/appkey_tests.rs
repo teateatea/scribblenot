@@ -113,7 +113,7 @@ mod appkey_conversion_tests {
         let result = appkey_from_iced(Key::Character("a".into()), Modifiers::SHIFT);
         assert_eq!(
             result,
-            AppKey::Char('A'),
+            AppKey::ShiftChar('A'),
             "shifted letter input should preserve capitalization"
         );
     }
@@ -123,7 +123,7 @@ mod appkey_conversion_tests {
         let result = appkey_from_iced(Key::Character("1".into()), Modifiers::SHIFT);
         assert_eq!(
             result,
-            AppKey::Char('!'),
+            AppKey::ShiftChar('!'),
             "shifted number input should preserve symbol text entry"
         );
     }

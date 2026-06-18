@@ -47,6 +47,7 @@ pub struct BranchFrame {
     pub branch_fields: Vec<HeaderFieldConfig>,
     pub field_idx: usize,
     pub values: Vec<(String, String)>,
+    pub add_another_on_parent_branch: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1548,14 +1549,19 @@ impl SearchModal {
             })
     }
 
-    pub fn hint_value(&self, hint_pos: usize) -> Option<&str> {
+    pub fn select_hint_value(&mut self, hint_pos: usize) -> Option<String> {
         if self.collection_state.is_some() {
             return None;
         }
-        self.filtered
-            .get(self.list_scroll + hint_pos)
+        let cursor = self.list_scroll + hint_pos;
+        let value = self
+            .filtered
+            .get(cursor)
             .and_then(|&i| self.all_outputs.get(i))
-            .map(String::as_str)
+            .cloned()?;
+        self.list_cursor = cursor;
+        self.update_scroll();
+        Some(value)
     }
 
     pub fn restore_parent_branch(
@@ -1811,6 +1817,25 @@ impl SearchModal {
         if !self.nested_stack.is_empty() {
             return self.add_another_nested_field(assigned_values, sticky_values, window_size);
         }
+        let Some(value) = self.selected_value().map(str::to_string) else {
+            return FieldAdvance::StayOnList;
+        };
+        if self.branch_stack.is_empty() {
+            let list = &self.field_flow.lists[self.field_flow.list_idx];
+            if let Some((output_format, branch_fields)) = branch_for_value(list, &value) {
+                let branch_item_id =
+                    selected_item_id_for_value(list, &value, self.selected_item_id());
+                return self.start_branch(
+                    output_format,
+                    branch_fields,
+                    branch_item_id,
+                    assigned_values,
+                    sticky_values,
+                    window_size,
+                    true,
+                );
+            }
+        }
         if self.collection_state.is_none()
             && self
                 .field_flow
@@ -1821,9 +1846,6 @@ impl SearchModal {
             return self.add_another_active_leaf_field(assigned_values, sticky_values, window_size);
         }
         if !self.branch_stack.is_empty() {
-            let Some(value) = self.selected_value().map(str::to_string) else {
-                return FieldAdvance::StayOnList;
-            };
             return self.advance_active_leaf_field_with_branch_mode(
                 value,
                 assigned_values,
@@ -1941,6 +1963,7 @@ impl SearchModal {
                 assigned_values,
                 sticky_values,
                 window_size,
+                add_another_on_parent_branch,
             );
         }
         if effective_joiner_style(list).is_some() {
@@ -2024,6 +2047,7 @@ impl SearchModal {
                     assigned_values,
                     sticky_values,
                     window_size,
+                    false,
                 );
             }
             let advance = self.finish_current_list(
@@ -2278,6 +2302,7 @@ impl SearchModal {
         assigned_values: &HashMap<String, String>,
         sticky_values: &HashMap<String, String>,
         window_size: usize,
+        add_another_on_parent_branch: bool,
     ) -> FieldAdvance {
         let Some(first_field) = branch_fields.first().cloned() else {
             return FieldAdvance::NextList;
@@ -2296,6 +2321,7 @@ impl SearchModal {
             branch_fields,
             field_idx: 0,
             values: Vec::new(),
+            add_another_on_parent_branch,
         });
         self.load_field_flow(
             first_field,
@@ -2341,6 +2367,7 @@ impl SearchModal {
                 assigned_values,
                 sticky_values,
                 window_size,
+                false,
             );
             return;
         }
@@ -2486,7 +2513,7 @@ impl SearchModal {
         self.session_cursor_item_ids = frame.parent_session_cursor_item_ids;
         self.session_confirmed_values = frame.parent_session_confirmed_values;
         self.session_confirmed_item_ids = frame.parent_session_confirmed_item_ids;
-        if add_another_on_parent_branch {
+        if add_another_on_parent_branch || frame.add_another_on_parent_branch {
             self.add_repeating_value(branch_value, assigned_values, sticky_values, window_size)
         } else {
             self.advance_field(branch_value, assigned_values, sticky_values, window_size)
@@ -5682,6 +5709,63 @@ mod branch_field_tests {
 
         assert!(matches!(advance, FieldAdvance::Complete(_)));
         assert!(modal.branch_stack.is_empty());
+    }
+
+    #[test]
+    fn add_another_branch_item_opens_branch_then_returns_to_parent_list() {
+        let child_list = HierarchyList {
+            id: "child_list".to_string(),
+            label: None,
+            preview: None,
+            output_prefix: None,
+            output_suffix: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::List,
+            joiner_style: None,
+            max_entries: None,
+            items: vec![item("t1", "T1-T12", None)],
+        };
+        let child_field = single_list_field("ests_mm_field", child_list);
+        let mut branch_item = item(
+            "ests_mm_item",
+            "Erector Thoracic MM",
+            Some("{ests_mm_field}"),
+        );
+        branch_item.branch_fields = vec![child_field];
+        let parent_list = HierarchyList {
+            id: "muscle".to_string(),
+            label: None,
+            preview: None,
+            output_prefix: None,
+            output_suffix: None,
+            sticky: false,
+            default: None,
+            modal_start: ModalStart::List,
+            joiner_style: Some(JoinerStyle::Comma),
+            max_entries: None,
+            items: vec![branch_item],
+        };
+        let parent_field = single_list_field("muscle_field", parent_list);
+        let mut sticky_values = HashMap::new();
+        let mut modal =
+            SearchModal::new_field(0, parent_field, None, &HashMap::new(), &sticky_values, 5);
+
+        let advance = modal.add_another_field(&HashMap::new(), &mut sticky_values, 5);
+
+        assert!(matches!(advance, FieldAdvance::NextList));
+        assert_eq!(modal.field_id, "ests_mm_field");
+        assert_eq!(modal.branch_stack.len(), 1);
+        assert!(modal.branch_stack[0].add_another_on_parent_branch);
+
+        let advance =
+            modal.advance_field("T1-T12".to_string(), &HashMap::new(), &mut sticky_values, 5);
+
+        assert!(matches!(advance, FieldAdvance::StayOnList));
+        assert!(modal.branch_stack.is_empty());
+        assert_eq!(modal.field_flow.lists[modal.field_flow.list_idx].id, "muscle");
+        assert_eq!(modal.field_flow.repeat_values, vec!["T1-T12".to_string()]);
+        assert_eq!(modal.selected_value(), Some("{ests_mm_field}"));
     }
 
     #[test]
