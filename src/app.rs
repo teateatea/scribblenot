@@ -412,7 +412,7 @@ pub fn match_binding_str(binding: &str, key: &AppKey) -> bool {
         }
         s if s.len() == 1 => {
             let c = s.chars().next().unwrap();
-            matches!(key, AppKey::Char(k) if *k == c)
+            matches!(key, AppKey::Char(k) | AppKey::ShiftChar(k) if *k == c)
         }
         _ => false,
     }
@@ -8414,7 +8414,13 @@ mod composition_span_tests {
     #[test]
     fn shift_c_binding_matches_shifted_copy_note_key() {
         assert!(match_binding_str("shift+c", &AppKey::Char('C')));
+        assert!(match_binding_str("shift+c", &AppKey::ShiftChar('C')));
         assert!(!match_binding_str("shift+c", &AppKey::Char('c')));
+    }
+
+    #[test]
+    fn literal_question_binding_matches_shift_slash_key() {
+        assert!(match_binding_str("?", &AppKey::ShiftChar('?')));
     }
 
     #[test]
@@ -8495,6 +8501,16 @@ mod composition_span_tests {
         let mut app = app_for_help_tests();
 
         app.handle_key(AppKey::Char('?'));
+
+        assert!(app.show_help);
+        assert_eq!(app.help_state.mode, HelpMode::Search);
+    }
+
+    #[test]
+    fn shift_slash_opens_help_search_view() {
+        let mut app = app_for_help_tests();
+
+        app.handle_key(AppKey::ShiftChar('?'));
 
         assert!(app.show_help);
         assert_eq!(app.help_state.mode, HelpMode::Search);
